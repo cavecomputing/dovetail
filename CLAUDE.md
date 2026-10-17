@@ -154,8 +154,12 @@ src/
     paths.rs             where config, scratch and projects live
     settings.rs          settings.toml: load, defaults, save
     save.rs              atomic file writes and the save-state machine (saved/saving/failed)
-    scratch.rs           the scratch space: text, cursor and scroll, resumed on launch
+    scratch.rs           the scratch space: text and cursor, resumed on launch
+    opened.rs            what a launch opens: the text, the cursor, and whether it's editable
+    lock.rs              OS file locks so two windows never edit the same document
     counts.rs            word and token counts (tokenizer loads in the background)
+    text_file.rs         reading and saving .txt files: line endings, outside-change check
+    recent.rs            the recently opened files list (data folder)
   project/               project mode logic, no UI (phase 2 onward)
     manifest.rs          the JSON manifest
     history.rs           versions as git commits
@@ -163,9 +167,11 @@ src/
     weights.rs           each idea's share of the text
   ui/                    everything iced: windows, widgets, styling
     app.rs               the App state, Message enum, update and view
-    theme.rs             Gruvbox palette roles and the font
-    editor.rs            the text editing widget and its key bindings
-    status_bar.rs, window_controls.rs, settings_window.rs, switcher.rs, ...
+    theme.rs             Gruvbox palette roles, the font and its icon glyphs
+    editor.rs            the text editing widget, its key bindings and tag/macro colouring
+    status_bar.rs        the bottom bar (save dot, path, counts) and its menu
+    window_controls.rs   the top strip's window controls and the resize edges
+    settings_window.rs   the Settings window and how each change applies
   claude/                the Claude pane's API client (phase 5)
 ```
 
