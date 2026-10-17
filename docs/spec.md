@@ -119,7 +119,7 @@ This is what makes the app different. It's the agreed direction, with details to
 - **Context:** Claude always sees everything: both versions, every idea, the feeling notes and the weights. Small chips mark what Matt is focused on (the selection, the current idea or topic).
 - **Suggest-only in v1.** Proposed edits show up in the draft as ghost text that can be accepted or rejected piece by piece. Accepted text takes on the idea's colour, so tracking is never lost.
 - It can answer questions like "does this still feel warm but guarded?" or "which idea shrank most since v3?"
-- Matt brings his own API key, stored in the system keyring. Claude is the main model, with Gemini possible later. It's plain HTTP from Rust, with no heavy SDK needed. Prompt caching keeps repeated questions cheap.
+- **Backend: any OpenAI-compatible API** (decided 2026-10-17), so Matt can point it at whatever he wants: Claude via a compatible endpoint, OpenRouter, Ollama, LM Studio, llama.cpp, vLLM. Settings hold the base URL, the API key (stored in the system keyring) and the model name. The default request format is Chat Completions (`/v1/chat/completions`), which nearly every server speaks; a setting switches to the Responses API (`/v1/responses`). It's plain HTTP from Rust, with no SDK. Streaming replies. Keep the shared context (both versions, ideas, notes, weights) at the start of the prompt so providers that cache prompt prefixes keep repeat questions cheap.
 
 ## 10. Settings
 
@@ -130,7 +130,7 @@ A settings window opened from the menu or `Ctrl+,`. Changes apply instantly. Set
 | Appearance | Theme (Gruvbox dark / light / follow system), font, font size, reading mode (Comfort with a character width, or Full width) |
 | Editor | Tab inserts N spaces (**default 4**, never tabs), word wrap (**on** by default), XML and macro colouring |
 | Saving | Autosave timing, projects folder |
-| Claude | API key (keyring), model |
+| Claude | Base URL, API key (keyring), model, request format (Chat Completions / Responses) |
 | Window | Window controls: Auto / Always show / Always hide |
 
 ## 11. Counting
@@ -144,7 +144,7 @@ A settings window opened from the menu or `Ctrl+,`. Changes apply instantly. Set
 - **Pure Rust is preferred.** Startup is fast, and there's no markdown or rich-text requirement, so plain text with colouring is well within reach.
   - UI candidates: **iced** (used by COSMIC, Linux-first) or **GPUI** (Zed's toolkit, excellent text, thinner docs). egui and Slint are possible but weaker for long text.
   - Tauri remains a fallback if a native editor gets too hard. It's slower to start.
-- Likely crates: `git2` or `gix` for history, `tiktoken-rs` for counts, `serde` and `serde_json` for the manifest, `toml` for settings, `reqwest` for Claude, `keyring` for the API key, plus `notify`/`directories` as needed.
+- Likely crates: `git2` or `gix` for history, `tiktoken-rs` for counts, `serde` and `serde_json` for the manifest, `toml` for settings, `reqwest` for the OpenAI-compatible API, `keyring` for the API key, plus `notify`/`directories` as needed.
 - **No name is hardcoded.** The app name, the project extension (`.wdp` placeholder), the config folder (`~/.config/<app>/`), the projects folder and the `.desktop`/MIME IDs all come from one constants module. "Word Designer" in this spec is only a working name, so renaming later should mean changing one file.
 - Before writing code, adapt Cozy's `CLAUDE.md` (github.com/cavecomputing/cozy) for this Rust project. Matt is new to Rust, so it should also explain cargo, crates and the build, test and run commands in plain terms.
 
