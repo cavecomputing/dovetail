@@ -33,6 +33,35 @@ pub fn token_count(text: &str) -> Option<usize> {
         .map(|bpe| bpe.encode_with_special_tokens(text).len())
 }
 
+/// A text's word and token counts; `tokens` is `None` while the tokenizer loads.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Counts {
+    pub words: usize,
+    pub tokens: Option<usize>,
+}
+
+impl Counts {
+    pub fn of(text: &str) -> Counts {
+        Counts {
+            words: word_count(text),
+            tokens: token_count(text),
+        }
+    }
+}
+
+/// How much `new` grew or shrank against `old`, in whole percent: by tokens once both are known,
+/// by words until then. `None` when `old` is empty.
+pub fn percent_change(old: Counts, new: Counts) -> Option<i64> {
+    let (old, new) = match (old.tokens, new.tokens) {
+        (Some(old), Some(new)) => (old, new),
+        _ => (old.words, new.words),
+    };
+    if old == 0 {
+        return None;
+    }
+    Some(((new as f64 - old as f64) / old as f64 * 100.0).round() as i64)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -54,5 +83,24 @@ mod tests {
         assert_eq!(token_count(""), Some(0));
         let count = token_count("Hello, world! This is a test.").unwrap();
         assert!((5..=12).contains(&count), "got {count}");
+    }
+
+    #[test]
+    fn percent_change_prefers_tokens() {
+        let old = Counts {
+            words: 200,
+            tokens: Some(286),
+        };
+        let new = Counts {
+            words: 118,
+            tokens: Some(157),
+        };
+        assert_eq!(percent_change(old, new), Some(-45));
+        let loading = Counts {
+            words: 300,
+            tokens: None,
+        };
+        assert_eq!(percent_change(old, loading), Some(50));
+        assert_eq!(percent_change(Counts::default(), new), None);
     }
 }

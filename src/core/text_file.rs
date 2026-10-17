@@ -52,9 +52,15 @@ pub fn read_text(path: &Path) -> io::Result<TextFile> {
         .map_err(|_| io::Error::new(ErrorKind::InvalidData, "not a UTF-8 text file"))?;
     let line_ending = LineEnding::detect(&text);
     Ok(TextFile {
-        text: text.replace("\r\n", "\n"),
+        text: newlines_only(&text),
         line_ending,
     })
+}
+
+/// `text` with every line ending (`\r\n`, or a lone `\r` from an old Mac file or a terminal) as
+/// `\n`, the only ending the editor's line and column arithmetic understands.
+pub fn newlines_only(text: &str) -> String {
+    text.replace("\r\n", "\n").replace('\r', "\n")
 }
 
 /// When the file on disk last changed and how long it is, to notice edits made outside this
@@ -85,12 +91,18 @@ pub fn save_text(
     line_ending: LineEnding,
     expected: Option<DiskStamp>,
 ) -> io::Result<Option<DiskStamp>> {
-    let current = DiskStamp::of(path);
-    if current.is_some() && expected.is_some() && current != expected {
+    if changed_on_disk(path, expected) {
         return Err(io::Error::other("changed on disk outside this window"));
     }
     atomic_write(path, line_ending.apply(text).as_bytes())?;
     Ok(DiskStamp::of(path))
+}
+
+/// True when the file at `path` is not the one this window last read or wrote (`expected`).
+/// A missing file, or nothing seen yet, doesn't count.
+pub fn changed_on_disk(path: &Path, expected: Option<DiskStamp>) -> bool {
+    let current = DiskStamp::of(path);
+    current.is_some() && expected.is_some() && current != expected
 }
 
 #[cfg(test)]
@@ -117,6 +129,14 @@ mod tests {
     }
 
     #[test]
+    fn lone_carriage_returns_become_newlines() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mac.txt");
+        fs::write(&path, "a\rb\n\rc\r\nd").unwrap();
+        assert_eq!(read_text(&path).unwrap().text, "a\nb\n\nc\nd");
+    }
+
+    #[test]
     fn refuses_non_utf8() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("bin.txt");
@@ -136,6 +156,7 @@ mod tests {
         assert_eq!(fs::read_to_string(&path).unwrap(), "mine");
         // Someone else writes the file; a different length changes the stamp.
         fs::write(&path, "someone else's text").unwrap();
+        assert!(changed_on_disk(&path, stamp));
         let error = save_text(&path, "mine again", LineEnding::Lf, stamp).unwrap_err();
         assert_eq!(error.to_string(), "changed on disk outside this window");
         assert_eq!(fs::read_to_string(&path).unwrap(), "someone else's text");

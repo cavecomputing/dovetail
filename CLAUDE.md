@@ -155,22 +155,31 @@ src/
     paths.rs             where config, scratch and projects live
     settings.rs          settings.toml: load, defaults, save
     save.rs              atomic file writes and the save-state machine (saved/saving/failed)
-    scratch.rs           the scratch space: text and cursor, resumed on launch
-    opened.rs            what a launch opens: the text, the cursor, and whether it's editable
+    scratch.rs           the scratch space: text and cursor, resumed on launch; a Rewrite clears
+                         it, keeping the text for the next scratch window's Ctrl+Z
+    opened.rs            what a launch opens (scratch, a .txt, a project's draft): the text, the
+                         cursor, the lock, and whether it's editable
     lock.rs              OS file locks so two windows never edit the same document
-    counts.rs            word and token counts (tokenizer loads in the background)
+    counts.rs            word and token counts (tokenizer loads in the background), % change
     text_file.rs         reading and saving .txt files: line endings, outside-change check
-    recent.rs            the recently opened files list (data folder)
-  project/               project mode logic, no UI (phase 2 onward)
-    manifest.rs          the JSON manifest
+    recent.rs            the recently opened files and projects (data folder), fuzzy matching
+    text_model.rs        a pane's text, its undo/redo history and paint, in byte offsets
+    paint.rs             paint spans and how they follow edits (moves to project/ later)
+  project/               project mode logic, no UI
+    mod.rs               a project: create (Rewrite), open, commit, rename, the recent list
+    manifest.rs          the JSON manifest, and each version's note and date
     history.rs           versions as git commits
-    ideas.rs, paint.rs   ideas, brushes and paint ranges that survive edits
-    weights.rs           each idea's share of the text
+    ideas.rs, paint.rs   ideas, brushes and paint ranges that survive edits (phase 3)
+    weights.rs           each idea's share of the text (phase 3)
   ui/                    everything iced: windows, widgets, styling
     app.rs               the App state, Message enum, update and view
     theme.rs             Gruvbox palette roles, the font and its icon glyphs
-    editor.rs            the text editing widget, its key bindings and tag/macro colouring
-    status_bar.rs        the bottom bar (save dot, path, counts) and its menu
+    editor.rs            the editor pane (widget + text model), key bindings, tag/macro colouring
+    text_editor.rs       a copy of iced's text editor widget, changes marked `ours:`
+    status_bar.rs        the bottom bar (save dot, path, counts, Rewrite/Commit) and its menu
+    project_view.rs      a project window's two panes and their headers, and the Commit dialog
+    project_actions.rs   App's handlers for Rewrite, Commit and opening versions
+    switcher.rs          the Ctrl+P quick switcher over recent files and projects
     window_controls.rs   the top strip's window controls and the resize edges
     settings_window.rs   the Settings window and how each change applies
   claude/                the Claude pane's API client (phase 5)

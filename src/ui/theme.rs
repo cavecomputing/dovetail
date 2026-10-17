@@ -20,6 +20,10 @@ pub const GLYPH_MAXIMIZE: &str = "\u{eab9}";
 pub const GLYPH_CLOSE: &str = "\u{eab8}";
 pub const GLYPH_MENU: &str = "\u{eb94}";
 pub const GLYPH_PEN: &str = "\u{ea73}";
+pub const GLYPH_LOCK: &str = "\u{ea75}";
+pub const GLYPH_FILE: &str = "\u{ea7b}";
+pub const GLYPH_PROJECT: &str = "\u{ea62}";
+pub const GLYPH_CLAUDE: &str = "\u{ea6b}";
 
 /// The editor's mono font is about 0.6 of its size wide per character.
 pub const CHAR_WIDTH_RATIO: f32 = 0.6;

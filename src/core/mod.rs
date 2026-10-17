@@ -3,9 +3,12 @@
 pub mod counts;
 pub mod lock;
 pub mod opened;
+#[allow(dead_code)] // Until project mode paints; remove then.
+pub mod paint;
 pub mod paths;
 pub mod recent;
 pub mod save;
 pub mod scratch;
 pub mod settings;
 pub mod text_file;
+pub mod text_model;

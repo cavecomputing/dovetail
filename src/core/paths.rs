@@ -62,6 +62,14 @@ pub fn display_path(path: &Path) -> String {
     }
 }
 
+/// `path` with a leading `~` replaced by the home folder, as typed in settings.
+pub fn expand_home(path: &Path) -> PathBuf {
+    match (path.strip_prefix("~"), BaseDirs::new()) {
+        (Ok(rest), Some(base)) => base.home_dir().join(rest),
+        _ => path.to_path_buf(),
+    }
+}
+
 /// Name of the environment variable that moves every folder, derived from the brand so a rename
 /// changes it too: `CONFIG_DIR_NAME` in capitals, dashes as underscores, plus `_HOME`.
 pub fn home_override_var() -> String {
@@ -109,5 +117,13 @@ mod tests {
         let home = BaseDirs::new().unwrap().home_dir().to_path_buf();
         assert_eq!(display_path(&home.join("notes.txt")), "~/notes.txt");
         assert_eq!(display_path(Path::new("/etc/hosts")), "/etc/hosts");
+    }
+
+    #[test]
+    fn expand_home_replaces_a_leading_tilde_only() {
+        let home = BaseDirs::new().unwrap().home_dir().to_path_buf();
+        assert_eq!(expand_home(Path::new("~/Prompts")), home.join("Prompts"));
+        assert_eq!(expand_home(Path::new("~")), home);
+        assert_eq!(expand_home(Path::new("/a/~/b")), Path::new("/a/~/b"));
     }
 }

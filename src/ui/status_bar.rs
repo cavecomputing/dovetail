@@ -3,17 +3,20 @@
 use std::f32::consts::TAU;
 use std::path::Path;
 
-use iced::widget::{button, column, container, mouse_area, row, space, text, tooltip};
+use iced::widget::text::Wrapping;
+use iced::widget::{button, column, container, mouse_area, row, scrollable, space, text, tooltip};
 use iced::{Background, Border, Color, Element, Fill, Theme};
 
 use crate::core::opened::Doc;
 use crate::core::paths::display_path;
 use crate::core::save::SaveState;
 use crate::ui::app::{App, Message};
-use crate::ui::theme::{self, GLYPH_MENU, GLYPH_PEN, Roles, icon_button, raised_box};
+use crate::ui::theme::{self, GLYPH_CLAUDE, GLYPH_MENU, GLYPH_PEN, Roles, icon_button, raised_box};
 
 pub const HEIGHT: f32 = 24.0;
 const TEXT_SIZE: f32 = 11.0;
+/// About how tall one menu row is (13px text plus its padding).
+const MENU_ROW_HEIGHT: f32 = 25.0;
 
 pub fn view(app: &App) -> Element<'_, Message> {
     let roles = Roles::of(&app.theme);
@@ -24,6 +27,9 @@ pub fn view(app: &App) -> Element<'_, Message> {
         left = left.push(save_status(app, roles));
     }
     left = left.push(small(doc_label(&app.doc)));
+    if let Some(project) = &app.project {
+        left = left.push(small(format!("v{} → draft", project.reference_version)));
+    }
     // Warnings in orange, each in words: why the text is read-only, anything a menu action
     // couldn't do, and a settings problem (short here, the whole reason on hover).
     for warning in [&app.read_only_reason, &app.notice].into_iter().flatten() {
@@ -33,20 +39,32 @@ pub fn view(app: &App) -> Element<'_, Message> {
         let label = small("Settings problem").color(roles.accent_warm);
         left = left.push(hint(label, reason.as_str()));
     }
+    // A save refused because the file changed on disk: never leave the window stuck.
+    if app.disk_conflict {
+        left = left.push(word_button(
+            "Reload from disk".to_string(),
+            Some(Message::ReloadFromDisk),
+        ));
+        left = left.push(word_button(
+            "Keep mine".to_string(),
+            Some(Message::KeepMine),
+        ));
+    }
 
-    let tokens = match app.tokens {
+    let tokens = match app.counts.tokens {
         Some(count) => format!("{count} tokens"),
         None => "… tokens".to_string(),
     };
     let mut right = row![
-        small(format!("{} words · ", app.words)),
+        small(format!("{} words · ", app.counts.words)),
         hint(small(tokens), "o200k tokenizer · UTF-8"),
     ]
     .align_y(iced::Center);
     if app.settings.show_line_col {
-        let position = app.content.cursor().position;
+        let position = app.pane.content.cursor().position;
         // iced's column counts bytes; count the characters before the cursor instead.
         let column = app
+            .pane
             .content
             .line(position.line)
             .map_or(0, |line| line.text[..position.column].chars().count());
@@ -56,13 +74,42 @@ pub fn view(app: &App) -> Element<'_, Message> {
             column + 1
         )));
     }
-    // Rewrite arrives in phase 2; until then the pen is shown but does nothing.
+    // The bottom-right corner holds the next step: Rewrite on a plain doc, Commit in a project.
     right = right.push(space().width(16));
-    right = right.push(hint(glyph_button(GLYPH_PEN, None), "Start a rewrite"));
+    match &app.project {
+        Some(project) => {
+            if let Some((label, shorter)) = project.change_label(app.counts) {
+                let color = if shorter {
+                    roles.accent_aqua
+                } else {
+                    roles.fg_muted
+                };
+                let words = format!("{label} vs v{}", project.reference_version);
+                right = right.push(small(words).color(color));
+                right = right.push(space().width(12));
+            }
+            right = right.push(hint(
+                glyph_button(GLYPH_CLAUDE, None),
+                "Claude pane arrives in phase 5",
+            ));
+            right = right.push(space().width(8));
+            let next = project.project.latest_version() + 1;
+            let commit = (app.editable() && !app.busy).then_some(Message::OpenCommit);
+            right = right.push(word_button(format!("Commit v{next}"), commit));
+        }
+        None => {
+            let can_rewrite = app.editable() && !app.busy && !matches!(app.doc, Doc::Project(_));
+            let rewrite = can_rewrite.then_some(Message::Rewrite);
+            right = right.push(hint(
+                glyph_button(GLYPH_PEN, rewrite),
+                "Rewrite: start a project from this text",
+            ));
+        }
+    }
 
-    bar(row![left, space::horizontal(), right]
-        .align_y(iced::Center)
-        .into())
+    // The left end takes what room is left and is cut off, so the right end always fits.
+    let left = container(left).width(Fill).clip(true);
+    bar(row![left, right].spacing(16).align_y(iced::Center).into())
 }
 
 /// The status bar's frame: a 1px top border, then the bar on `bg-page` in small mono text.
@@ -83,11 +130,13 @@ pub fn bar(content: Element<'_, Message>) -> Element<'_, Message> {
     .into()
 }
 
-/// What the file is: its path, or a reminder that scratch lives in no file.
+/// What the file is: its path, the project's folder, or a reminder that scratch lives in no
+/// file.
 fn doc_label(doc: &Doc) -> String {
     match doc {
         Doc::Scratch => "Scratch · not saved to a file".to_string(),
-        Doc::File { path, .. } | Doc::Project(path) => display_path(path),
+        Doc::File { path, .. } => display_path(path),
+        Doc::Project(path) => display_path(path.parent().unwrap_or(path)),
     }
 }
 
@@ -114,9 +163,9 @@ fn save_status<'a>(app: &App, roles: &Roles) -> Element<'a, Message> {
     }
 }
 
-/// Text at the status bar's 11px size.
+/// Text at the status bar's 11px size, on one line.
 pub fn small<'a>(words: impl text::IntoFragment<'a>) -> text::Text<'a> {
-    text(words).size(TEXT_SIZE)
+    text(words).size(TEXT_SIZE).wrapping(Wrapping::None)
 }
 
 pub fn dot<'a>(color: Color) -> Element<'a, Message> {
@@ -140,6 +189,32 @@ fn glyph_button<'a>(glyph: &'a str, on_press: Option<Message>) -> Element<'a, Me
         .into()
 }
 
+/// A small framed word button, like the mockup's Commit button.
+fn word_button<'a>(label: String, on_press: Option<Message>) -> Element<'a, Message> {
+    button(small(label))
+        .padding([1, 8])
+        .style(|theme: &Theme, status| {
+            let roles = Roles::of(theme);
+            let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
+            button::Style {
+                background: Some(Background::Color(if hovered {
+                    roles.bg_inset
+                } else {
+                    roles.bg_raised
+                })),
+                text_color: if status == button::Status::Disabled {
+                    roles.fg_subtle
+                } else {
+                    roles.fg
+                },
+                border: Border::default().rounded(4).width(1).color(roles.border),
+                ..button::Style::default()
+            }
+        })
+        .on_press_maybe(on_press)
+        .into()
+}
+
 /// Wraps `content` so `words` show above it on hover.
 pub fn hint<'a>(content: impl Into<Element<'a, Message>>, words: &'a str) -> Element<'a, Message> {
     tooltip(
@@ -154,21 +229,45 @@ pub fn hint<'a>(content: impl Into<Element<'a, Message>>, words: &'a str) -> Ele
 pub fn menu(app: &App) -> Element<'_, Message> {
     let mut items = column![
         menu_item("Open…".to_string(), "", Message::OpenDialog),
+        menu_item("Open recent…".to_string(), "Ctrl+P", Message::OpenSwitcher),
         menu_heading("Recent"),
     ];
-    if app.recent.is_empty() {
-        items = items.push(menu_heading("  nothing yet"));
-    }
     let current = match &app.doc {
         Doc::File { path, .. } | Doc::Project(path) => Some(path),
         Doc::Scratch => None,
     };
-    for path in app.recent.iter().filter(|path| Some(*path) != current) {
-        items = items.push(menu_item(
-            file_name(path),
-            "",
-            Message::OpenPath(path.clone()),
-        ));
+    let recent: Vec<_> = app
+        .recent
+        .iter()
+        .filter(|item| Some(&item.path) != current)
+        .collect();
+    if recent.is_empty() {
+        items = items.push(menu_heading("  nothing yet"));
+    }
+    for item in recent {
+        let message = Message::OpenPath(item.path.clone());
+        items = items.push(menu_item(item.label.clone(), "", message));
+    }
+    if let Some(project) = &app.project {
+        items = items.push(menu_heading("Version history"));
+        let mut versions = column![];
+        for version in project.project.manifest.versions.iter().rev() {
+            let mut label = format!("v{}", version.number);
+            if !version.note.is_empty() {
+                label.push_str(&format!("  {}", version.note));
+            }
+            if version.number == project.reference_version {
+                label.push_str("  (shown)");
+            }
+            versions = versions.push(menu_item(
+                label,
+                version.committed_on(),
+                Message::ShowVersion(version.number),
+            ));
+        }
+        // A long history scrolls after about eight rows, so Settings and Scratch stay in view.
+        items = items
+            .push(container(scrollable(versions).spacing(2)).max_height(8.0 * MENU_ROW_HEIGHT));
     }
     items = items
         .push(menu_item(
@@ -182,7 +281,7 @@ pub fn menu(app: &App) -> Element<'_, Message> {
             Message::OpenScratch,
         ));
 
-    let panel = container(items.width(260)).padding(4).style(raised_box);
+    let panel = container(items.width(300)).padding(4).style(raised_box);
     iced::widget::stack![
         mouse_area(space().width(Fill).height(Fill)).on_press(Message::CloseMenu),
         container(panel)
@@ -197,14 +296,22 @@ pub fn menu(app: &App) -> Element<'_, Message> {
     .into()
 }
 
-fn menu_item<'a>(label: String, shortcut: &'a str, message: Message) -> Element<'a, Message> {
+fn menu_item<'a>(
+    label: String,
+    shortcut: impl text::IntoFragment<'a>,
+    message: Message,
+) -> Element<'a, Message> {
     button(
         row![
-            text(label).size(13),
-            space::horizontal(),
-            text(shortcut).size(11).style(|theme: &Theme| text::Style {
-                color: Some(Roles::of(theme).fg_muted),
-            })
+            container(text(label).size(13).wrapping(Wrapping::None))
+                .width(Fill)
+                .clip(true),
+            text(shortcut)
+                .size(11)
+                .wrapping(Wrapping::None)
+                .style(|theme: &Theme| text::Style {
+                    color: Some(Roles::of(theme).fg_muted),
+                })
         ]
         .align_y(iced::Center),
     )
@@ -236,7 +343,12 @@ fn menu_heading<'a>(label: &'a str) -> Element<'a, Message> {
 pub fn title(doc: &Doc) -> String {
     match doc {
         Doc::Scratch => "Scratch".to_string(),
-        Doc::File { path, .. } | Doc::Project(path) => file_name(path),
+        Doc::File { path, .. } => file_name(path),
+        Doc::Project(path) => path
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string(),
     }
 }
 

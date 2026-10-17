@@ -7,7 +7,11 @@
 use std::fs::{self, File};
 use std::io::{self, ErrorKind, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
+
+/// Numbers each temp file, so two saves running at once never write into the same one.
+static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Writes `bytes` to `path` atomically, creating the parent folder if needed. An existing file
 /// keeps its permissions. A symlink is followed, so the link stays a link and its target gets the
@@ -53,9 +57,10 @@ fn save_paths(path: &Path) -> io::Result<(PathBuf, PathBuf, PathBuf)> {
         .file_name()
         .ok_or_else(|| io::Error::other("no file name"))?;
     let temp = dir.join(format!(
-        ".{}.tmp-{}",
+        ".{}.tmp-{}-{}",
         name.to_string_lossy(),
-        std::process::id()
+        std::process::id(),
+        TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
     ));
     Ok((path, dir, temp))
 }
@@ -160,6 +165,14 @@ impl Autosaver {
             }
             Err(reason) => self.failure = Some(reason),
         }
+    }
+
+    /// Call when the text on screen is known to match the disk without this saver writing it,
+    /// such as after reloading the file or when a commit wrote it. A save still running stays
+    /// running until `finish`, so a second one can't start beside it.
+    pub fn mark_saved(&mut self) {
+        self.saved_generation = self.edited_generation;
+        self.failure = None;
     }
 
     /// True only when everything is on disk and the last save worked.
@@ -337,5 +350,42 @@ mod tests {
         saver.finish(retry, Ok(()));
         assert_eq!(saver.state(), SaveState::Saved);
         assert!(saver.close_allowed());
+    }
+
+    #[test]
+    fn mark_saved_clears_a_failure_and_pending_edits() {
+        let start = Instant::now();
+        let mut saver = Autosaver::new(DELAY);
+        saver.edited(start);
+        let generation = saver.begin(start + DELAY);
+        saver.finish(generation, Err("Save failed: changed on disk".into()));
+        saver.mark_saved();
+        assert_eq!(saver.state(), SaveState::Saved);
+        assert!(saver.close_allowed());
+        assert!(!saver.should_save_now(start + DELAY * 3));
+    }
+
+    #[test]
+    fn mark_saved_leaves_a_running_save_running() {
+        let start = Instant::now();
+        let mut saver = Autosaver::new(DELAY);
+        saver.edited(start);
+        let generation = saver.begin(start + DELAY);
+        saver.edited(start + DELAY);
+        saver.mark_saved();
+        assert!(saver.is_saving());
+        assert!(
+            !saver.should_save_now(start + DELAY * 3),
+            "one save at a time"
+        );
+        saver.finish(generation, Ok(()));
+        assert!(saver.close_allowed());
+    }
+
+    #[test]
+    fn each_save_gets_its_own_temp_file() {
+        let (_, _, first) = save_paths(Path::new("/tmp/a.txt")).unwrap();
+        let (_, _, second) = save_paths(Path::new("/tmp/a.txt")).unwrap();
+        assert_ne!(first, second);
     }
 }

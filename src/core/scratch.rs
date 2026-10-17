@@ -1,8 +1,12 @@
 //! The scratch space: one continuous document, resumed on launch exactly where it was left.
 //!
 //! The text lives in `scratch.txt` (plain, readable without the app) and the cursor in a small
-//! `scratch.json` next to it, both in the data folder. The view is brought back around the cursor;
-//! iced doesn't let the app read the exact scroll offset, so it isn't saved.
+//! `scratch.json` next to it, both in the data folder. The view comes back with the same line at
+//! the top.
+//!
+//! A Rewrite clears scratch. The text it held is kept in `scratch-cleared.txt` until the next
+//! scratch window opens, which takes it back as its first undo step: scratch opens empty, and
+//! Ctrl+Z brings the text back.
 
 use std::fs::{self, File, TryLockError};
 use std::io::{self, ErrorKind};
@@ -17,6 +21,7 @@ use crate::core::text_file::read_text;
 const TEXT_FILE: &str = "scratch.txt";
 const VIEW_FILE: &str = "scratch.json";
 const LOCK_FILE: &str = "scratch.lock";
+const CLEARED_FILE: &str = "scratch-cleared.txt";
 
 /// Where the cursor was. Both count from zero; the column is a byte offset into the line (what
 /// iced reports), not a count of characters. They may be past the end if the text was edited
@@ -26,6 +31,8 @@ const LOCK_FILE: &str = "scratch.lock";
 pub struct ScratchView {
     pub cursor_line: usize,
     pub cursor_column: usize,
+    /// The line at the top of the view; `None` in files saved before it was recorded.
+    pub scroll_line: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -84,6 +91,21 @@ impl ScratchView {
     }
 }
 
+/// Empties scratch after a Rewrite, keeping `text` (what it held) for the next scratch window to
+/// undo back to.
+pub fn clear_scratch(data_dir: &Path, text: &str) -> io::Result<()> {
+    atomic_write(&data_dir.join(CLEARED_FILE), text.as_bytes())?;
+    ScratchState::default().save(data_dir)
+}
+
+/// The text a Rewrite cleared from scratch, if any, removed so it is only offered once.
+pub fn take_cleared(data_dir: &Path) -> Option<String> {
+    let path = data_dir.join(CLEARED_FILE);
+    let text = fs::read_to_string(&path).ok()?;
+    let _ = fs::remove_file(&path);
+    Some(text)
+}
+
 /// True when another running process has the scratch space open.
 pub fn scratch_open_elsewhere(data_dir: &Path) -> bool {
     locked_elsewhere(&data_dir.join(LOCK_FILE))
@@ -118,6 +140,7 @@ mod tests {
             view: ScratchView {
                 cursor_line: 1,
                 cursor_column: 3,
+                scroll_line: Some(1),
             },
         };
         state.save(&data_dir).unwrap();
@@ -168,6 +191,21 @@ mod tests {
     }
 
     #[test]
+    fn clearing_keeps_the_old_text_once() {
+        let dir = tempfile::tempdir().unwrap();
+        ScratchState {
+            text: "draft me".to_string(),
+            view: ScratchView::default(),
+        }
+        .save(dir.path())
+        .unwrap();
+        clear_scratch(dir.path(), "draft me").unwrap();
+        assert_eq!(ScratchState::load(dir.path()).unwrap().text, "");
+        assert_eq!(take_cleared(dir.path()).as_deref(), Some("draft me"));
+        assert_eq!(take_cleared(dir.path()), None);
+    }
+
+    #[test]
     fn column_is_clamped_in_bytes_to_a_character_boundary() {
         // "short…" is 6 characters but 8 bytes; byte 7 is inside the 3-byte "…".
         assert_eq!(clamp_column("short…", 7), 5);
@@ -187,6 +225,7 @@ mod tests {
             view: ScratchView {
                 cursor_line: 9,
                 cursor_column: 99,
+                scroll_line: None,
             },
         };
         assert_eq!(state.cursor(), (1, 5));

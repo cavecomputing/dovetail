@@ -5,21 +5,25 @@ use std::fs::File;
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime};
 
-use iced::widget::text_editor::{Action, Content, Cursor, Position};
 use iced::widget::{column, container, stack};
 use iced::window::{self, Direction};
 use iced::{Element, Size, Subscription, Task, Theme, event, keyboard};
 
 use crate::brand;
-use crate::core::counts::{load_tokenizer_in_background, token_count, word_count};
+use crate::core::counts::{Counts, load_tokenizer_in_background, word_count};
 use crate::core::opened::{Doc, open_doc};
 use crate::core::paths::Paths;
-use crate::core::recent::recent_files;
-use crate::core::save::{Autosaver, SaveState, failure_reason};
+use crate::core::save::{Autosaver, SaveState, atomic_write, failure_reason};
 use crate::core::scratch::{ScratchState, ScratchView, scratch_open_elsewhere};
 use crate::core::settings::{ReadingMode, Settings, Theme as ThemeSetting};
-use crate::core::text_file::{DiskStamp, save_text};
+use crate::core::text_file::{DiskStamp, changed_on_disk, read_text, save_text};
+use crate::project::{DRAFT_FILE, Project, RecentItem, open_project, recent_items};
+use crate::ui::editor::Pane;
+use crate::ui::project_actions::load_version;
+use crate::ui::project_view::{self, ProjectView};
 use crate::ui::settings_window::{self, Change};
+use crate::ui::switcher::{self, Switcher};
+use crate::ui::text_editor::{Action, Cursor, Position};
 use crate::ui::theme::{self, Roles};
 use crate::ui::{editor, status_bar, window_controls};
 
@@ -36,31 +40,51 @@ pub struct App {
     settings_window: Option<window::Id>,
 
     pub doc: Doc,
-    pub content: Content,
+    /// The text being edited: the whole window, or a project's draft (the right pane).
+    pub pane: Pane,
+    /// The project this window shows, with its left pane; `None` for scratch and plain files.
+    pub project: Option<ProjectView>,
+    /// The Commit dialog's note, while the dialog is open.
+    pub commit_note: Option<String>,
+    /// The Ctrl+P switcher, while it is open.
+    pub switcher: Option<Switcher>,
+    /// True while git is creating or committing a project, so it isn't started twice.
+    pub busy: bool,
+    /// Whether the view opens at a saved top line, rather than around the cursor.
+    scroll_restored: bool,
     /// Why the text must not be edited (a project, or open in another window); `None` when it
     /// can be.
     pub read_only_reason: Option<String>,
     /// Keeps other windows off this document until the process ends.
-    _doc_lock: Option<File>,
+    pub _doc_lock: Option<File>,
     /// The file on disk as this window last read or wrote it.
-    disk_stamp: Option<DiskStamp>,
+    pub disk_stamp: Option<DiskStamp>,
+    /// A save was refused because the file changed on disk; the status bar offers a way out.
+    pub disk_conflict: bool,
     /// A short-lived message for the status bar, such as why a new window didn't open.
     pub notice: Option<String>,
     pub autosaver: Autosaver,
     pub saving_since: Option<Instant>,
+    /// When a save last finished, for the draft's "autosaved just now".
+    pub saved_at: Option<Instant>,
     pub now: Instant,
     closing: bool,
 
-    pub words: usize,
-    pub tokens: Option<usize>,
-    pub recent: Vec<PathBuf>,
+    /// The draft's word and token counts.
+    pub counts: Counts,
+    /// The recent files and projects, for the menu.
+    pub recent: Vec<RecentItem>,
     pub menu_open: bool,
 }
 
 #[derive(Debug, Clone)]
 pub enum Message {
     Edit(Action),
+    /// Scrolling, selecting or copying in a project's left pane.
+    ReferenceEdit(Action),
     Unindent,
+    Undo,
+    Redo,
     Tick(Instant),
     Saved(u64, Result<Option<DiskStamp>, String>),
     TokenizerReady,
@@ -80,6 +104,21 @@ pub enum Message {
     OpenPath(PathBuf),
     OpenSettings,
     OpenScratch,
+    OpenSwitcher,
+    SwitcherQuery(String),
+    SwitcherMove(i32),
+    SwitcherOpen,
+
+    Rewrite,
+    ProjectCreated(Result<(Project, String), String>),
+    ShowVersion(u32),
+    VersionLoaded(u32, Result<String, String>),
+    OpenCommit,
+    CommitNote(String),
+    Commit,
+    Committed(Result<(Project, String), String>),
+    ReloadFromDisk,
+    KeepMine,
 
     Setting(Change),
     PollSettings,
@@ -120,12 +159,33 @@ impl App {
         let paths = Paths::detect();
         let (settings, settings_error) = Settings::load(&paths.settings_file());
         let opened = open_doc(doc, &paths);
-        let mut content = Content::with_text(&opened.text);
+        // Scratch cleared by a Rewrite opens empty, with Ctrl+Z bringing the old text back.
+        let mut pane = Pane::new(opened.cleared_scratch.as_deref().unwrap_or(&opened.text));
+        if let Some(cleared) = &opened.cleared_scratch {
+            pane.replace(0..cleared.len(), &opened.text);
+        }
         if let Some((line, column)) = opened.cursor {
-            content.move_to(Cursor {
+            pane.content.move_to(Cursor {
                 position: Position { line, column },
                 selection: None,
             });
+        }
+        if let Some(line) = opened.scroll_line {
+            pane.content.scroll_to_line(line);
+        }
+        // A project shows its draft at once; the newest version for the left pane comes from git
+        // in the background.
+        let mut read_only_reason = opened.read_only_reason;
+        let mut project = None;
+        let mut load_reference = Task::none();
+        if let Doc::Project(path) = &opened.doc {
+            match open_project(path) {
+                Ok(found) => {
+                    load_reference = load_version(&found, found.latest_version());
+                    project = Some(ProjectView::new(found, Pane::new("")));
+                }
+                Err(error) => read_only_reason = Some(format!("Couldn't open project: {error}")),
+            }
         }
 
         let (main_window, open) = window::open(window_settings(DOC_WINDOW_SIZE));
@@ -136,9 +196,11 @@ impl App {
 
         let app = App {
             settings_modified: modified_time(&paths),
-            recent: recent_files(&paths.data_dir),
-            words: word_count(&content.text()),
-            tokens: None,
+            recent: recent_items(&paths.data_dir),
+            counts: Counts {
+                words: word_count(&opened.text),
+                tokens: None,
+            },
             last_comfort_chars: match settings.reading_mode {
                 ReadingMode::Comfort { chars } => chars,
                 ReadingMode::FullWidth => 80,
@@ -152,12 +214,19 @@ impl App {
             main_window,
             settings_window: None,
             doc: opened.doc,
-            content,
-            read_only_reason: opened.read_only_reason,
+            pane,
+            project,
+            commit_note: None,
+            switcher: None,
+            busy: false,
+            scroll_restored: opened.scroll_line.is_some(),
+            read_only_reason,
             _doc_lock: opened.lock,
             disk_stamp: opened.disk_stamp,
+            disk_conflict: false,
             notice: None,
             saving_since: None,
+            saved_at: None,
             now: Instant::now(),
             closing: false,
             menu_open: false,
@@ -166,6 +235,7 @@ impl App {
             open.map(Message::WindowOpened),
             Task::perform(tokenizer_ready, |_| Message::TokenizerReady),
             iced::system::theme().map(Message::SystemTheme),
+            load_reference,
         ]);
         (app, tasks)
     }
@@ -187,21 +257,42 @@ impl App {
             // A read-only window still scrolls, selects and copies, but never changes the text.
             Message::Edit(action) if action.is_edit() && !self.editable() => {}
             Message::Edit(action) => {
-                let edited = action.is_edit();
-                self.content.perform(action);
-                if edited {
+                if self.pane.perform(action) {
                     self.text_changed();
                 }
             }
+            Message::ReferenceEdit(action) => {
+                if let Some(project) = &mut self.project
+                    && !action.is_edit()
+                {
+                    project.reference.perform(action);
+                }
+            }
             Message::Unindent => {
-                if self.editable() {
-                    editor::unindent(&mut self.content, usize::from(self.settings.tab_spaces));
+                let tab_spaces = usize::from(self.settings.tab_spaces);
+                if self.editable() && self.pane.unindent(tab_spaces) {
+                    self.text_changed();
+                }
+            }
+            Message::Undo => {
+                if self.editable() && self.pane.undo() {
+                    self.text_changed();
+                }
+            }
+            Message::Redo => {
+                if self.editable() && self.pane.redo() {
                     self.text_changed();
                 }
             }
             Message::Tick(now) => {
                 self.now = now;
-                if self.autosaver.should_save_now(now) {
+                if let Some(project) = &mut self.project
+                    && project.slide_done(now)
+                {
+                    project.slide_started = None;
+                }
+                // Not while git is busy: a commit writes `draft.txt` itself.
+                if self.autosaver.should_save_now(now) && !self.busy {
                     return self.save(now);
                 }
             }
@@ -213,7 +304,12 @@ impl App {
                 self.autosaver.finish(generation, result.map(|_| ()));
                 if self.autosaver.state() == SaveState::Saved {
                     self.saving_since = None;
+                    self.saved_at = Some(Instant::now());
                 }
+                self.disk_conflict = match &self.doc {
+                    Doc::File { path, .. } if failed => changed_on_disk(path, self.disk_stamp),
+                    _ => false,
+                };
                 if self.closing && failed {
                     // Stay open; the status bar shows why the save failed.
                     self.closing = false;
@@ -221,13 +317,22 @@ impl App {
                     return self.continue_closing();
                 }
             }
-            Message::TokenizerReady => self.tokens = token_count(&self.content.text()),
+            Message::TokenizerReady => {
+                self.counts = Counts::of(self.pane.model.text());
+                if let Some(project) = &mut self.project {
+                    project.reference_counts = Counts::of(project.reference.model.text());
+                    if project.reference_version == project.project.latest_version() {
+                        project.latest_counts = project.reference_counts;
+                    }
+                }
+            }
 
             Message::WindowOpened(window) if window == self.main_window => {
-                return Task::batch([
-                    iced::widget::operation::focus(editor::EDITOR_ID),
-                    window::size(window).map(Message::CursorToMiddle),
-                ]);
+                let focus = iced::widget::operation::focus(editor::EDITOR_ID);
+                if self.scroll_restored {
+                    return focus;
+                }
+                return Task::batch([focus, window::size(window).map(Message::CursorToMiddle)]);
             }
             Message::WindowOpened(_) => {}
             Message::CursorToMiddle(size) => return self.scroll_cursor_to_middle(size),
@@ -248,10 +353,13 @@ impl App {
 
             Message::ToggleMenu => {
                 self.menu_open = !self.menu_open;
-                self.recent = recent_files(&self.paths.data_dir);
+                self.recent = recent_items(&self.paths.data_dir);
             }
+            // Esc, or a click outside: closes the menu, the switcher and the Commit dialog.
             Message::CloseMenu => {
                 self.menu_open = false;
+                self.switcher = None;
+                self.commit_note = None;
                 return iced::widget::operation::focus(editor::EDITOR_ID);
             }
             Message::OpenDialog => {
@@ -267,6 +375,7 @@ impl App {
             }
             Message::OpenPath(path) => {
                 self.menu_open = false;
+                self.switcher = None;
                 self.notice = open_in_new_window(Some(path)).err();
             }
             Message::OpenSettings => {
@@ -291,6 +400,44 @@ impl App {
                     open_in_new_window(None).err()
                 };
             }
+            Message::OpenSwitcher
+            | Message::SwitcherQuery(_)
+            | Message::SwitcherMove(_)
+            | Message::SwitcherOpen => return self.update_switcher(message),
+            Message::Rewrite
+            | Message::ProjectCreated(_)
+            | Message::ShowVersion(_)
+            | Message::VersionLoaded(..)
+            | Message::OpenCommit
+            | Message::CommitNote(_)
+            | Message::Commit
+            | Message::Committed(_) => return self.update_project(message),
+            Message::ReloadFromDisk => {
+                if let Doc::File { path, line_ending } = &mut self.doc {
+                    match read_text(path) {
+                        Ok(file) => {
+                            *line_ending = file.line_ending;
+                            self.disk_stamp = DiskStamp::of(path);
+                            // One undo step, so Ctrl+Z brings this window's text back.
+                            let length = self.pane.model.text().len();
+                            self.pane.replace(0..length, &file.text);
+                            self.text_changed();
+                            self.autosaver.mark_saved();
+                            self.saving_since = None;
+                            self.disk_conflict = false;
+                        }
+                        Err(error) => self.notice = Some(format!("Couldn't reload: {error}")),
+                    }
+                }
+            }
+            Message::KeepMine => {
+                if let Doc::File { path, .. } = &self.doc {
+                    // Take the file on disk as seen, so the next save writes over it.
+                    self.disk_stamp = DiskStamp::of(path);
+                    self.disk_conflict = false;
+                    return self.save(Instant::now());
+                }
+            }
 
             Message::Setting(change) => {
                 if let Change::ReadingMode(ReadingMode::Comfort { chars }) = change {
@@ -305,6 +452,8 @@ impl App {
                 self.settings_changed();
             }
             Message::PollSettings => {
+                // Once a second: also keeps the draft's "autosaved 3 min ago" current.
+                self.now = Instant::now();
                 let modified = modified_time(&self.paths);
                 if modified != self.settings_modified {
                     self.settings_modified = modified;
@@ -326,9 +475,7 @@ impl App {
         let now = Instant::now();
         self.autosaver.edited(now);
         self.saving_since.get_or_insert(now);
-        let text = self.content.text();
-        self.words = word_count(&text);
-        self.tokens = token_count(&text);
+        self.counts = Counts::of(self.pane.model.text());
     }
 
     fn settings_changed(&mut self) {
@@ -345,7 +492,7 @@ impl App {
     /// Writes the current text in the background; `Saved` reports back.
     fn save(&mut self, now: Instant) -> Task<Message> {
         let generation = self.autosaver.begin(now);
-        let text = self.content.text();
+        let text = self.pane.model.text().to_string();
         let data_dir = self.paths.data_dir.clone();
         let view = self.scratch_view();
         let doc = self.doc.clone();
@@ -357,7 +504,10 @@ impl App {
                     Doc::File { path, line_ending } => {
                         save_text(&path, &text, line_ending, disk_stamp)
                     }
-                    Doc::Project(_) => Ok(None),
+                    Doc::Project(path) => {
+                        atomic_write(&path.with_file_name(DRAFT_FILE), text.as_bytes())
+                            .map(|_| None)
+                    }
                 };
                 result.map_err(|error| failure_reason(&error))
             },
@@ -382,10 +532,11 @@ impl App {
     }
 
     fn scratch_view(&self) -> ScratchView {
-        let position = self.content.cursor().position;
+        let position = self.pane.content.cursor().position;
         ScratchView {
             cursor_line: position.line,
             cursor_column: position.column,
+            scroll_line: Some(self.pane.content.scroll_line()),
         }
     }
 
@@ -397,7 +548,7 @@ impl App {
             size.height - editor::PADDING.top - editor::PADDING.bottom - status_bar::HEIGHT;
         let visible_lines = (text_height / line_height).max(0.0) as usize;
         // Fewer lines than a screen above the cursor means the view hasn't scrolled at all.
-        if self.content.cursor().position.line < visible_lines {
+        if self.pane.content.cursor().position.line < visible_lines {
             return Task::none();
         }
         let lines = (visible_lines / 2) as i32;
@@ -416,6 +567,14 @@ impl App {
         if self.autosaver.state() != SaveState::Saved {
             subscriptions.push(iced::time::every(Duration::from_millis(50)).map(Message::Tick));
         }
+        // While the Rewrite slide plays: about 60 frames a second.
+        if self
+            .project
+            .as_ref()
+            .is_some_and(|p| p.slide_started.is_some())
+        {
+            subscriptions.push(iced::time::every(Duration::from_millis(16)).map(Message::Tick));
+        }
         Subscription::batch(subscriptions)
     }
 
@@ -424,19 +583,34 @@ impl App {
         let body = if Some(window) == self.settings_window {
             settings_window::view(self)
         } else {
-            column![
-                editor::view(&self.content, &self.settings, self.editable()),
-                status_bar::view(self)
-            ]
-            .into()
+            let editor = match &self.project {
+                Some(project) => project_view::view(self, project),
+                None => editor::view(
+                    &self.pane.content,
+                    &self.settings,
+                    self.editable(),
+                    editor::EDITOR_ID,
+                    Message::Edit,
+                    editor::PADDING,
+                ),
+            };
+            column![editor, status_bar::view(self)].into()
         };
         let mut page = if show_controls {
             column![window_controls::strip(window), body].into()
         } else {
             body
         };
-        if self.menu_open && window == self.main_window {
-            page = stack![page, status_bar::menu(self)].into();
+        if window == self.main_window {
+            if self.menu_open {
+                page = stack![page, status_bar::menu(self)].into();
+            }
+            if let (Some(project), Some(note)) = (&self.project, &self.commit_note) {
+                page = stack![page, project_view::commit_dialog(self, project, note)].into();
+            }
+            if let Some(switcher) = &self.switcher {
+                page = stack![page, switcher::view(switcher)].into();
+            }
         }
         let page = container(page).style(|theme: &Theme| theme::fill(Roles::of(theme).bg_surface));
         if show_controls {
@@ -447,13 +621,25 @@ impl App {
     }
 }
 
-/// App-wide keys. Ctrl+P opens the menu with its recent files until the phase-2 switcher.
-fn shortcut(event: iced::Event, _status: event::Status, _window: window::Id) -> Option<Message> {
+/// App-wide keys. Up and Down move through the switcher's list, and Enter commits from anywhere
+/// in the Commit dialog (each ignored while its panel is closed).
+fn shortcut(event: iced::Event, status: event::Status, _window: window::Id) -> Option<Message> {
     let iced::Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) = event else {
         return None;
     };
-    if key == keyboard::Key::Named(keyboard::key::Named::Escape) {
-        return Some(Message::CloseMenu);
+    match key {
+        keyboard::Key::Named(keyboard::key::Named::Escape) => return Some(Message::CloseMenu),
+        // A focused note field has already sent its own Commit.
+        keyboard::Key::Named(keyboard::key::Named::Enter) if status == event::Status::Ignored => {
+            return Some(Message::Commit);
+        }
+        keyboard::Key::Named(keyboard::key::Named::ArrowUp) => {
+            return Some(Message::SwitcherMove(-1));
+        }
+        keyboard::Key::Named(keyboard::key::Named::ArrowDown) => {
+            return Some(Message::SwitcherMove(1));
+        }
+        _ => {}
     }
     if !modifiers.command() {
         return None;
@@ -461,13 +647,13 @@ fn shortcut(event: iced::Event, _status: event::Status, _window: window::Id) -> 
     match key.as_ref() {
         keyboard::Key::Character(",") => Some(Message::OpenSettings),
         keyboard::Key::Character("0") => Some(Message::OpenScratch),
-        keyboard::Key::Character("p") => Some(Message::ToggleMenu),
+        keyboard::Key::Character("p") => Some(Message::OpenSwitcher),
         _ => None,
     }
 }
 
 /// Starts another copy of the app on `path` (or on scratch), so every file gets its own window.
-fn open_in_new_window(path: Option<PathBuf>) -> Result<(), String> {
+pub fn open_in_new_window(path: Option<PathBuf>) -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|error| error.to_string())?;
     let mut command = std::process::Command::new(exe);
     command.args(path);
@@ -486,7 +672,8 @@ fn modified_time(paths: &Paths) -> Option<SystemTime> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use iced::widget::text_editor::{Edit, Motion};
+    use crate::ui::text_editor::{Content, Edit};
+    use iced::widget::text_editor::Motion;
 
     #[test]
     fn restored_cursor_after_a_multi_byte_character_can_be_typed_at() {
@@ -495,6 +682,7 @@ mod tests {
         let view = ScratchView {
             cursor_line: 0,
             cursor_column: first.cursor().position.column,
+            scroll_line: None,
         };
         let scratch = ScratchState {
             text: "café".to_string(),
