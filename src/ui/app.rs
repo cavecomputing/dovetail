@@ -151,6 +151,8 @@ fn window_settings(size: Size) -> window::Settings {
         min_size: Some(Size::new(360.0, 240.0)),
         decorations: false,
         exit_on_close_request: false,
+        // X11 shows this in task bars; Wayland finds the icon through the .desktop file instead.
+        icon: window::icon::from_rgba(APP_ICON_RGBA.to_vec(), 64, 64).ok(),
         platform_specific: window::settings::PlatformSpecific {
             application_id: brand::APP_ID.to_string(),
             ..Default::default()
@@ -158,6 +160,9 @@ fn window_settings(size: Size) -> window::Settings {
         ..Default::default()
     }
 }
+
+/// The app icon at 64x64, as raw RGBA bytes (made from assets/icon/icon.svg, see its README).
+const APP_ICON_RGBA: &[u8] = include_bytes!("../../assets/icon/icon-64.rgba");
 
 const DOC_WINDOW_SIZE: Size = Size::new(960.0, 720.0);
 

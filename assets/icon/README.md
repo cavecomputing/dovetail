@@ -9,3 +9,6 @@ The monogram: a D with a dovetail socket cut into its spine, in the Gruvbox `acc
 
 The files are named generically on purpose: the installer copies them under the app's name from
 src/brand.rs, so a rename doesn't touch them.
+- `icon-64.rgba`: `icon.svg` at 64x64 as raw RGBA bytes, which the app sets as its window icon
+  (it needs no image decoder that way). Regenerate it after changing `icon.svg`:
+  `rsvg-convert -w 64 -h 64 icon.svg -o /tmp/icon.png && convert /tmp/icon.png -depth 8 rgba:icon-64.rgba`
