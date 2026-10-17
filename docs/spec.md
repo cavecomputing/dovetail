@@ -113,11 +113,13 @@ This is what makes the app different. It's the agreed direction, with details to
 - **Feeling notes:** each idea carries a short note in the writer's own words, like "warm but guarded". It's shown next to the cursor while that brush is active. The note can change between versions, and history keeps every version of it.
 - **Merge and split ideas:** combine two ideas into one with a new note, keeping where it came from in history, like a git merge. Splitting works the other way round.
 
-## 9. Claude pane
+## 9. Assistant pane
 
-- A third pane that slides in from the right when called. Its toggle is in the status bar.
-- **Context:** Claude always sees everything: both versions, every idea, the feeling notes and the weights. Small chips mark what the owner is focused on (the selection, the current idea or topic).
-- **Suggest-only in v1.** Proposed edits show up in the draft as ghost text that can be accepted or rejected piece by piece. Accepted text takes on the idea's colour, so tracking is never lost.
+- A pane that slides in from the right when called. Its toggle is in the status bar.
+- **Available everywhere** (2026-10-17): scratch, plain `.txt` files and projects alike. It's a general assistant to chat with about whatever is being worked on, not a project-only feature.
+- **Tool-capable:** it works through function calling rather than a fixed reply format. Tools let it read the document and the selection, search it, count tokens, propose edits and, in a project, read any version, the ideas, the feeling notes and the weights. The app runs each tool call and sends the result back until the model gives its answer.
+- **Context:** in a project, it can always see everything: both versions, every idea, the feeling notes and the weights. In a plain doc, it sees the document. Small chips mark what the owner is focused on (the selection, the current idea or topic).
+- **Suggest-only in v1.** Proposed edits (from its propose-edit tool) show up in the document as ghost text that can be accepted or rejected piece by piece. In a project, accepted text takes on the idea's colour, so tracking is never lost.
 - It can answer questions like "does this still feel warm but guarded?" or "which idea shrank most since v3?"
 - **Backend: any OpenAI-compatible API** (decided 2026-10-17), so it can point at any provider: Claude via a compatible endpoint, OpenRouter, Ollama, LM Studio, llama.cpp, vLLM. Settings hold the base URL, the API key (stored in the system keyring) and the model name. The default request format is the Responses API (`/v1/responses`), the owner's choice (2026-10-17); a setting switches to Chat Completions (`/v1/chat/completions`) for servers that only speak that. It's plain HTTP from Rust, with no SDK. Streaming replies. Keep the shared context (both versions, ideas, notes, weights) at the start of the prompt so providers that cache prompt prefixes keep repeat questions cheap.
 
