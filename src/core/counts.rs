@@ -33,6 +33,27 @@ pub fn token_count(text: &str) -> Option<usize> {
         .map(|bpe| bpe.encode_with_special_tokens(text).len())
 }
 
+/// Where each o200k token of `text` starts, as byte offsets, or `None` while the tokenizer is
+/// still loading. A token starts at its first non-space byte, so " She" goes with "She" rather
+/// than the space before it; a token of only spaces or line breaks goes with the token before.
+pub fn token_starts(text: &str) -> Option<Vec<usize>> {
+    let bpe = TOKENIZER.get()?;
+    let mut starts: Vec<usize> = Vec::new();
+    let mut at = 0;
+    for token in bpe.encode_with_special_tokens(text) {
+        let bytes = bpe
+            .decode_bytes(&[token])
+            .expect("a token the tokenizer just made decodes");
+        let start = match bytes.iter().position(|byte| !byte.is_ascii_whitespace()) {
+            Some(spaces) => at + spaces,
+            None => starts.last().copied().unwrap_or(at),
+        };
+        starts.push(start);
+        at += bytes.len();
+    }
+    Some(starts)
+}
+
 /// A text's word and token counts; `tokens` is `None` while the tokenizer loads.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Counts {
@@ -83,6 +104,18 @@ mod tests {
         assert_eq!(token_count(""), Some(0));
         let count = token_count("Hello, world! This is a test.").unwrap();
         assert!((5..=12).contains(&count), "got {count}");
+    }
+
+    #[test]
+    fn token_starts_skip_leading_spaces_and_count_every_token() {
+        load_tokenizer();
+        let text = "Nyx is quiet. She keeps her distance.\n\nShe never explains herself.";
+        let starts = token_starts(text).unwrap();
+        assert_eq!(Some(starts.len()), token_count(text));
+        assert!(starts.windows(2).all(|pair| pair[0] <= pair[1]));
+        let she = text.find("She").unwrap();
+        assert!(starts.contains(&she), "\" She\" starts at the S");
+        assert!(!starts.contains(&(she - 1)));
     }
 
     #[test]

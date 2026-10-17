@@ -15,8 +15,9 @@ use crate::core::scratch::clear_scratch;
 use crate::core::text_file::save_text;
 use crate::project::{Project, create_project};
 use crate::ui::app::{App, Message};
+use crate::ui::commit_dialog::COMMIT_NOTE_ID;
 use crate::ui::editor::{self, Pane};
-use crate::ui::project_view::{COMMIT_NOTE_ID, ProjectView};
+use crate::ui::project_view::ProjectView;
 
 impl App {
     /// Handles the project messages; `App::update` hands every one of them here.
@@ -61,15 +62,22 @@ impl App {
                 if let Some(project) = &mut self.project {
                     project.show_version(number, &text);
                 }
+                self.refresh_ideas();
             }
             Message::VersionLoaded(number, Err(error)) => {
                 self.notice = Some(format!("Couldn't read v{number}: {error}"));
             }
             Message::OpenCommit => {
-                if self.project.is_some() && self.editable() && !self.busy {
-                    self.menu_open = false;
-                    self.commit_note = Some(String::new());
-                    return iced::widget::operation::focus(COMMIT_NOTE_ID);
+                let editable = self.editable();
+                if let (Some(project), true, false) = (&mut self.project, editable, self.busy) {
+                    // From the newest version's text, already in memory. The dialog opens only
+                    // with its check, so Enter can't commit before the check is shown.
+                    project.commit_check = project.check_commit(&self.pane.model);
+                    if project.commit_check.is_some() {
+                        self.menu_open = false;
+                        self.commit_note = Some(String::new());
+                        return iced::widget::operation::focus(COMMIT_NOTE_ID);
+                    }
                 }
             }
             Message::CommitNote(note) => {
@@ -89,10 +97,11 @@ impl App {
                     let mut project = project.project.clone();
                     let note = note.clone();
                     let draft = self.pane.model.text().to_string();
+                    let paint = self.pane.model.paint.clone();
                     return Task::perform(
                         async move {
                             project
-                                .commit(&draft, &note)
+                                .commit(&draft, &paint, &note)
                                 .map(|_| (project, draft))
                                 .map_err(|error| error.to_string())
                         },
@@ -106,8 +115,10 @@ impl App {
                 self.notice = None;
                 if let Some(project) = &mut self.project {
                     project.project = committed;
+                    project.commit_check = None;
                     project.show_version(project.project.latest_version(), &draft);
                 }
+                self.refresh_ideas();
                 // The commit wrote `draft.txt`; anything typed since still needs saving.
                 if self.pane.model.text() == draft {
                     self.autosaver.mark_saved();
@@ -155,12 +166,14 @@ impl App {
         }
         let reference = std::mem::replace(&mut self.pane, draft);
         let mut view = ProjectView::new(project, reference);
+        view.latest_text = Some(text.to_string());
         view.slide_started = Some(Instant::now());
         self.project = Some(view);
         self.autosaver.mark_saved();
         self.saving_since = None;
         self.saved_at = Some(Instant::now());
         self.counts = Counts::of(text);
+        self.refresh_ideas();
     }
 }
 

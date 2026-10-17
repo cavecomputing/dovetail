@@ -8,8 +8,11 @@
 //! - Horizontal scroll: with wrapping off, text, caret, selection and clicks follow the scroll
 //!   cosmic-text already keeps on the cursor (upstream ignores it, so long lines were cut off).
 //! - `Content::scroll_line` reports the top line and `Content::scroll_to_line` restores it.
+//! - Paint: `TextEditor::paint` draws idea paint under the glyphs and gutter stripes beside each
+//!   painted paragraph (lines between blank or tag-only lines); `TextEditor::on_caret` reports where the caret is drawn.
 use iced::advanced::clipboard::{self, Clipboard};
 use iced::advanced::graphics;
+use iced::advanced::graphics::text::cosmic_text;
 use iced::advanced::input_method;
 use iced::advanced::layout::{self, Layout};
 use iced::advanced::mouse;
@@ -23,7 +26,9 @@ use iced::alignment;
 use iced::keyboard;
 use iced::time::{Duration, Instant};
 use iced::window;
-use iced::{Element, Event, Length, Padding, Pixels, Point, Rectangle, Size, Vector};
+use iced::{
+    Color, Element, Event, Length, Padding, Pixels, Point, Rectangle, Size, Vector, border,
+};
 
 use std::borrow::Cow;
 use std::cell::RefCell;
@@ -31,6 +36,9 @@ use std::fmt;
 use std::ops;
 use std::ops::DerefMut;
 use std::sync::Arc;
+
+// ours: XML tags, so a line of only tags can end a paragraph.
+use crate::core::markup::{Markup, markup_ranges};
 
 pub use iced::advanced::text::editor::{
     Action, Cursor, Edit, Line, LineEnding, Position, Selection,
@@ -64,6 +72,29 @@ where
     highlighter_settings: Highlighter::Settings,
     highlighter_format: fn(&Highlighter::Highlight, &Theme) -> highlighter::Format<Renderer::Font>,
     last_status: Option<Status>,
+    // ours: idea paint, and who hears where the caret is.
+    paint: &'a [PaintRun],
+    on_caret: Option<Box<dyn Fn(Option<Rectangle>, Rectangle) -> Message + 'a>>,
+}
+
+/// ours: one painted range, in the editor's own positions (the column is a byte index).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PaintRun {
+    pub start: Position,
+    pub end: Position,
+    /// The idea's colour, opaque: the fill is drawn see-through, the gutter stripe solid.
+    pub color: Color,
+    pub look: PaintLook,
+}
+
+/// ours: how a painted range is drawn.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PaintLook {
+    Fill,
+    /// The fill plus a dashed outline in this colour (the warning colour): the idea is missing.
+    Missing(Color),
+    /// No fill, a line through the text in this colour: the idea was cut on purpose.
+    Cut(Color),
 }
 
 impl<'a, Message, Theme, Renderer> TextEditor<'a, highlighter::PlainText, Message, Theme, Renderer>
@@ -92,6 +123,8 @@ where
             highlighter_settings: (),
             highlighter_format: |_highlight, _theme| highlighter::Format::default(),
             last_status: None,
+            paint: &[],
+            on_caret: None,
         }
     }
 
@@ -206,7 +239,27 @@ where
             highlighter_settings: settings,
             highlighter_format: to_format,
             last_status: self.last_status,
+            paint: self.paint,
+            on_caret: self.on_caret,
         }
+    }
+
+    /// ours: draws these painted ranges under the text, and a stripe per idea beside each
+    /// paragraph (a run of lines that are neither blank nor only XML tags) that holds some of it, in the left padding.
+    pub fn paint(mut self, paint: &'a [PaintRun]) -> Self {
+        self.paint = paint;
+        self
+    }
+
+    /// ours: reports where the caret is drawn (window coordinates, one line tall; `None` when it
+    /// is scrolled out of view) and the text area it is in, whenever either changes. For floating
+    /// a card beside it.
+    pub fn on_caret(
+        mut self,
+        on_caret: impl Fn(Option<Rectangle>, Rectangle) -> Message + 'a,
+    ) -> Self {
+        self.on_caret = Some(Box::new(on_caret));
+        self
     }
 
     /// Sets the closure to produce key bindings on key presses.
@@ -407,6 +460,208 @@ fn horizontal_scroll(editor: &graphics::text::Editor, wrapping: Wrapping) -> f32
     }
 }
 
+// ours: drawing paint and gutter stripes.
+const PAINT_ALPHA: f32 = 0.22;
+const PAINT_RADIUS: f32 = 3.0;
+/// The gutter is this wide and ends this far left of the text.
+const GUTTER_WIDTH: f32 = 10.0;
+const GUTTER_GAP: f32 = 12.0;
+const STRIPE_WIDTH: f32 = 3.0;
+const STRIPE_STEP: f32 = 6.0;
+const DASH: f32 = 4.0;
+const DASH_GAP: f32 = 3.0;
+const DASH_THICKNESS: f32 = 1.5;
+
+/// ours: draws `paint` on the visible rows only, then a stripe per idea beside each visible
+/// paragraph. `gutter_left` is where the editor starts; stripes stay out of the text area.
+fn draw_paint<R: renderer::Renderer>(
+    renderer: &mut R,
+    buffer: &cosmic_text::Buffer,
+    paint: &[PaintRun],
+    text_bounds: Rectangle,
+    gutter_left: f32,
+    scroll_x: f32,
+    text_size: f32,
+) {
+    // Fill a rectangle clipped to `clip`.
+    let mut fill = |rect: Rectangle, radius: border::Radius, color: Color, clip: Rectangle| {
+        if let Some(bounds) = clip.intersection(&rect) {
+            renderer.fill_quad(
+                renderer::Quad {
+                    bounds,
+                    border: border::rounded(radius),
+                    ..renderer::Quad::default()
+                },
+                color,
+            );
+        }
+    };
+    // Each visible line once, with the top and bottom of its painted box over all its rows.
+    let mut lines: Vec<(usize, f32, f32)> = Vec::new();
+
+    for row in buffer.layout_runs() {
+        // Like a CSS inline background: the text's box, not the whole (tall) line.
+        let box_height = (text_size * 1.25 + 2.0).min(row.line_height);
+        let top = text_bounds.y + row.line_top + (row.line_height - box_height) / 2.0;
+        let mut pieces = Vec::new();
+        for run in paint {
+            if run.start.line > row.line_i || run.end.line < row.line_i {
+                continue;
+            }
+            let start = cosmic_text::Cursor::new(run.start.line, run.start.column);
+            let end = cosmic_text::Cursor::new(run.end.line, run.end.column);
+            if let Some((x, width)) = row.highlight(start, end)
+                && width > 0.0
+            {
+                pieces.push((text_bounds.x + x - scroll_x, width, run));
+            }
+        }
+
+        // Split the row where pieces start and end; where fills overlap, each gets a slice of
+        // the height, so every idea stays visible.
+        let mut edges: Vec<f32> = pieces.iter().flat_map(|(x, w, _)| [*x, x + w]).collect();
+        edges.sort_by(f32::total_cmp);
+        edges.dedup();
+        for pair in edges.windows(2) {
+            let (left, right) = (pair[0], pair[1]);
+            let fills: Vec<_> = pieces
+                .iter()
+                .filter(|(x, w, run)| {
+                    !matches!(run.look, PaintLook::Cut(_)) && *x <= left && x + w >= right
+                })
+                .collect();
+            let slice = box_height / fills.len().max(1) as f32;
+            for (lane, (x, w, run)) in fills.iter().enumerate() {
+                let round_left = if *x >= left { PAINT_RADIUS } else { 0.0 };
+                let round_right = if x + w <= right { PAINT_RADIUS } else { 0.0 };
+                let radius = border::Radius {
+                    top_left: round_left,
+                    bottom_left: round_left,
+                    top_right: round_right,
+                    bottom_right: round_right,
+                };
+                let rect = Rectangle::new(
+                    Point::new(left, top + slice * lane as f32),
+                    Size::new(right - left, slice),
+                );
+                fill(
+                    rect,
+                    radius,
+                    run.color.scale_alpha(PAINT_ALPHA),
+                    text_bounds,
+                );
+            }
+        }
+        for (x, width, run) in &pieces {
+            match run.look {
+                PaintLook::Fill => {}
+                PaintLook::Cut(color) => {
+                    let y = text_bounds.y + row.line_y - text_size * 0.3;
+                    let line = Rectangle::new(Point::new(*x, y), Size::new(*width, 1.0));
+                    fill(line, border::Radius::default(), color, text_bounds);
+                }
+                // Dashes along each side of the box, 1px outside it.
+                PaintLook::Missing(color) => {
+                    let outline =
+                        Rectangle::new(Point::new(*x, top), Size::new(*width, box_height))
+                            .expand(1.0 + DASH_THICKNESS);
+                    let mut along = 0.0;
+                    while along < outline.width {
+                        let dash = Size::new(DASH.min(outline.width - along), DASH_THICKNESS);
+                        for y in [outline.y, outline.y + outline.height - DASH_THICKNESS] {
+                            let rect = Rectangle::new(Point::new(outline.x + along, y), dash);
+                            fill(rect, border::Radius::default(), color, text_bounds);
+                        }
+                        along += DASH + DASH_GAP;
+                    }
+                    let mut down = 0.0;
+                    while down < outline.height {
+                        let dash = Size::new(DASH_THICKNESS, DASH.min(outline.height - down));
+                        for x in [outline.x, outline.x + outline.width - DASH_THICKNESS] {
+                            let rect = Rectangle::new(Point::new(x, outline.y + down), dash);
+                            fill(rect, border::Radius::default(), color, text_bounds);
+                        }
+                        down += DASH + DASH_GAP;
+                    }
+                }
+            }
+        }
+
+        match lines.last_mut() {
+            Some(last) if last.0 == row.line_i => last.2 = top + box_height,
+            _ => lines.push((row.line_i, top, top + box_height)),
+        }
+    }
+
+    // Gutter stripes, one paragraph at a time.
+    let gutter = Rectangle {
+        x: gutter_left,
+        width: text_bounds.x - gutter_left - 1.0,
+        ..text_bounds
+    };
+    // A blank line, or one holding only XML tags (like `</rules>`), ends a paragraph.
+    let blank = |line: usize| {
+        let mut rest = buffer.lines[line].text().to_string();
+        for (range, markup) in markup_ranges(&rest).into_iter().rev() {
+            if markup == Markup::Tag {
+                rest.replace_range(range, "");
+            }
+        }
+        rest.trim().is_empty()
+    };
+    let mut i = 0;
+    while i < lines.len() {
+        if blank(lines[i].0) {
+            i += 1;
+            continue;
+        }
+        let mut j = i;
+        while j + 1 < lines.len() && !blank(lines[j + 1].0) {
+            j += 1;
+        }
+        // The whole paragraph, including lines scrolled out of view.
+        let mut first = lines[i].0;
+        while first > 0 && !blank(first - 1) {
+            first -= 1;
+        }
+        let mut last = lines[j].0;
+        while last + 1 < buffer.lines.len() && !blank(last + 1) {
+            last += 1;
+        }
+        let colors = paragraph_colors(paint, first, last);
+        // Many ideas squeeze closer together rather than run into the text.
+        let room = GUTTER_WIDTH + GUTTER_GAP - 2.0 - STRIPE_WIDTH;
+        let step = STRIPE_STEP.min(room / (colors.len().max(2) - 1) as f32);
+        let x = text_bounds.x - GUTTER_GAP - GUTTER_WIDTH;
+        for (n, color) in colors.into_iter().enumerate() {
+            let stripe = Rectangle::new(
+                Point::new(x + step * n as f32, lines[i].1),
+                Size::new(STRIPE_WIDTH, lines[j].2 - lines[i].1),
+            );
+            fill(stripe, border::Radius::new(2.0), color, gutter);
+        }
+        i = j + 1;
+    }
+}
+
+/// ours: the colours of the paint on lines `first..=last`, each once, in paint order.
+fn paragraph_colors(paint: &[PaintRun], first: usize, last: usize) -> Vec<Color> {
+    let mut colors = Vec::new();
+    for run in paint {
+        // Paint that ends at the very start of a line doesn't reach into it.
+        let end_line = if run.end.column == 0 && run.end.line > run.start.line {
+            run.end.line - 1
+        } else {
+            run.end.line
+        };
+        let touches = run.start != run.end && run.start.line <= last && end_line >= first;
+        if touches && !colors.contains(&run.color) {
+            colors.push(run.color);
+        }
+    }
+    colors
+}
+
 impl<Renderer> Clone for Content<Renderer>
 where
     Renderer: text::Renderer,
@@ -453,6 +708,8 @@ pub struct State<Highlighter: text::Highlighter> {
     highlighter_format_address: usize,
     // ours: flips every frame drawn while scrolled sideways (see `draw`).
     repaint_flip: std::cell::Cell<bool>,
+    // ours: the caret's place and text area last reported to `on_caret`.
+    last_caret: Option<(Option<Rectangle>, Rectangle)>,
 }
 
 #[derive(Debug, Clone)]
@@ -520,6 +777,7 @@ where
             highlighter_settings: self.highlighter_settings.clone(),
             highlighter_format_address: self.highlighter_format as usize,
             repaint_flip: std::cell::Cell::new(false),
+            last_caret: None,
         })
     }
 
@@ -637,6 +895,33 @@ where
 
         let state = tree.state.downcast_mut::<State<Highlighter>>();
         let is_redraw = matches!(event, Event::Window(window::Event::RedrawRequested(_now)),);
+
+        // ours: before each frame, tell the app if the caret moved on screen.
+        if let Some(on_caret) = self.on_caret.as_ref()
+            && is_redraw
+        {
+            let internal = self.content.0.borrow();
+            let text_bounds = layout.bounds().shrink(self.padding);
+            let line_height = self
+                .line_height
+                .to_absolute(self.text_size.unwrap_or_else(|| renderer.default_size()));
+            let point = match internal.editor.selection() {
+                Selection::Caret(point) => point,
+                Selection::Range(ranges) => ranges.last().map_or(Point::ORIGIN, |range| {
+                    Point::new(range.x + range.width, range.y)
+                }),
+            };
+            let scroll = horizontal_scroll(&internal.editor, self.wrapping);
+            let caret = Rectangle::new(
+                point + (text_bounds.position() - Point::ORIGIN) - Vector::new(scroll, 0.0),
+                Size::new(1.0, f32::from(line_height)),
+            );
+            let caret = text_bounds.intersects(&caret).then_some(caret);
+            if Some((caret, text_bounds)) != state.last_caret {
+                state.last_caret = Some((caret, text_bounds));
+                shell.publish(on_caret(caret, text_bounds));
+            }
+        }
 
         match event {
             Event::Window(window::Event::Unfocused) => {
@@ -925,6 +1210,20 @@ where
             );
         }
 
+        // ours: paint goes under the glyphs (a layer draws its quads before its text).
+        if !self.paint.is_empty() {
+            let size = self.text_size.unwrap_or_else(|| renderer.default_size());
+            draw_paint(
+                renderer,
+                internal.editor.buffer(),
+                self.paint,
+                text_bounds,
+                bounds.x,
+                scrolled.x,
+                size.0,
+            );
+        }
+
         if internal.editor.is_empty() {
             if let Some(placeholder) = self.placeholder.clone() {
                 renderer.fill_text(
@@ -1170,5 +1469,43 @@ impl<Message> Update<Message> {
             }
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn run(start: (usize, usize), end: (usize, usize), color: Color) -> PaintRun {
+        PaintRun {
+            start: Position {
+                line: start.0,
+                column: start.1,
+            },
+            end: Position {
+                line: end.0,
+                column: end.1,
+            },
+            color,
+            look: PaintLook::Fill,
+        }
+    }
+
+    #[test]
+    fn a_paragraph_gets_each_idea_on_it_once() {
+        let (red, blue) = (Color::from_rgb(1.0, 0.0, 0.0), Color::BLACK);
+        let paint = [
+            run((0, 0), (0, 5), blue),
+            run((2, 3), (3, 1), red),
+            run((3, 2), (3, 4), blue),
+            // Ends at the start of line 5, so it isn't on line 5.
+            run((4, 0), (5, 0), red),
+            // Empty paint shows nowhere.
+            run((7, 1), (7, 1), red),
+        ];
+        assert_eq!(paragraph_colors(&paint, 0, 0), vec![blue]);
+        assert_eq!(paragraph_colors(&paint, 2, 3), vec![red, blue]);
+        assert_eq!(paragraph_colors(&paint, 5, 7), Vec::<Color>::new());
+        assert_eq!(paragraph_colors(&paint, 1, 1), Vec::<Color>::new());
     }
 }

@@ -7,7 +7,7 @@ use crate::core::paths::display_path;
 use crate::core::settings::{ReadingMode, Settings, Theme as ThemeSetting, WindowControls};
 use crate::ui::app::{App, Message};
 use crate::ui::status_bar::{self, dot, small};
-use crate::ui::theme::{self, Roles};
+use crate::ui::theme::{self, Roles, subtle};
 
 /// One edit made in the Settings window.
 #[derive(Debug, Clone)]
@@ -378,12 +378,6 @@ fn hint<'a>(words: &'a str) -> Element<'a, Message> {
     container(text(words).size(12).style(subtle))
         .padding([0, 6])
         .into()
-}
-
-fn subtle(theme: &Theme) -> text::Style {
-    text::Style {
-        color: Some(Roles::of(theme).fg_subtle),
-    }
 }
 
 #[cfg(test)]

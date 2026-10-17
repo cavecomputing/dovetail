@@ -160,24 +160,32 @@ src/
                          cursor, the lock, and whether it's editable
     lock.rs              OS file locks so two windows never edit the same document
     counts.rs            word and token counts (tokenizer loads in the background), % change
+    markup.rs            where XML tags and {{macros}} are, for colouring them and naming things
     text_file.rs         reading and saving .txt files: line endings, outside-change check
     recent.rs            the recently opened files and projects (data folder), fuzzy matching
     text_model.rs        a pane's text, its undo/redo history and paint, in byte offsets
-    paint.rs             paint spans and how they follow edits (moves to project/ later)
   project/               project mode logic, no UI
-    mod.rs               a project: create (Rewrite), open, commit, rename, the recent list
-    manifest.rs          the JSON manifest, and each version's note and date
+    mod.rs               a project: create (Rewrite), open, commit, rename, saving paint, the
+                         recent list
+    manifest.rs          the JSON manifest: versions (note, date, paint), ideas, topics, the draft
     history.rs           versions as git commits
-    ideas.rs, paint.rs   ideas, brushes and paint ranges that survive edits (phase 3)
-    weights.rs           each idea's share of the text (phase 3)
+    paint.rs             paint spans: brushing, erasing, and how they follow edits
+    ideas.rs             ideas and topics: colours, feeling notes, cut marks, merge and split
+    weights.rs           each idea's share of the text, and the Commit check
   ui/                    everything iced: windows, widgets, styling
     app.rs               the App state, Message enum, update and view
-    theme.rs             Gruvbox palette roles, the font and its icon glyphs
+    theme.rs             Gruvbox palette roles, the font and its icon glyphs, shared styles
     editor.rs            the editor pane (widget + text model), key bindings, tag/macro colouring
-    text_editor.rs       a copy of iced's text editor widget, changes marked `ours:`
+    text_editor.rs       a copy of iced's text editor widget (draws paint and gutter stripes),
+                         changes marked `ours:`
     status_bar.rs        the bottom bar (save dot, path, counts, Rewrite/Commit) and its menu
-    project_view.rs      a project window's two panes and their headers, and the Commit dialog
+    project_view.rs      a project window's two panes and their headers, and their paint
+    commit_dialog.rs     the Commit dialog and its Commit check rows
     project_actions.rs   App's handlers for Rewrite, Commit and opening versions
+    ideas_view.rs        the idea strip and the feeling-note card
+    idea_panel.rs        the panel that edits one idea
+    weights_view.rs      the idea weights view
+    idea_actions.rs      App's handlers for brushes, painting and editing ideas
     switcher.rs          the Ctrl+P quick switcher over recent files and projects
     window_controls.rs   the top strip's window controls and the resize edges
     settings_window.rs   the Settings window and how each change applies

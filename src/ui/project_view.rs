@@ -1,39 +1,62 @@
 //! A project window: the committed version on the left (read-only), the draft on the right, each
-//! under a small header, and the Commit dialog that turns the draft into the next version.
+//! under a small header.
 
 use std::time::{Duration, Instant};
 
-use iced::widget::text::Wrapping;
-use iced::widget::{
-    button, column, container, mouse_area, responsive, row, space, text, text_input,
-};
-use iced::{Background, Border, Color, Element, Fill, Padding, Theme};
+use iced::widget::{column, container, mouse_area, responsive, row, space, text};
+use iced::{Background, Border, Element, Fill, Padding, Rectangle, Theme};
 
 use crate::core::counts::{Counts, percent_change};
 use crate::core::save::SaveState;
+use crate::core::text_model::{TextModel, position};
 use crate::project::Project;
+use crate::project::manifest::Manifest;
+use crate::project::paint::{IdeaId, Span};
+use crate::project::weights::{CommitCheck, Status, Weights, commit_check, weights};
 use crate::ui::app::{App, Message};
 use crate::ui::editor::{self, Pane};
-use crate::ui::theme::{GLYPH_LOCK, Roles};
+use crate::ui::idea_panel::IdeaPanel;
+use crate::ui::ideas_view;
+use crate::ui::text_editor::{PaintLook, PaintRun, Position};
+use crate::ui::theme::{GLYPH_LOCK, Roles, bold, fill, muted};
+use crate::ui::weights_view::Measure;
 
-pub const COMMIT_NOTE_ID: &str = "commit-note";
 /// How long the text takes to slide left after a Rewrite.
 const SLIDE: Duration = Duration::from_millis(300);
 const PANE_PADDING: Padding = Padding {
     top: 28.0,
     right: 24.0,
     bottom: 40.0,
-    left: 24.0,
+    // The pane's 24px margin, then the gutter stripes (10px) and their 12px gap, as in the
+    // mockup, so the stripes never touch the window edge or the divider.
+    left: 46.0,
 };
 
 pub struct ProjectView {
     pub project: Project,
+    /// Each idea's share of the left pane's text and the draft's, refreshed on every change.
+    pub weights: Weights,
+    /// The paint as the two editors draw it, rebuilt with `weights`.
+    pub reference_runs: Vec<PaintRun>,
+    pub draft_runs: Vec<PaintRun>,
+    /// The idea panel, while it is open.
+    pub idea_panel: Option<IdeaPanel>,
+    pub weights_open: bool,
+    pub measure: Measure,
+    /// The Commit dialog's idea rows, while it is open.
+    pub commit_check: Option<CommitCheck>,
+    /// A mouse selection is being made in the left pane; letting go paints it with the brush.
+    pub mouse_selecting: bool,
+    /// Where the draft's caret is drawn, and its text area, for the feeling-note card.
+    pub caret: Option<Rectangle>,
+    pub text_area: Rectangle,
     /// The left pane: a committed version. Only scrolling, selecting and copying reach it.
     pub reference: Pane,
     pub reference_version: u32,
     pub reference_counts: Counts,
-    /// The newest version's counts, for the Commit dialog (the left pane may show an older one).
-    pub latest_counts: Counts,
+    /// The newest version's text, for the Commit check (the left pane may show an older one);
+    /// `None` until it has been read from git.
+    pub latest_text: Option<String>,
     /// When the Rewrite slide began; `None` once it has finished.
     pub slide_started: Option<Instant>,
 }
@@ -45,9 +68,19 @@ impl ProjectView {
         ProjectView {
             reference_version: project.latest_version(),
             project,
+            weights: Weights::default(),
+            reference_runs: Vec::new(),
+            draft_runs: Vec::new(),
+            idea_panel: None,
+            weights_open: false,
+            measure: Measure::Percent,
+            commit_check: None,
+            mouse_selecting: false,
+            caret: None,
+            text_area: Rectangle::default(),
             reference,
             reference_counts: counts,
-            latest_counts: counts,
+            latest_text: None,
             slide_started: None,
         }
     }
@@ -55,11 +88,66 @@ impl ProjectView {
     /// Shows version `number` (with its `text`) in the left pane.
     pub fn show_version(&mut self, number: u32, text: &str) {
         self.reference = Pane::new(text);
+        self.reference.model.paint = self.project.version_paint(number, text);
         self.reference_version = number;
         self.reference_counts = Counts::of(text);
         if number == self.project.latest_version() {
-            self.latest_counts = self.reference_counts;
+            self.latest_text = Some(text.to_string());
         }
+    }
+
+    /// The Commit check: the draft against the newest version. `None` until that version's text
+    /// has loaded.
+    pub fn check_commit(&self, draft: &TextModel) -> Option<CommitCheck> {
+        let text = self.latest_text.as_deref()?;
+        let paint = self
+            .project
+            .version_paint(self.project.latest_version(), text);
+        let manifest = &self.project.manifest;
+        Some(commit_check(
+            manifest,
+            text,
+            &paint,
+            draft.text(),
+            &draft.paint,
+        ))
+    }
+
+    /// Weighs the ideas again and rebuilds the paint both editors draw, after any change to the
+    /// text, the paint, the ideas or the theme. In the left pane a missing idea is outlined and
+    /// one cut on purpose struck through.
+    pub fn refresh_ideas(&mut self, draft: &TextModel, roles: &Roles) {
+        let manifest = &self.project.manifest;
+        let old = &self.reference.model;
+        let version = self.reference_version;
+        self.weights = weights(
+            manifest,
+            version,
+            old.text(),
+            &old.paint,
+            draft.text(),
+            &draft.paint,
+        );
+        let statuses = &self.weights.ideas;
+        self.reference_runs =
+            paint_runs(
+                manifest,
+                old.text(),
+                &old.paint,
+                roles,
+                |idea| match statuses
+                    .iter()
+                    .find(|row| row.idea == idea)
+                    .map(|row| row.status)
+                {
+                    Some(Status::Missing) => PaintLook::Missing(roles.accent_warm),
+                    Some(Status::Cut) => PaintLook::Cut(roles.fg_subtle),
+                    _ => PaintLook::Fill,
+                },
+            );
+        self.draft_runs = paint_runs(manifest, draft.text(), &draft.paint, roles, |_| {
+            PaintLook::Fill
+        });
     }
 
     /// The draft against the left pane, as "−45%"; `None` before there is anything to compare.
@@ -87,10 +175,43 @@ impl ProjectView {
     }
 }
 
+/// `spans` on `text` as the editor draws them, each in the colour of the idea it now belongs to
+/// (an idea merged into another shows as that one), looking as `look` says.
+fn paint_runs(
+    manifest: &Manifest,
+    text: &str,
+    spans: &[Span],
+    roles: &Roles,
+    look: impl Fn(IdeaId) -> PaintLook,
+) -> Vec<PaintRun> {
+    let at = |offset| {
+        let (line, column) = position(text, offset);
+        Position { line, column }
+    };
+    spans
+        .iter()
+        .filter_map(|span| {
+            let idea = manifest
+                .live_ideas()
+                .find(|idea| manifest.lineage(idea.id).contains(&span.idea))?;
+            Some(PaintRun {
+                start: at(span.start),
+                end: at(span.end),
+                color: roles.idea(idea.colour),
+                look: look(idea.id),
+            })
+        })
+        .collect()
+}
+
 /// The two panes side by side with a 1px border between. Right after a Rewrite the draft grows
 /// in from the right edge while the old text slides into the left half.
 pub fn view<'a>(app: &'a App, project: &'a ProjectView) -> Element<'a, Message> {
-    responsive(move |size| panes(app, project, size.width)).into()
+    column![
+        responsive(move |size| panes(app, project, size.width)),
+        ideas_view::strip(app, project),
+    ]
+    .into()
 }
 
 /// The panes in a row `width` pixels wide.
@@ -162,6 +283,7 @@ fn panes<'a>(app: &'a App, project: &'a ProjectView, width: f32) -> Element<'a, 
             editor::REFERENCE_ID,
             Message::ReferenceEdit,
             PANE_PADDING,
+            &project.reference_runs,
         )
     ];
     let draft_pane = column![
@@ -173,6 +295,7 @@ fn panes<'a>(app: &'a App, project: &'a ProjectView, width: f32) -> Element<'a, 
             editor::EDITOR_ID,
             Message::Edit,
             PANE_PADDING,
+            &project.draft_runs,
         )
     ];
     // The draft's share of the width grows from nothing to half as the slide plays. The left pane
@@ -181,10 +304,8 @@ fn panes<'a>(app: &'a App, project: &'a ProjectView, width: f32) -> Element<'a, 
     let reference_width = ((width - 1.0) * reference_share).floor();
     row![
         container(reference_pane).width(reference_width).clip(true),
-        container(space().width(1).height(Fill)).style(|theme: &Theme| container::Style {
-            background: Some(Background::Color(Roles::of(theme).border)),
-            ..container::Style::default()
-        }),
+        container(space().width(1).height(Fill))
+            .style(|theme: &Theme| fill(Roles::of(theme).border)),
         container(draft_pane).width(Fill).clip(true),
     ]
     .height(Fill)
@@ -200,10 +321,8 @@ fn header(items: Vec<Element<'_, Message>>) -> Element<'_, Message> {
             bottom: 12.0,
             left: 24.0,
         }),
-        container(space().width(Fill).height(1)).style(|theme: &Theme| container::Style {
-            background: Some(Background::Color(Roles::of(theme).bg_raised)),
-            ..container::Style::default()
-        }),
+        container(space().width(Fill).height(1))
+            .style(|theme: &Theme| fill(Roles::of(theme).bg_raised)),
     ]
     .into()
 }
@@ -236,105 +355,6 @@ fn badge<'a>(label: String, shorter: bool) -> Element<'a, Message> {
         .into()
 }
 
-fn muted<'a>(words: impl text::IntoFragment<'a>) -> text::Text<'a> {
-    text(words)
-        .size(12)
-        .wrapping(Wrapping::None)
-        .style(|theme: &Theme| text::Style {
-            color: Some(Roles::of(theme).fg_muted),
-        })
-}
-
-fn bold() -> iced::Font {
-    iced::Font {
-        weight: iced::font::Weight::Bold,
-        ..crate::ui::theme::MONO
-    }
-}
-
-/// The Commit dialog: the next version's number, how the counts change, a note, and the two
-/// ways out (Esc goes back, Enter commits). Idea rows arrive in phase 4.
-pub fn commit_dialog<'a>(
-    app: &'a App,
-    project: &'a ProjectView,
-    note: &'a str,
-) -> Element<'a, Message> {
-    let roles = Roles::of(&app.theme);
-    let old = project.latest_counts;
-    let new = app.counts;
-    let tokens = match (old.tokens, new.tokens) {
-        (Some(old), Some(new)) => format!("{old} → {new} tokens · "),
-        _ => String::new(),
-    };
-    let summary = format!("{tokens}{} → {} words", old.words, new.words);
-    let next = project.project.latest_version() + 1;
-
-    let note_field = text_input("Note for this version (optional)", note)
-        .id(COMMIT_NOTE_ID)
-        .on_input(Message::CommitNote)
-        .on_submit(Message::Commit)
-        .size(13)
-        .padding([5, 8])
-        .style(|theme: &Theme, status| {
-            let roles = Roles::of(theme);
-            let border = match status {
-                text_input::Status::Focused { .. } => roles.accent_text,
-                _ => roles.border,
-            };
-            text_input::Style {
-                background: Background::Color(Color::TRANSPARENT),
-                border: Border::default().rounded(4).width(1).color(border),
-                icon: roles.fg_muted,
-                placeholder: roles.fg_subtle,
-                value: roles.fg,
-                selection: roles.accent_cool.scale_alpha(0.35),
-            }
-        });
-
-    let buttons = row![
-        space::horizontal(),
-        dialog_button("go back", "esc", false, Some(Message::CloseMenu)),
-        dialog_button("commit", "⏎", true, (!app.busy).then_some(Message::Commit)),
-    ]
-    .spacing(6);
-    let card = column![
-        row![
-            text(format!("Commit v{next}")).size(13),
-            space::horizontal(),
-            muted(summary)
-        ]
-        .align_y(iced::Center),
-        note_field,
-        column![
-            container(space().width(Fill).height(1)).style(move |_: &Theme| container::Style {
-                background: Some(Background::Color(roles.border)),
-                ..container::Style::default()
-            }),
-            buttons
-        ]
-        .spacing(12),
-    ]
-    .spacing(16);
-    let card = container(card)
-        .width(520)
-        .padding(Padding {
-            top: 20.0,
-            right: 22.0,
-            bottom: 16.0,
-            left: 22.0,
-        })
-        .style(|theme: &Theme| {
-            let roles = Roles::of(theme);
-            container::Style {
-                background: Some(Background::Color(roles.bg_surface)),
-                text_color: Some(roles.fg),
-                border: Border::default().rounded(6).width(1).color(roles.border),
-                ..container::Style::default()
-            }
-        });
-    modal(card.into())
-}
-
 /// `card` centred over a dimmed window; clicking outside it goes back.
 pub fn modal(card: Element<'_, Message>) -> Element<'_, Message> {
     iced::widget::stack![
@@ -348,38 +368,4 @@ pub fn modal(card: Element<'_, Message>) -> Element<'_, Message> {
         container(iced::widget::opaque(card)).center(Fill),
     ]
     .into()
-}
-
-/// A word button with its key hint, as in the Commit mockup; `primary` is the yellow default.
-fn dialog_button<'a>(
-    label: &'a str,
-    key: &'a str,
-    primary: bool,
-    on_press: Option<Message>,
-) -> Element<'a, Message> {
-    button(row![text(label).size(12), muted(key)].spacing(6))
-        .padding([4, 10])
-        .style(move |theme: &Theme, status| {
-            let roles = Roles::of(theme);
-            let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
-            button::Style {
-                background: None,
-                text_color: match (primary, hovered) {
-                    (true, _) => roles.accent_text,
-                    (false, true) => roles.fg,
-                    (false, false) => roles.fg_muted,
-                },
-                border: Border::default()
-                    .rounded(4)
-                    .width(1)
-                    .color(if primary || hovered {
-                        roles.border
-                    } else {
-                        Color::TRANSPARENT
-                    }),
-                ..button::Style::default()
-            }
-        })
-        .on_press_maybe(on_press)
-        .into()
 }
