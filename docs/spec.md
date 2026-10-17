@@ -1,10 +1,10 @@
-# Word Designer: implementation spec
+# Dovetail: implementation spec
 
 A native Linux desktop text editor, written in Rust. By default it's a fast, minimal plain-text editor and scratchpad. On top of that, it has a project mode for iterating on roleplay system prompts, character cards and other writing across versions. That mode keeps track of which ideas from the old version made it into the new one, and how much space each one takes.
 
-- Mockups: [Word Designer mockups](https://claude.ai/artifact/VMzsZGMBzrTPNBbnd446Ln). The boards are plain doc, writing view, Claude pane, idea weights, commit check and settings. They're drawn in HTML only to show the native UI.
+- Mockups: [mockups, drawn under the old working name Word Designer](https://claude.ai/artifact/VMzsZGMBzrTPNBbnd446Ln). The boards are plain doc, writing view, Claude pane, idea weights, commit check and settings. They're drawn in HTML only to show the native UI.
 - Running brainstorm log: [notes.md](notes.md)
-- Status: design agreed, no code yet. "Working name" means the final name is still to be decided.
+- Name: **Dovetail** (Matt, 2026-10-17). It replaces the working name Word Designer.
 
 ---
 
@@ -29,7 +29,7 @@ Matt writes prompts by putting two Typora windows side by side: the old version 
 | Action | Result |
 |---|---|
 | Launch the app | Opens the one continuous **scratch space**, resuming exactly where it was left (text, cursor, scroll). |
-| Open a project file (`.wdp`, placeholder extension) | Opens that project. |
+| Open a project file (`.dovetail`) | Opens that project. |
 | Open a `.txt` | Opens just that text file. |
 
 - **No tabs.** Each opened file or project gets its own window, which plays well with tiling WMs.
@@ -38,7 +38,7 @@ Matt writes prompts by putting two Typora windows side by side: the old version 
 - `Ctrl+,` opens Settings.
 - Startup has to be near-instant: launch, jot, close. This is a key reason to prefer pure Rust over a webview.
 - Launch from the app menu or a short terminal command.
-- Register as a `.desktop` app with a MIME type for `.wdp`. Optionally act as a `.txt` handler too.
+- Register as a `.desktop` app with a MIME type for `.dovetail`. Optionally act as a `.txt` handler too.
 
 ## 4. Saving
 
@@ -72,7 +72,7 @@ Rules:
 
 1. In scratch or a `.txt`, paste or write the text, then click the **pen (Rewrite)**.
 2. The text **slides left and becomes v1**, read-only. A copy lands on the right as the **draft**.
-3. A project is created right then, with no save dialog. It goes under `~/Documents/Word Designer/<first few words>/` and can be renamed later.
+3. A project is created right then, with no save dialog. It goes under `~/Documents/Dovetail/<first few words>/` and can be renamed later.
 4. If it came from scratch, scratch is cleared, with undo available. Matt was unsure about this, so it's the default and easy to change.
 5. Work in the draft. Autosave keeps the work-in-progress across many open/close sessions.
 6. **Commit** whenever Matt decides it's worth a new version. Commits are never automatic. The version number goes up and the draft becomes the new left-hand reference. Condensing is just another round of the same thing.
@@ -81,7 +81,7 @@ Rules:
 
 ```
 Nyx/
-  Nyx.wdp     ← JSON manifest: name, ideas, feeling notes, paint ranges per version. Double-clickable.
+  Nyx.dovetail ← JSON manifest: name, ideas, feeling notes, paint ranges per version. Double-clickable.
   draft.txt   ← current text, readable in anything
   .git/       ← hidden; one commit per version
 ```
@@ -145,7 +145,7 @@ A settings window opened from the menu or `Ctrl+,`. Changes apply instantly. Set
   - UI candidates: **iced** (used by COSMIC, Linux-first) or **GPUI** (Zed's toolkit, excellent text, thinner docs). egui and Slint are possible but weaker for long text.
   - Tauri remains a fallback if a native editor gets too hard. It's slower to start.
 - Likely crates: `git2` or `gix` for history, `tiktoken-rs` for counts, `serde` and `serde_json` for the manifest, `toml` for settings, `reqwest` for the OpenAI-compatible API, `keyring` for the API key, plus `notify`/`directories` as needed.
-- **No name is hardcoded.** The app name, the project extension (`.wdp` placeholder), the config folder (`~/.config/<app>/`), the projects folder and the `.desktop`/MIME IDs all come from one constants module. "Word Designer" in this spec is only a working name, so renaming later should mean changing one file.
+- **No name is hardcoded.** The app name (Dovetail), the project extension (`.dovetail`), the config folder (`~/.config/dovetail/`), the projects folder and the `.desktop`/MIME IDs all come from one constants module (`src/brand.rs`), so renaming later still means changing one file.
 - Before writing code, adapt Cozy's `CLAUDE.md` (github.com/cavecomputing/cozy) for this Rust project. Matt is new to Rust, so it should also explain cargo, crates and the build, test and run commands in plain terms.
 
 ## 13. Suggested build order
@@ -159,7 +159,6 @@ A settings window opened from the menu or `Ctrl+,`. Changes apply instantly. Set
 
 ## 14. Still open
 
-- The app's real name, and with it the project extension, which is a `.wdp` placeholder for now. Neither gets hardcoded; both live in one constants file (see §12).
 - Whether scratch should clear or keep its copy after a Rewrite. It clears, with undo, for now.
 - How exactly paint should anchor to text so it survives heavy edits. This is a technical design question for the build.
 - Whether Ln/Col and the other optional status items show up as Settings toggles.
