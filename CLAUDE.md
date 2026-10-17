@@ -2,9 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-The app is a native Linux text editor written in Rust (working name **Word Designer**; the real name
-is undecided). By default it is a fast, minimal plain-text editor and scratchpad. On top of that it
-has a project mode for rewriting prompts across versions while tracking which *ideas* survive. The
+The app is **Dovetail**, a native Linux text editor written in Rust. By default it is a fast,
+minimal plain-text editor and scratchpad. On top of that it has a project mode for rewriting prompts across versions while tracking which *ideas* survive. The
 full design is in [docs/spec.md](docs/spec.md); read the section you are building before you start.
 
 The owner is new to Rust. When you report back, explain Rust-specific things in plain words
@@ -29,12 +28,11 @@ to land where it can be seen.
 
 ## No hardcoded app name
 
-The name, the project file extension (`.wdp` is a placeholder), the config folder, the projects
+The name (Dovetail), the project file extension (`.dovetail`), the config folder, the projects
 folder, the `.desktop` file and the MIME type all come from **[src/brand.rs](src/brand.rs)**. Renaming
-the app must mean editing that one file.
+the app again must mean editing that one file.
 
-- Never write "Word Designer", `word-designer`, `wdp` or a path containing them anywhere else in
-  `src/`. Use the constants. A grep for those strings outside `brand.rs` should find only docs.
+- Never write "Dovetail", `dovetail` or a path containing them anywhere else in `src/`. Use the constants. A grep for those strings outside `brand.rs` should find only docs.
 - The binary name in `Cargo.toml` is the one unavoidable exception; it is listed next to the
   constants in `brand.rs` so a rename touches both.
 
@@ -98,7 +96,7 @@ Renaming existing code is its own task. Don't fold a rename into an unrelated ch
 ```bash
 cargo run                         # build (debug) and open the app on the scratch space
 cargo run -- notes.txt            # open a .txt file (everything after -- goes to the app)
-cargo run -- ~/Documents/<projects folder>/Nyx/Nyx.wdp   # open a project
+cargo run -- ~/Documents/Dovetail/Nyx/Nyx.dovetail     # open a project
 
 cargo test                        # run every test
 cargo test autosave               # run only tests whose name contains "autosave"
@@ -145,6 +143,7 @@ holds only drawing and event wiring.
 ```
 Cargo.toml, Cargo.lock   dependencies (see "Rust in plain terms")
 assets/fonts/            the bundled JetBrains Mono Nerd Font and its licence
+assets/icon/             the app icon (SVGs for the installer, a 64px raw RGBA copy for the window)
 docs/                    spec.md (the design), design-tokens.json (the Gruvbox palette)
 scripts/install.sh       installs the binary, .desktop file and MIME type
 src/
@@ -212,7 +211,8 @@ files (`pub mod save;`); keep that list current. Tests sit at the bottom of the 
   and active, aqua for success, `accent-warm` (orange) for warnings. **No red, ever.** Every status
   also carries a word, not colour alone.
 - **One font**: JetBrains Mono Nerd Font (bundled in [assets/fonts/](assets/fonts/), OFL licensed),
-  in the UI and the editor. Nerd Font glyphs are the icons; there are no image icons.
+  in the UI and the editor. Nerd Font glyphs are the in-app icons; the only image is the app icon in
+  [assets/icon/](assets/icon/).
 - **No branding in the UI**: no logo, no app name in the window.
 - **Settings** live in `~/.config/<config dir>/settings.toml` (hand-editable), apply instantly, and
   unknown or missing keys fall back to defaults instead of failing.

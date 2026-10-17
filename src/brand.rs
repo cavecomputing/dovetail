@@ -2,22 +2,22 @@
 //! this one file (plus `name` in Cargo.toml, which sets the binary's file name).
 
 /// The app's display name, used in window titles, the `.desktop` entry and folder names.
-pub const APP_NAME: &str = "Word Designer";
+pub const APP_NAME: &str = "Dovetail";
 
 /// The binary and command name. Must match `[package] name` in Cargo.toml.
-pub const BIN_NAME: &str = "word-designer";
+pub const BIN_NAME: &str = "dovetail";
 
 /// Reverse-DNS application id: the Wayland app id, the `.desktop` file name and the MIME prefix.
-pub const APP_ID: &str = "io.cavecomputing.WordDesigner";
+pub const APP_ID: &str = "io.cavecomputing.Dovetail";
 
 /// File extension of a project manifest, without the dot.
-pub const PROJECT_EXT: &str = "wdp";
+pub const PROJECT_EXT: &str = "dovetail";
 
 /// MIME type registered for project manifests.
-pub const PROJECT_MIME: &str = "application/x-word-designer-project";
+pub const PROJECT_MIME: &str = "application/x-dovetail-project";
 
 /// Folder name under `~/.config/` and `~/.local/share/`.
-pub const CONFIG_DIR_NAME: &str = "word-designer";
+pub const CONFIG_DIR_NAME: &str = "dovetail";
 
 /// Folder under `~/Documents/` where new projects are created.
-pub const PROJECTS_DIR_NAME: &str = "Word Designer";
+pub const PROJECTS_DIR_NAME: &str = "Dovetail";
