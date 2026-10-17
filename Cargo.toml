@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.104"
 directories = "6.0.0"
+git2 = { version = "0.21.0", default-features = false, features = ["vendored-libgit2"] }
 iced = { version = "0.14", features = ["tokio", "advanced", "tiny-skia", "wgpu"] }
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
 serde = { version = "1.0.229", features = ["derive"] }

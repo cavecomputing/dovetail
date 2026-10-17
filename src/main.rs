@@ -1,12 +1,13 @@
 //! Entry point: reads the command line and decides what this window opens.
 //!
 //! - no arguments: the scratch space
-//! - a project manifest (`.<PROJECT_EXT>`): that project (phase 2)
+//! - a project manifest (`.<PROJECT_EXT>`): that project
 //! - any other path: that text file, created if missing
 //! - `--print-brand`: prints the names from `brand.rs` for `scripts/install.sh`, then exits
 
 mod brand;
 mod core;
+mod project;
 mod ui;
 
 use std::path::{Path, PathBuf};

@@ -9,8 +9,9 @@ use crate::core::lock::{claim_lock, file_lock_path};
 use crate::core::paths::Paths;
 use crate::core::recent::remember;
 use crate::core::save::{atomic_write, check_writable};
-use crate::core::scratch::{ScratchState, claim_scratch};
+use crate::core::scratch::{ScratchState, claim_scratch, take_cleared};
 use crate::core::text_file::{DiskStamp, LineEnding, read_text};
+use crate::project::DRAFT_FILE;
 
 /// What a window is showing.
 #[derive(Debug, Clone)]
@@ -20,6 +21,7 @@ pub enum Doc {
         path: PathBuf,
         line_ending: LineEnding,
     },
+    /// A project, by its manifest's path. The window edits its `draft.txt`.
     Project(PathBuf),
 }
 
@@ -30,12 +32,16 @@ pub struct OpenedDoc {
     pub text: String,
     /// Where to put the cursor, as (line, byte column); `None` leaves it at the start.
     pub cursor: Option<(usize, usize)>,
+    /// The line to show at the top of the view; `None` leaves the view around the cursor.
+    pub scroll_line: Option<usize>,
     /// Why the text can't be edited; `None` means it can.
     pub read_only_reason: Option<String>,
     /// The lock that keeps other windows off this document. Hold it while the window is open.
     pub lock: Option<File>,
     /// The file on disk as it was read, so a save can tell if someone else changed it.
     pub disk_stamp: Option<DiskStamp>,
+    /// What a Rewrite cleared from scratch, for the window to offer as its first undo step.
+    pub cleared_scratch: Option<String>,
 }
 
 /// Opens `doc`: claims it so no second window edits it, reads it, and decides whether it can be
@@ -45,9 +51,11 @@ pub fn open_doc(doc: Doc, paths: &Paths) -> OpenedDoc {
         doc: doc.clone(),
         text: String::new(),
         cursor: None,
+        scroll_line: None,
         read_only_reason: None,
         lock: None,
         disk_stamp: None,
+        cleared_scratch: None,
     };
     match doc {
         Doc::Scratch => {
@@ -56,6 +64,7 @@ pub fn open_doc(doc: Doc, paths: &Paths) -> OpenedDoc {
                 Ok(scratch) => {
                     opened.text = scratch.text.clone();
                     opened.cursor = Some(scratch.cursor());
+                    opened.scroll_line = scratch.view.scroll_line;
                 }
                 Err(error) => {
                     opened.read_only_reason = Some(format!("Couldn't read scratch: {error}"));
@@ -67,7 +76,10 @@ pub fn open_doc(doc: Doc, paths: &Paths) -> OpenedDoc {
                 }
                 // Without a lock file there is nothing to guard with, so carry on.
                 Err(TryLockError::Error(_)) => {}
-                Ok(lock) => opened.lock = Some(lock),
+                Ok(lock) => {
+                    opened.lock = Some(lock);
+                    opened.cleared_scratch = take_cleared(&paths.data_dir);
+                }
             }
         }
         Doc::File { path, .. } => {
@@ -87,21 +99,29 @@ pub fn open_doc(doc: Doc, paths: &Paths) -> OpenedDoc {
                 }
                 Err(error) => opened.read_only_reason = Some(format!("Couldn't open: {error}")),
             }
-            if opened.read_only_reason.is_none() {
-                match claim_lock(&file_lock_path(&paths.data_dir, &path)) {
-                    Err(TryLockError::WouldBlock) => {
-                        opened.read_only_reason = Some("Open in another window".to_string());
-                    }
-                    Err(TryLockError::Error(_)) => {}
-                    Ok(lock) => opened.lock = Some(lock),
-                }
-            }
             opened.disk_stamp = DiskStamp::of(&path);
             opened.doc = Doc::File { path, line_ending };
         }
-        Doc::Project(_) => {
-            opened.read_only_reason = Some("Projects arrive in phase 2".to_string());
+        Doc::Project(path) => {
+            let _ = remember(&paths.data_dir, &path);
+            match read_text(&path.with_file_name(DRAFT_FILE)) {
+                Ok(file) => opened.text = file.text,
+                Err(error) if error.kind() == ErrorKind::NotFound => {}
+                Err(error) => opened.read_only_reason = Some(format!("Couldn't open: {error}")),
+            }
         }
+    }
+    if let Doc::File { path, .. } | Doc::Project(path) = &opened.doc
+        && opened.read_only_reason.is_none()
+    {
+        opened.lock = match claim_lock(&file_lock_path(&paths.data_dir, path)) {
+            Err(TryLockError::WouldBlock) => {
+                opened.read_only_reason = Some("Open in another window".to_string());
+                None
+            }
+            Err(TryLockError::Error(_)) => None,
+            Ok(lock) => Some(lock),
+        };
     }
     opened
 }
@@ -142,6 +162,10 @@ mod tests {
         assert!(opened.read_only_reason.is_none());
         // Byte 4 is inside "é"; it's moved back to the start of the character.
         assert_eq!(opened.cursor, Some((0, 3)));
+        assert_eq!(
+            opened.scroll_line, None,
+            "an older scratch.json has no scroll line"
+        );
     }
 
     #[test]
@@ -226,9 +250,34 @@ mod tests {
     }
 
     #[test]
-    fn project_is_read_only_until_phase_2() {
+    fn project_opens_its_draft_and_is_locked_to_one_window() {
         let dir = tempfile::tempdir().unwrap();
-        let opened = open_doc(Doc::Project("x".into()), &Paths::under(dir.path()));
-        assert!(opened.read_only_reason.is_some());
+        let paths = Paths::under(dir.path());
+        let project = crate::project::create_project(&paths.projects_dir, "Nyx").unwrap();
+        atomic_write(&project.draft_path(), b"Nyx, rewritten").unwrap();
+        let first = open_doc(Doc::Project(project.manifest_path()), &paths);
+        assert_eq!(first.text, "Nyx, rewritten");
+        assert!(first.read_only_reason.is_none());
+        let second = open_doc(Doc::Project(project.manifest_path()), &paths);
+        assert_eq!(
+            second.read_only_reason.as_deref(),
+            Some("Open in another window")
+        );
+        assert_eq!(
+            crate::core::recent::recent_files(&paths.data_dir),
+            vec![project.manifest_path()]
+        );
+    }
+
+    #[test]
+    fn scratch_offers_what_a_rewrite_cleared_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::under(dir.path());
+        crate::core::scratch::clear_scratch(&paths.data_dir, "old").unwrap();
+        let first = open_doc(Doc::Scratch, &paths);
+        assert_eq!(first.text, "");
+        assert_eq!(first.cleared_scratch.as_deref(), Some("old"));
+        drop(first);
+        assert_eq!(open_doc(Doc::Scratch, &paths).cleared_scratch, None);
     }
 }

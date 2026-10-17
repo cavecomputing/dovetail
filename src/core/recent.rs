@@ -32,6 +32,29 @@ pub fn remember(data_dir: &Path, path: &Path) -> io::Result<()> {
     atomic_write(&data_dir.join(RECENT_FILE), text.as_bytes())
 }
 
+/// How well `query` fuzzy-matches `label`, higher is better; `None` if it doesn't match at all.
+/// Every query character must appear in `label` in order (ignoring case). Characters that follow
+/// one another, or start a word, score more, so "nyx" ranks "Nyx" above "a noisy x".
+pub fn match_score(query: &str, label: &str) -> Option<i32> {
+    let label: Vec<char> = label.to_lowercase().chars().collect();
+    let mut score = 0;
+    let mut from = 0;
+    let mut previous: Option<usize> = None;
+    for wanted in query.to_lowercase().chars().filter(|c| !c.is_whitespace()) {
+        let found = from + label[from..].iter().position(|&c| c == wanted)?;
+        score += 1;
+        if previous == Some(found.wrapping_sub(1)) {
+            score += 4;
+        }
+        if found == 0 || !label[found - 1].is_alphanumeric() {
+            score += 3;
+        }
+        previous = Some(found);
+        from = found + 1;
+    }
+    Some(score)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -63,5 +86,14 @@ mod tests {
         let list = recent_files(dir.path());
         assert_eq!(list.len(), MAX_RECENT);
         assert_eq!(list[0], PathBuf::from("/14.txt"));
+    }
+
+    #[test]
+    fn fuzzy_matching_needs_the_letters_in_order() {
+        assert!(match_score("nyx", "Nyx is a").is_some());
+        assert!(match_score("NX", "nyx").is_some());
+        assert!(match_score("xn", "nyx").is_none());
+        assert_eq!(match_score("", "anything"), Some(0));
+        assert!(match_score("nyx", "Nyx").unwrap() > match_score("nyx", "a noisy x").unwrap());
     }
 }
