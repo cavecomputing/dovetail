@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Word Designer with Claude pane</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/cavecomputing/components/bundle.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.stage{--bg-page:#1d2021;--bg-surface:#282828;--bg-raised:#32302f;--bg-inset:#3c3836;--border:#3c3836;--border-soft:#32302f;--fg:#ebdbb2;--fg-muted:#a89984;--fg-subtle:#7c6f64;--accent:#fabd2f;--accent-text:#fabd2f;--accent-alt:#b8bb26;--accent-cool:#83a598;--accent-warm:#fe8019;--accent-rose:#d3869b;--accent-aqua:#8ec07c;--accent-aqua-text:#8ec07c;--btn-bg:#fabd2f;--btn-fg:#1d2021;--shadow:0 1px 2px rgba(0,0,0,.35),0 8px 24px rgba(0,0,0,.22);--shadow-card:0 1px 2px rgba(0,0,0,.30),0 4px 12px rgba(0,0,0,.20);--shadow-lift:0 2px 4px rgba(0,0,0,.32),0 12px 28px rgba(0,0,0,.34);--font-mono:"JetBrainsMono Nerd Font","JetBrains Mono",ui-monospace,monospace;--font-sans:"JetBrainsMono Nerd Font","JetBrains Mono",ui-monospace,monospace;--radius-sm:6px;--radius:10px;--radius-lg:14px;--space-1:6px;--space-2:10px;--space-3:16px;--space-4:24px;--app-space-1:4px;--app-space-2:6px;--app-space-3:8px;--app-space-4:12px;--app-space-5:16px;--app-space-6:24px;--shell-gap:10px;--topbar-height:56px;--topbar-pad-start:16px;--topbar-pad-end:12px;--topbar-gap:6px;--topbar-brand-gap:18px;--control-height:38px;--icon-btn-size:36px}
+.stage.light{--bg-page:#f9f5d7;--bg-surface:#fbf1c7;--bg-raised:#f2e5bc;--bg-inset:#ebdbb2;--border:#e0d3ac;--border-soft:#ebdbb2;--fg:#3c3836;--fg-muted:#665c54;--fg-subtle:#7c6f64;--accent:#b57614;--accent-text:#8a5a0e;--accent-alt:#79740e;--accent-cool:#076678;--accent-warm:#af3a03;--accent-rose:#8f3f71;--accent-aqua:#427b58;--accent-aqua-text:#376b4b;--btn-bg:#79740e;--btn-fg:#fbf1c7;--shadow:0 1px 2px rgba(60,56,54,.10),0 8px 24px rgba(60,56,54,.07);--shadow-card:0 1px 2px rgba(60,56,54,.07),0 4px 12px rgba(60,56,54,.07);--shadow-lift:0 2px 4px rgba(60,56,54,.09),0 12px 26px rgba(60,56,54,.13)}
+.c-agency{--c:var(--accent-aqua)}.c-auto{--c:var(--accent-cool)}.c-know{--c:var(--accent-rose)}.c-prose{--c:var(--accent)}.c-slow{--c:var(--accent-warm)}.c-mature{--c:var(--fg-subtle)}
+.pt{background:color-mix(in srgb,var(--c) 22%,transparent);border-radius:3px;padding:1px 0;-webkit-box-decoration-break:clone;box-decoration-break:clone}
+.pt.missing{outline:1.5px dashed var(--accent-warm);outline-offset:1px}
+.pt.cut{background:transparent;color:var(--fg-muted);text-decoration:line-through;text-decoration-color:var(--fg-subtle)}
+.ghost{background:color-mix(in srgb,var(--c) 12%,transparent);border-bottom:1.5px dashed var(--c);border-radius:3px 3px 0 0;font-style:italic}
+.mac{font-family:var(--font-mono);font-size:.86em;color:var(--accent-cool)}
+.xml{font-family:var(--font-mono);font-size:12.5px;color:var(--fg-muted);margin:0}
+.para{display:grid;grid-template-columns:10px minmax(0,1fr);gap:12px}
+.gut{display:flex;gap:3px;padding:4px 0}
+.gut i{display:block;width:3px;border-radius:2px;background:var(--c)}
+.gut i.pending{background:transparent;border:1px dashed var(--c);width:1px}
+.para p{margin:0}
+.mini{display:inline-flex;align-items:center;gap:4px;vertical-align:1px;margin-left:6px}
+.mini button{font-family:var(--font-mono);font-size:11px;font-weight:600;padding:2px 7px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-raised);color:var(--fg);cursor:pointer;font-style:normal}
+.mini button.yes{background:var(--btn-bg);color:var(--btn-fg);border-color:transparent}
+.ctx{display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border:1px solid var(--border);border-radius:999px;font-family:var(--font-mono);font-size:11px;color:var(--fg-muted);background:var(--bg-inset)}
+.ctx--focus{color:var(--accent-text);border-color:color-mix(in srgb,var(--accent-text) 50%,var(--border))}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--c);flex:none}
+.saving{animation:breathe 1.4s ease-in-out infinite}
+@keyframes breathe{0%,100%{opacity:.35}50%{opacity:1}}
+@media (prefers-reduced-motion:reduce){.saving{animation:none}}
+@media (max-width:1100px){.panes{grid-template-columns:minmax(0,1fr) minmax(300px,380px)!important}.oldpane{display:none!important}}
+@media (max-width:760px){.panes{grid-template-columns:minmax(0,1fr)!important}.draftpane{display:none!important}}
+</style>
+</helmet>
+<div class="stage {{themeClass}}" style="min-height: 100vh; box-sizing: border-box; background: var(--bg-surface); display: flex;">
+<div class="cc-shell" style="flex: 1; flex-direction: column; min-height: 900px; border: 0; border-radius: 0; box-shadow: none;">
+
+<header style="display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 8px; height: 32px; padding: 0 4px 0 6px; background: var(--bg-surface); user-select: none;">
+<div style="display: flex; align-items: center; gap: 2px;">
+</div>
+<div style="text-align: center; line-height: 1.25; min-width: 0;">
+</div>
+<div style="display: flex; align-items: center; justify-content: flex-end; gap: 4px;">
+<div style="display: flex; gap: 6px; margin-left: 8px;">
+<button aria-label="Minimize" style="width: 28px; height: 24px; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--fg-muted); cursor: pointer;"><svg viewBox="0 0 24 24" style="width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round;"><path d="M6 12h12"></path></svg></button>
+<button aria-label="Maximize" style="width: 28px; height: 24px; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--fg-muted); cursor: pointer;"><svg viewBox="0 0 24 24" style="width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2.5;"><rect x="6" y="6" width="12" height="12" rx="1"></rect></svg></button>
+<button aria-label="Close window" style="width: 28px; height: 24px; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--fg-muted); cursor: pointer;"><svg viewBox="0 0 24 24" style="width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round;"><path d="M7 7l10 10"></path><path d="M17 7L7 17"></path></svg></button>
+</div>
+</div>
+</header>
+
+<div class="panes" style="flex: 1; display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr) 380px; min-height: 0;">
+
+<section class="oldpane" style="display: flex; flex-direction: column; min-width: 0; border-right: 1px solid var(--border);">
+<div style="display: flex; align-items: center; gap: 10px; padding: 14px 20px 12px; border-bottom: 1px solid var(--border-soft);">
+<span style="font-family: var(--font-mono); font-size: 13px; font-weight: 700;">v3</span>
+<span style="font-family: var(--font-mono); font-size: 12px; color: var(--fg-muted);">committed</span>
+<div style="flex: 1;"></div>
+<span style="font-family: var(--font-mono); font-size: 12px; color: var(--fg-muted);">286 tokens</span>
+</div>
+<div style="flex: 1; overflow: auto; padding: 24px 20px; opacity: .8;">
+<div style="display: flex; flex-direction: column; gap: 16px; font-size: 14px; line-height: 1.65; color: var(--fg-muted);">
+<p class="xml">&lt;post_history_instructions status="enabled"&gt;</p>
+<div class="para"><div class="gut"><i class="c-prose"></i><i class="c-slow"></i><i class="c-agency"></i><i class="c-mature"></i></div>
+<p><span class="pt c-prose">Respond with 1-2 paragraphs using "show, don't tell", driving the story forward in interesting ways. Keep scenes grounded with nuanced descriptions and natural-sounding dialogue.</span> <span class="pt c-slow missing">Use a slow-burn pace while avoiding melodrama</span> <span class="pt c-agency">and leave openings for <span class="mac">{{user}}</span>'s physical or social engagement.</span> <span class="pt cut">You are allowed to explore mature themes that align with the narrative and are encouraged to do so.</span> <span class="pt c-prose">Vary your prose and avoid repetitive phrases or formulaic descriptions; keep each response fresh and unique.</span></p></div>
+<p class="xml">&lt;/post_history_instructions&gt;</p>
+</div>
+</div>
+</section>
+
+<section class="draftpane" style="display: flex; flex-direction: column; min-width: 0; border-right: 1px solid var(--border);">
+<div style="display: flex; align-items: center; gap: 10px; padding: 14px 24px 12px; border-bottom: 1px solid var(--border-soft);">
+<span style="font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: var(--accent-text);">Draft</span>
+<span style="font-family: var(--font-mono); font-size: 12px; color: var(--fg-muted);">1 suggestion waiting</span>
+<div style="flex: 1;"></div>
+<span style="font-family: var(--font-mono); font-size: 12px; color: var(--fg-muted);">157 → 166 tokens</span>
+</div>
+<div style="flex: 1; overflow: auto; padding: 24px 24px;">
+<div style="max-width: 34rem; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; font-size: 15px; line-height: 1.7; color: var(--fg);">
+<p class="xml">&lt;post_history_instructions status="enabled"&gt;</p>
+<div class="para"><div class="gut"><i class="c-prose"></i><i class="c-agency"></i><i class="c-slow pending"></i></div>
+<p><span class="pt c-prose">Write 1–2 paragraphs. Show, don't tell. Keep scenes grounded and dialogue natural.</span> <span class="ghost c-slow">Let tension build slowly; skip the melodrama.</span><span class="mini"><button class="yes" aria-label="Accept suggestion">Accept</button><button aria-label="Reject suggestion">Reject</button></span> <span class="pt c-agency">Leave room for <span class="mac">{{user}}</span> to act.</span> <span class="pt c-prose">Vary your prose and never reuse a phrasing.</span></p></div>
+<div class="para"><div class="gut"></div><p style="color: var(--fg-muted);">((OOC: notes like this are narrative guidance.))</p></div>
+<p class="xml">&lt;/post_history_instructions&gt;</p>
+</div>
+</div>
+</section>
+
+<aside style="display: flex; flex-direction: column; min-width: 0; min-height: 0;">
+<div style="display: flex; flex-direction: column; gap: 10px; padding: 14px 16px 12px; border-bottom: 1px solid var(--border-soft);">
+<div style="display: flex; align-items: center; gap: 8px;">
+<span style="font-family: var(--font-mono); font-size: 13px; font-weight: 700;">Claude</span>
+<span style="font-family: var(--font-mono); font-size: 12px; color: var(--fg-muted);">suggests only</span>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 6px;">
+<span class="ctx ctx--focus">Focus: post_history_instructions</span>
+<span class="ctx">Sees v3 + draft</span>
+<span class="ctx">7 ideas + notes</span>
+</div>
+</div>
+<div class="cc-chat-fade" style="flex: 1; overflow: auto; padding: 20px 16px 24px;">
+<div class="cc-chat" style="font-size: 14px; gap: 20px;">
+<div class="cc-msg cc-msg--user"><p>Slow burn fell out. Can you fold it back in without adding much?</p></div>
+<div class="cc-msg">
+<p>Slow burn was 4% of v3 and has no text in the draft. Your pacing line is the natural home for it, so I kept it to one short sentence.</p>
+<p>I left "avoiding melodrama" in, since it carried most of the feeling in the original.</p>
+</div>
+<div class="c-slow" style="display: flex; flex-direction: column; gap: 10px; padding: 12px; background: var(--bg-raised); border: 1px solid var(--border); border-radius: var(--radius);">
+<div style="display: flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 12px;"><span class="dot"></span><span>Paints Slow burn</span><div style="flex: 1;"></div><span style="color: var(--fg-muted);">+8 words · +9 tokens</span></div>
+<p style="margin: 0; font-size: 14px; font-style: italic; color: var(--fg);">"Let tension build slowly; skip the melodrama."</p>
+<div style="display: flex; gap: 8px;"><button class="cc-btn cc-btn--primary" style="padding: 6px 12px;"><span>Accept</span></button><button class="cc-btn cc-btn--ghost" style="padding: 6px 12px;"><span>Reject</span></button><button class="cc-btn" style="padding: 6px 12px; color: var(--fg-muted);"><span>Try shorter</span></button></div>
+</div>
+</div>
+</div>
+<div style="padding: 0 12px 12px;">
+<label class="cc-composer" style="cursor: text;">
+<input aria-label="Message Claude" placeholder="Ask about this section…" style="flex: 1; min-width: 0; border: 0; background: transparent; color: var(--fg); font-family: var(--font-sans); font-size: 14px; outline: none;">
+<button class="cc-btn cc-btn--primary" style="padding: 6px 12px;"><span>Send</span></button>
+</label>
+</div>
+</aside>
+
+</div>
+<div role="status" style="display: flex; align-items: center; gap: 16px; height: 24px; padding: 0 12px; border-top: 1px solid var(--border); background: var(--bg-page); font-family: var(--font-mono); font-size: 11px; color: var(--fg-muted); white-space: nowrap; overflow: hidden;">
+<button aria-label="Main menu" title="Menu" style="display: grid; place-items: center; width: 22px; height: 20px; margin-left: -6px; margin-right: -6px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--fg-muted); cursor: pointer;"><svg viewBox="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round;"><path d="M4 6h16"></path><path d="M4 12h16"></path><path d="M4 18h16"></path></svg></button>
+<span role="img" aria-label="Saving" title="Saving…" class="saving" style="width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex: none;"></span>
+<span>~/Documents/Word Designer/Nyx</span>
+<span>v3 → draft</span>
+<span>1 suggestion</span>
+<span style="flex: 1;"></span>
+<span>118 words</span>
+<span title="o200k tokenizer · UTF-8">157 tokens</span>
+<span style="color: var(--accent-aqua-text);">−45% vs v3</span>
+<button aria-label="Close Claude" title="Claude" style="display: grid; place-items: center; width: 22px; height: 20px; margin-right: -8px; padding: 0; border: 0; border-radius: 4px; background: var(--border); color: var(--accent-text); cursor: pointer;"><svg viewBox="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round;"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"></path></svg></button>
+<button style="margin-right: -6px; padding: 1px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-raised); color: var(--fg); font-family: var(--font-mono); font-size: 11px; cursor: pointer;">Commit v4</button>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      themeClass: (this.props.theme ?? 'dark') === 'light' ? 'light' : '',
+      char: '{{char}}',
+      user: '{{user}}'
+    };
+  }
+}
+</script>
+</body>
+</html>

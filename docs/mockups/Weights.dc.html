@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Idea weights panel</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.stage{--bg-page:#1d2021;--bg-surface:#282828;--bg-raised:#32302f;--bg-inset:#3c3836;--border:#3c3836;--border-soft:#32302f;--fg:#ebdbb2;--fg-muted:#a89984;--fg-subtle:#7c6f64;--accent:#fabd2f;--accent-text:#fabd2f;--accent-cool:#83a598;--accent-warm:#fe8019;--accent-rose:#d3869b;--accent-aqua:#8ec07c;--font-mono:"JetBrainsMono Nerd Font","JetBrains Mono",ui-monospace,monospace;--radius-sm:6px}
+.stage.light{--bg-page:#f9f5d7;--bg-surface:#fbf1c7;--bg-raised:#f2e5bc;--bg-inset:#ebdbb2;--border:#e0d3ac;--border-soft:#ebdbb2;--fg:#3c3836;--fg-muted:#665c54;--fg-subtle:#7c6f64;--accent:#b57614;--accent-text:#8a5a0e;--accent-cool:#076678;--accent-warm:#af3a03;--accent-rose:#8f3f71;--accent-aqua:#427b58}
+.c-agency{--c:var(--accent-aqua)}.c-auto{--c:var(--accent-cool)}.c-know{--c:var(--accent-rose)}.c-prose{--c:var(--accent)}.c-slow{--c:var(--accent-warm)}.c-mature{--c:var(--fg-subtle)}.c-none{--c:var(--fg-subtle)}
+.row{display:grid;grid-template-columns:minmax(0,1fr) 180px 110px;gap:20px;align-items:center;height:28px;font-size:13px}
+.topic{margin-top:14px;font-size:12px;color:var(--fg-subtle)}
+.topic:first-child{margin-top:0}
+.topic .bar{visibility:hidden}
+.topic .val{color:var(--fg-subtle)}
+.name{display:flex;align-items:baseline;gap:8px;min-width:0;white-space:nowrap}
+.name b{font-weight:400;color:var(--fg)}
+.name small{font-size:12px;color:var(--fg-subtle);overflow:hidden;text-overflow:ellipsis}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--c);flex:none;align-self:center}
+.bar{position:relative;height:3px;border-radius:2px;background:var(--border-soft)}
+.bar i{position:absolute;inset:0 auto 0 0;border-radius:2px}
+.bar .o{background:var(--c);opacity:.3}
+.bar .n{background:var(--c)}
+.val{text-align:right;font-size:12px;color:var(--fg-muted)}
+.val.warn{color:var(--accent-warm)}
+.val.cut{color:var(--fg-subtle)}
+.m{border:0;background:transparent;padding:0;font:inherit;font-size:12px;color:var(--fg-subtle);cursor:pointer}
+.m.on{color:var(--accent-text)}
+</style>
+</helmet>
+<div class="stage {{themeClass}}" style="width: 880px; height: 640px; box-sizing: border-box; padding: 28px 32px; background: var(--bg-surface); color: var(--fg); font-family: var(--font-mono); display: flex; flex-direction: column;">
+
+<div style="display: flex; align-items: baseline; gap: 12px; margin-bottom: 20px; font-size: 13px;">
+<span>Idea weights</span>
+<span style="color: var(--fg-subtle); font-size: 12px;">v3 → draft</span>
+<span style="flex: 1;"></span>
+<span role="group" aria-label="Measure" style="display: flex; gap: 8px; align-items: baseline;"><button class="m on">%</button><span style="color: var(--fg-subtle); font-size: 12px;">·</span><button class="m">tokens</button><span style="color: var(--fg-subtle); font-size: 12px;">·</span><button class="m">words</button></span>
+</div>
+
+<div style="flex: 1; overflow: auto;">
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="9">
+<div class="row {{r.rowCls}} {{r.cls}}">
+<div class="name">
+<sc-if value="{{r.idea}}" hint-placeholder-val="{{true}}"><span class="dot"></span></sc-if>
+<b>{{r.name}}</b>
+<sc-if value="{{r.note}}" hint-placeholder-val="{{true}}"><small>{{r.note}}</small></sc-if>
+</div>
+<div class="bar" aria-hidden="true"><i class="o" style="width: {{r.oldW}}%;"></i><i class="n" style="width: {{r.newW}}%;"></i></div>
+<div class="val {{r.valCls}}">{{r.label}}</div>
+</div>
+</sc-for>
+</div>
+
+<div style="display: flex; align-items: center; gap: 8px; padding-top: 14px; border-top: 1px solid var(--border); font-size: 12px; color: var(--fg-muted);">
+<span aria-hidden="true" style="width: 7px; height: 7px; border-radius: 50%; background: var(--accent-warm);"></span>
+<span><span style="color: var(--accent-warm);">Slow burn</span> has no text in the draft</span>
+<span style="flex: 1;"></span>
+<span style="color: var(--fg-subtle);">faint = v3 · overlaps count twice</span>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"$preview":{"width":880,"height":640}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const scale = 50;
+    const t = (name, old, now) => ({ name, old, now, topic: true, rowCls: 'topic' });
+    const i = (name, cls, old, now, note, state) => ({ name, cls, old, now, note, state, idea: true });
+    const raw = [
+      t('system_instructions', 41, 47),
+      i('{{user}}\'s agency', 'c-agency', 11, 16, 'they lead; never puppet them'),
+      i('Autonomy', 'c-auto', 17, 15, 'pushes back, not a yes-machine'),
+      i('Knowledge limits', 'c-know', 13, 16, 'no mind-reading'),
+      t('post_history', 46, 38),
+      i('Prose style', 'c-prose', 33, 38, 'vivid but restrained'),
+      i('Slow burn', 'c-slow', 4, 0, 'tension simmers, never rushed', 'missing'),
+      i('Mature themes', 'c-mature', 9, 0, '', 'cut'),
+      i('Unpainted', 'c-none', 13, 9, '')
+    ];
+    const rows = raw.map((r) => {
+      let label = r.old + '% → ' + r.now + '%';
+      let valCls = '';
+      if (r.state === 'missing') { label = r.old + '% → missing'; valCls = 'warn'; }
+      if (r.state === 'cut') { label = 'cut on purpose'; valCls = 'cut'; }
+      const isTopic = !!r.topic;
+      return { ...r, label, valCls, cls: r.cls || '', note: r.note || '', idea: !!r.idea, rowCls: r.rowCls || '', oldW: isTopic ? 0 : Math.round(r.old / scale * 100), newW: isTopic ? 0 : Math.round(r.now / scale * 100) };
+    });
+    return { themeClass: (this.props.theme ?? 'dark') === 'light' ? 'light' : '', rows };
+  }
+}
+</script>
+</body>
+</html>

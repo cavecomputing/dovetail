@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Word Designer writing view</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/cavecomputing/components/bundle.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.stage{--bg-page:#1d2021;--bg-surface:#282828;--bg-raised:#32302f;--bg-inset:#3c3836;--border:#3c3836;--border-soft:#32302f;--fg:#ebdbb2;--fg-muted:#a89984;--fg-subtle:#7c6f64;--accent:#fabd2f;--accent-text:#fabd2f;--accent-alt:#b8bb26;--accent-cool:#83a598;--accent-warm:#fe8019;--accent-rose:#d3869b;--accent-aqua:#8ec07c;--accent-aqua-text:#8ec07c;--btn-bg:#fabd2f;--btn-fg:#1d2021;--shadow:0 1px 2px rgba(0,0,0,.35),0 8px 24px rgba(0,0,0,.22);--shadow-card:0 1px 2px rgba(0,0,0,.30),0 4px 12px rgba(0,0,0,.20);--shadow-lift:0 2px 4px rgba(0,0,0,.32),0 12px 28px rgba(0,0,0,.34);--font-mono:"JetBrainsMono Nerd Font","JetBrains Mono",ui-monospace,monospace;--font-sans:"JetBrainsMono Nerd Font","JetBrains Mono",ui-monospace,monospace;--radius-sm:6px;--radius:10px;--radius-lg:14px;--space-1:6px;--space-2:10px;--space-3:16px;--space-4:24px;--app-space-1:4px;--app-space-2:6px;--app-space-3:8px;--app-space-4:12px;--app-space-5:16px;--app-space-6:24px;--shell-gap:10px;--topbar-height:56px;--topbar-pad-start:16px;--topbar-pad-end:12px;--topbar-gap:6px;--topbar-brand-gap:18px;--control-height:38px;--icon-btn-size:36px}
+.stage.light{--bg-page:#f9f5d7;--bg-surface:#fbf1c7;--bg-raised:#f2e5bc;--bg-inset:#ebdbb2;--border:#e0d3ac;--border-soft:#ebdbb2;--fg:#3c3836;--fg-muted:#665c54;--fg-subtle:#7c6f64;--accent:#b57614;--accent-text:#8a5a0e;--accent-alt:#79740e;--accent-cool:#076678;--accent-warm:#af3a03;--accent-rose:#8f3f71;--accent-aqua:#427b58;--accent-aqua-text:#376b4b;--btn-bg:#79740e;--btn-fg:#fbf1c7;--shadow:0 1px 2px rgba(60,56,54,.10),0 8px 24px rgba(60,56,54,.07);--shadow-card:0 1px 2px rgba(60,56,54,.07),0 4px 12px rgba(60,56,54,.07);--shadow-lift:0 2px 4px rgba(60,56,54,.09),0 12px 26px rgba(60,56,54,.13)}
+.c-agency{--c:var(--accent-aqua)}.c-auto{--c:var(--accent-cool)}.c-know{--c:var(--accent-rose)}.c-prose{--c:var(--accent)}.c-slow{--c:var(--accent-warm)}.c-mature{--c:var(--fg-subtle)}.c-none{--c:var(--border)}
+.pt{background:color-mix(in srgb,var(--c) 22%,transparent);border-radius:3px;padding:1px 0;-webkit-box-decoration-break:clone;box-decoration-break:clone}
+.pt.missing{outline:1.5px dashed var(--accent-warm);outline-offset:1px}
+.pt.cut{background:transparent;color:var(--fg-muted);text-decoration:line-through;text-decoration-color:var(--fg-subtle)}
+.mac{font-family:var(--font-mono);font-size:.86em;color:var(--accent-cool)}
+.xml{font-family:var(--font-mono);font-size:12.5px;color:var(--fg-muted);margin:0}
+.para{display:grid;grid-template-columns:10px minmax(0,1fr);gap:12px}
+.gut{display:flex;gap:3px;padding:4px 0}
+.gut i{display:block;width:3px;border-radius:2px;background:var(--c)}
+.para p{margin:0}
+.caret{display:inline-block;width:2px;height:1.15em;vertical-align:-3px;margin-left:1px;background:var(--accent-text);animation:blink 1.1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+.chip{display:flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-raised);font-family:var(--font-mono);font-size:12px;color:var(--fg);white-space:nowrap;cursor:pointer}
+.chip--warn{border-color:color-mix(in srgb,var(--accent-warm) 60%,var(--border))}
+.chip--cut{background:transparent;color:var(--fg-muted)}
+.chip--active{border-color:var(--accent-text);box-shadow:0 0 0 1px var(--accent-text) inset}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--c);flex:none}
+.bars{display:flex;flex-direction:column;gap:2px;width:44px}
+.bars span{display:block;height:3px;border-radius:2px;background:var(--c)}
+.bars .old{opacity:.35}
+@media (max-width:900px){.panes{grid-template-columns:minmax(0,1fr)!important}.panes>section:first-child{border-right:0!important;border-bottom:1px solid var(--border)}.hide-sm{display:none!important}}
+@media (prefers-reduced-motion:reduce){.caret{animation:none}}
+</style>
+</helmet>
+<div class="stage {{themeClass}}" style="min-height: 100vh; box-sizing: border-box; background: var(--bg-surface); display: flex;">
+<div class="cc-shell" style="flex: 1; flex-direction: column; min-height: 900px; border: 0; border-radius: 0; box-shadow: none;">
+
+<header style="display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 8px; height: 32px; padding: 0 4px 0 6px; background: var(--bg-surface); user-select: none;">
+<div style="display: flex; align-items: center; gap: 2px;">
+</div>
+<div style="text-align: center; line-height: 1.25; min-width: 0;">
+</div>
+<div style="display: flex; align-items: center; justify-content: flex-end; gap: 4px;">
+<div style="display: flex; gap: 6px; margin-left: 8px;">
+<button aria-label="Minimize" style="width: 28px; height: 24px; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--fg-muted); cursor: pointer;"><svg viewBox="0 0 24 24" style="width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round;"><path d="M6 12h12"></path></svg></button>
+<button aria-label="Maximize" style="width: 28px; height: 24px; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--fg-muted); cursor: pointer;"><svg viewBox="0 0 24 24" style="width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2.5;"><rect x="6" y="6" width="12" height="12" rx="1"></rect></svg></button>
+<button aria-label="Close window" style="width: 28px; height: 24px; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--fg-muted); cursor: pointer;"><svg viewBox="0 0 24 24" style="width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round;"><path d="M7 7l10 10"></path><path d="M17 7L7 17"></path></svg></button>
+</div>
+</div>
+</header>
+
+<div class="panes" style="flex: 1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); min-height: 0;">
+
+<section style="display: flex; flex-direction: column; min-width: 0; border-right: 1px solid var(--border);">
+<div style="display: flex; align-items: center; gap: 10px; padding: 14px 24px 12px; border-bottom: 1px solid var(--border-soft);">
+<svg viewBox="0 0 24 24" aria-hidden="true" style="width: 15px; height: 15px; fill: none; stroke: var(--fg-muted); stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round;"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg>
+<span style="font-family: var(--font-mono); font-size: 13px; font-weight: 700;">v3</span>
+<span style="font-family: var(--font-mono); font-size: 12px; color: var(--fg-muted);">committed Oct 12 · "first condense"</span>
+<div style="flex: 1;"></div>
+<span style="font-family: var(--font-mono); font-size: 12px; color: var(--fg-muted);">214 words · 286 tokens</span>
+</div>
+<div style="flex: 1; overflow: auto; padding: 28px 24px 40px;">
+<div style="max-width: 36rem; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; font-size: 15px; line-height: 1.7; color: var(--fg-muted);">
+<p class="xml">&lt;system_instructions status="enabled"&gt;</p>
+<div class="para"><div class="gut"><i class="c-agency"></i></div>
+<p><span class="pt c-agency">You are the user's partner participating in a cooperative roleplay. Narrate the thoughts, feelings, actions, and dialogue of <span class="mac">{{char}}</span> and all side characters, avoiding narrating for <span class="mac">{{user}}</span>.</span></p></div>
+<div class="para"><div class="gut"><i class="c-auto"></i><i class="c-know"></i></div>
+<p><span class="pt c-auto"><span class="mac">{{char}}</span> and side characters should act autonomously according to their established traits, personality, and background, with their own opinions, goals, and a capacity for disagreement.</span> <span class="pt c-know"><span class="mac">{{char}}</span> and all side characters can only know, mention, or act on information they have personally witnessed, learned, or could plausibly deduce.</span></p></div>
+<p class="xml">&lt;/system_instructions&gt;</p>
+<p class="xml">&lt;post_history_instructions status="enabled"&gt;</p>
+<div class="para"><div class="gut"><i class="c-prose"></i><i class="c-slow"></i><i class="c-agency"></i><i class="c-mature"></i></div>
+<p><span class="pt c-prose">Respond with 1-2 paragraphs using "show, don't tell", driving the story forward in interesting ways. Keep scenes grounded with nuanced descriptions and natural-sounding dialogue.</span> <span class="pt c-slow missing">Use a slow-burn pace while avoiding melodrama</span> <span class="pt c-agency">and leave openings for <span class="mac">{{user}}</span>'s physical or social engagement.</span> <span class="pt cut">You are allowed to explore mature themes that align with the narrative and are encouraged to do so.</span> <span class="pt c-prose">Vary your prose and avoid repetitive phrases or formulaic descriptions; keep each response fresh and unique.</span></p></div>
+<div class="para"><div class="gut"></div><p>((OOC: OOC instructions like this are narrative guidance.))</p></div>
+<p class="xml">&lt;/post_history_instructions&gt;</p>
+</div>
+</div>
+</section>
+
+<section style="display: flex; flex-direction: column; min-width: 0; position: relative;">
+<div style="display: flex; align-items: center; gap: 10px; padding: 14px 24px 12px; border-bottom: 1px solid var(--border-soft);">
+<span style="font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: var(--accent-text);">Draft</span>
+<span style="font-family: var(--font-mono); font-size: 12px; color: var(--fg-muted);">autosaved just now</span>
+<div style="flex: 1;"></div>
+<span style="font-family: var(--font-mono); font-size: 12px; color: var(--fg-muted);">118 words · 157 tokens</span>
+<span class="cc-badge cc-badge--done">−45%</span>
+</div>
+<div style="flex: 1; overflow: auto; padding: 28px 24px 40px;">
+<div style="max-width: 36rem; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; font-size: 15px; line-height: 1.7; color: var(--fg);">
+<p class="xml">&lt;system_instructions status="enabled"&gt;</p>
+<div class="para"><div class="gut"><i class="c-agency"></i></div>
+<p><span class="pt c-agency">You're <span class="mac">{{user}}</span>'s roleplay partner. Voice <span class="mac">{{char}}</span> and every side character, never <span class="mac">{{user}}</span>.</span></p></div>
+<div class="para"><div class="gut"><i class="c-auto"></i><i class="c-know"></i></div>
+<p><span class="pt c-auto">Characters act on their own goals and opinions, and they'll push back.</span> <span class="pt c-know">They only know what they've seen, learned, or could reasonably work out.</span></p></div>
+<p class="xml">&lt;/system_instructions&gt;</p>
+<p class="xml">&lt;post_history_instructions status="enabled"&gt;</p>
+<div class="para"><div class="gut"><i class="c-prose"></i><i class="c-agency"></i></div>
+<p><span class="pt c-prose">Write 1–2 paragraphs. Show, don't tell. Keep scenes grounded and dialogue natural.</span> <span class="pt c-agency">Leave room for <span class="mac">{{user}}</span> to act.</span> <span class="pt c-prose">Vary your prose and never reuse a phrasing<span class="caret"></span></span></p></div>
+<div class="para"><div class="gut"></div><p style="color: var(--fg-muted);">((OOC: notes like this are narrative guidance.))</p></div>
+<p class="xml">&lt;/post_history_instructions&gt;</p>
+</div>
+</div>
+<aside class="c-prose hide-sm" style="position: absolute; right: 20px; top: 352px; width: 200px; padding: 10px 12px; background: var(--bg-raised); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-card); display: flex; flex-direction: column; gap: 6px;">
+<div style="display: flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--accent-text);"><span class="dot"></span>Prose style</div>
+<p style="margin: 0; font-size: 13px; line-height: 1.5; color: var(--fg);">Vivid but restrained. Earned detail, never purple.</p>
+<span style="font-family: var(--font-mono); font-size: 11px; color: var(--fg-muted);">feeling note · v3 said "fresh and unique"</span>
+</aside>
+</section>
+</div>
+
+<footer style="display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--border); overflow-x: auto;">
+<span style="flex: none; font-family: var(--font-mono); font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--fg-muted); margin-right: 4px;">Ideas</span>
+<sc-for list="{{ideas}}" as="item" hint-placeholder-count="6">
+<button class="chip {{item.cls}} {{item.variant}}">
+<span class="dot"></span>
+<span>{{item.name}}</span>
+<span class="bars" aria-hidden="true"><span class="old" style="width: {{item.oldW}}px;"></span><span style="width: {{item.newW}}px;"></span></span>
+<span style="color: var(--fg-muted);">{{item.oldPct}} →</span>
+<span>{{item.newLabel}}</span>
+</button>
+</sc-for>
+<button class="cc-btn cc-btn--ghost" style="flex: none; padding: 6px 10px; font-size: 12px;"><span>+ New idea</span></button>
+</footer>
+<div role="status" style="display: flex; align-items: center; gap: 16px; height: 24px; padding: 0 12px; border-top: 1px solid var(--border); background: var(--bg-page); font-family: var(--font-mono); font-size: 11px; color: var(--fg-muted); white-space: nowrap; overflow: hidden;">
+<button aria-label="Main menu" title="Menu" style="display: grid; place-items: center; width: 22px; height: 20px; margin-left: -6px; margin-right: -6px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--fg-muted); cursor: pointer;"><svg viewBox="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round;"><path d="M4 6h16"></path><path d="M4 12h16"></path><path d="M4 18h16"></path></svg></button>
+<span role="img" aria-label="Saved" title="Saved" style="width: 7px; height: 7px; border-radius: 50%; background: var(--accent-aqua); flex: none;"></span>
+<span>~/Documents/Word Designer/Nyx</span>
+<span>v3 → draft</span>
+<span style="flex: 1;"></span>
+<span>118 words</span>
+<span title="o200k tokenizer · UTF-8">157 tokens</span>
+<span style="color: var(--accent-aqua-text);">−45% vs v3</span>
+<button aria-label="Open Claude" title="Claude" style="display: grid; place-items: center; width: 22px; height: 20px; margin-right: -8px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--fg-muted); cursor: pointer;"><svg viewBox="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round;"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"></path></svg></button>
+<button style="margin-right: -6px; padding: 1px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-raised); color: var(--fg); font-family: var(--font-mono); font-size: 11px; cursor: pointer;">Commit v4</button>
+</div>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const w = (p) => Math.max(2, Math.round(p * 1.1));
+    const ideas = [
+      { name: '{{user}}\'s agency', cls: 'c-agency', old: 11, now: 16 },
+      { name: 'Autonomy', cls: 'c-auto', old: 17, now: 15 },
+      { name: 'Knowledge limits', cls: 'c-know', old: 13, now: 16 },
+      { name: 'Prose style', cls: 'c-prose', old: 33, now: 38, active: true },
+      { name: 'Slow burn', cls: 'c-slow', old: 4, now: 0, state: 'missing' },
+      { name: 'Mature themes', cls: 'c-mature', old: 9, now: 0, state: 'cut' },
+      { name: 'Unpainted', cls: 'c-none', old: 13, now: 9 }
+    ].map((i) => ({
+      ...i,
+      oldPct: i.old + '%',
+      newLabel: i.state === 'missing' ? 'missing' : i.state === 'cut' ? 'cut on purpose' : i.now + '%',
+      oldW: w(i.old),
+      newW: i.now ? w(i.now) : 0,
+      variant: i.state === 'missing' ? 'chip--warn' : i.state === 'cut' ? 'chip--cut' : i.active ? 'chip--active' : ''
+    }));
+    return {
+      themeClass: (this.props.theme ?? 'dark') === 'light' ? 'light' : '',
+      char: '{{char}}',
+      user: '{{user}}',
+      ideas
+    };
+  }
+}
+</script>
+</body>
+</html>

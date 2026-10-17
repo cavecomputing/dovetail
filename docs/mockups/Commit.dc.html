@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Commit check</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.stage{--bg-page:#1d2021;--bg-surface:#282828;--bg-raised:#32302f;--bg-inset:#3c3836;--border:#3c3836;--border-soft:#32302f;--fg:#ebdbb2;--fg-muted:#a89984;--fg-subtle:#7c6f64;--accent:#fabd2f;--accent-text:#fabd2f;--accent-cool:#83a598;--accent-warm:#fe8019;--accent-rose:#d3869b;--accent-aqua:#8ec07c;--font-mono:"JetBrainsMono Nerd Font","JetBrains Mono",ui-monospace,monospace;--radius-sm:6px}
+.stage.light{--bg-page:#f9f5d7;--bg-surface:#fbf1c7;--bg-raised:#f2e5bc;--bg-inset:#ebdbb2;--border:#e0d3ac;--border-soft:#ebdbb2;--fg:#3c3836;--fg-muted:#665c54;--fg-subtle:#7c6f64;--accent:#b57614;--accent-text:#8a5a0e;--accent-cool:#076678;--accent-warm:#af3a03;--accent-rose:#8f3f71;--accent-aqua:#427b58}
+.line{display:flex;align-items:center;gap:10px;height:26px;font-size:13px}
+.line .r{margin-left:auto;font-size:12px;color:var(--fg-subtle)}
+.dot{width:7px;height:7px;border-radius:50%;flex:none}
+.note{width:100%;box-sizing:border-box;height:28px;padding:0 8px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--fg);font:inherit;font-size:13px}
+.note:focus{outline:none;border-color:var(--accent-text)}
+.b{height:26px;padding:0 10px;border:1px solid transparent;border-radius:4px;background:transparent;color:var(--fg-muted);font:inherit;font-size:12px;cursor:pointer}
+.b:hover{border-color:var(--border);color:var(--fg)}
+.b.go{border-color:var(--border);color:var(--accent-text)}
+kbd{font:inherit;color:var(--fg-subtle)}
+</style>
+</helmet>
+<div class="stage {{themeClass}}" style="width: 560px; height: 560px; box-sizing: border-box; padding: 24px; background: var(--bg-page); color: var(--fg); font-family: var(--font-mono); display: flex; align-items: center;">
+<div style="width: 100%; box-sizing: border-box; padding: 20px 22px 16px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-sm); display: flex; flex-direction: column; gap: 16px;">
+
+<div style="display: flex; align-items: baseline; gap: 12px; font-size: 13px;">
+<span>Commit v4</span>
+<span style="flex: 1;"></span>
+<span style="font-size: 12px; color: var(--fg-muted);">286 → 157 tokens · 214 → 118 words</span>
+</div>
+
+<input aria-label="Note for this version" class="note" value="second condense">
+
+<div>
+<div class="line"><span class="dot" style="background: var(--accent-aqua);"></span><span>4 ideas carried</span><span class="r">agency, autonomy, knowledge, prose</span></div>
+<div class="line"><span class="dot" style="background: var(--fg-subtle);"></span><span style="color: var(--fg-muted);">Mature themes</span><span class="r">cut on purpose</span></div>
+<div class="line"><span class="dot" style="background: var(--accent-warm);"></span><span style="color: var(--accent-warm);">Slow burn</span><span class="r" style="color: var(--accent-warm);">missing, no text left</span></div>
+</div>
+
+<div style="display: flex; gap: 6px; justify-content: flex-end; padding-top: 12px; border-top: 1px solid var(--border);">
+<button class="b">mark cut</button>
+<button class="b">go back <kbd>esc</kbd></button>
+<button class="b go">commit anyway <kbd>⏎</kbd></button>
+</div>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"$preview":{"width":560,"height":560}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { themeClass: (this.props.theme ?? 'dark') === 'light' ? 'light' : '' };
+  }
+}
+</script>
+</body>
+</html>
