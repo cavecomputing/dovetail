@@ -1,0 +1,432 @@
+{
+ "name": "cavecomputing",
+ "version": 1,
+ "color": {
+  "themes": [
+   {
+    "id": "dark",
+    "name": "Gruvbox dark"
+   },
+   {
+    "id": "light",
+    "name": "Gruvbox light"
+   }
+  ],
+  "tokens": [
+   {
+    "name": "bg-page",
+    "value": {
+     "dark": "#1d2021",
+     "light": "#f9f5d7"
+    },
+    "usage": "Page ground behind the shell. Documents use bg-surface as the paper."
+   },
+   {
+    "name": "bg-surface",
+    "value": {
+     "dark": "#282828",
+     "light": "#fbf1c7"
+    },
+    "usage": "The shell and the paper of client documents."
+   },
+   {
+    "name": "bg-raised",
+    "value": {
+     "dark": "#32302f",
+     "light": "#f2e5bc"
+    },
+    "usage": "Cards, table headers, the document header block."
+   },
+   {
+    "name": "bg-inset",
+    "value": {
+     "dark": "#3c3836",
+     "light": "#ebdbb2"
+    },
+    "usage": "Tags, code, pressed wells."
+   },
+   {
+    "name": "border",
+    "value": {
+     "dark": "#3c3836",
+     "light": "#e0d3ac"
+    },
+    "usage": "1px borders on shell, cards, tables, tags; section-title underline."
+   },
+   {
+    "name": "border-soft",
+    "value": {
+     "dark": "#32302f",
+     "light": "#ebdbb2"
+    },
+    "usage": "Row dividers inside tables."
+   },
+   {
+    "name": "fg",
+    "value": {
+     "dark": "#ebdbb2",
+     "light": "#3c3836"
+    },
+    "usage": "Body text and headings on any bg-* token."
+   },
+   {
+    "name": "fg-muted",
+    "value": {
+     "dark": "#a89984",
+     "light": "#665c54"
+    },
+    "usage": "Prose, subtitles, table notes, footer text."
+   },
+   {
+    "name": "fg-subtle",
+    "value": {
+     "dark": "#7c6f64",
+     "light": "#7c6f64"
+    },
+    "usage": "Placeholders and decorative marks only. Not for reading text: it is below 4.5:1 on bg-surface in both themes."
+   },
+   {
+    "name": "accent",
+    "value": {
+     "dark": "#fabd2f",
+     "light": "#b57614"
+    },
+    "usage": "Yellow. Dark-theme focus ring, document eyebrow labels and header top rule. Light value is 3.3:1 on paper: only 11px bold uppercase labels and rules, as the handoff PDF uses it, never body text. Use accent-text for text."
+   },
+   {
+    "name": "accent-text",
+    "value": {
+     "dark": "{accent}",
+     "light": "#8a5a0e"
+    },
+    "usage": "Yellow as text at any size: active rows, labels, focus rings and field borders on focus. Dark is accent. Light is a deepened yellow, 5.2:1 on bg-surface and 4.7:1 on bg-raised, where accent itself is only 3.3:1."
+   },
+   {
+    "name": "accent-alt",
+    "value": {
+     "dark": "#b8bb26",
+     "light": "#79740e"
+    },
+    "usage": "Green. Light-theme button fill, section-title icons, checkmarks, the 'computing' half of the wordmark. Light value is 4.3:1 on paper: fine for the bold wordmark and icons, not for small body text."
+   },
+   {
+    "name": "accent-cool",
+    "value": {
+     "dark": "#83a598",
+     "light": "#076678"
+    },
+    "usage": "Blue. Links, IPs, handles and contact details."
+   },
+   {
+    "name": "accent-warm",
+    "value": {
+     "dark": "#fe8019",
+     "light": "#af3a03"
+    },
+    "usage": "Orange. 'Heads up' callouts, warnings and danger: the palette has no red that reads on raised surfaces, so destructive buttons and errors use this."
+   },
+   {
+    "name": "accent-rose",
+    "value": {
+     "dark": "#d3869b",
+     "light": "#8f3f71"
+    },
+    "usage": "Purple. Secondary tags and character accents."
+   },
+   {
+    "name": "accent-aqua",
+    "value": {
+     "dark": "#8ec07c",
+     "light": "#427b58"
+    },
+    "usage": "Aqua. Success and 'done' states."
+   },
+   {
+    "name": "accent-aqua-text",
+    "value": {
+     "dark": "{accent-aqua}",
+     "light": "#376b4b"
+    },
+    "usage": "Aqua as text: speech in roleplay prose, success messages. Dark is accent-aqua. Light is darkened, 5.5:1 on bg-surface and 5.0:1 on bg-raised, where accent-aqua is 4.4:1 and 4.0:1."
+   },
+   {
+    "name": "btn-bg",
+    "value": {
+     "dark": "{accent}",
+     "light": "{accent-alt}"
+    },
+    "usage": "Primary button fill: yellow in dark, green in light."
+   },
+   {
+    "name": "btn-fg",
+    "value": {
+     "dark": "#1d2021",
+     "light": "#fbf1c7"
+    },
+    "usage": "Text on btn-bg."
+   }
+  ]
+ },
+ "type": {
+  "fonts": [],
+  "families": {
+   "mono": "ui-monospace, \"JetBrains Mono\", \"Cascadia Code\", \"SF Mono\", Menlo, Consolas, \"Liberation Mono\", monospace",
+   "sans": "ui-sans-serif, system-ui, -apple-system, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif"
+  },
+  "groups": [
+   {
+    "name": "Headings",
+    "family": "mono",
+    "styles": [
+     {
+      "name": "wordmark",
+      "fontSize": "40px",
+      "lineHeight": "1.1",
+      "fontWeight": 700,
+      "sample": "cavecomputing",
+      "usage": "The name. 'cave' in fg, 'computing' in accent-alt. Sans at 22px in document headers."
+     },
+     {
+      "name": "section-title",
+      "fontSize": "18px",
+      "lineHeight": "1.25",
+      "fontWeight": 700,
+      "sample": "Cozy LLM Roleplay Frontend",
+      "usage": "Card and section headings on the site."
+     },
+     {
+      "name": "eyebrow",
+      "fontSize": "11px",
+      "lineHeight": "1.3",
+      "fontWeight": 700,
+      "letterSpacing": "0.18em",
+      "sample": "WHAT WAS DONE",
+      "usage": "Uppercase section labels and table headers in client documents, in accent."
+     }
+    ]
+   },
+   {
+    "name": "Document",
+    "family": "sans",
+    "styles": [
+     {
+      "name": "doc-title",
+      "fontSize": "28px",
+      "lineHeight": "1.2",
+      "fontWeight": 700,
+      "sample": "Ironcast Server Handoff",
+      "usage": "Title of a handoff reference or invoice."
+     },
+     {
+      "name": "doc-body",
+      "fontSize": "13px",
+      "lineHeight": "1.5",
+      "fontWeight": 400,
+      "sample": "Firewall limited to ports 80, 443, and 2323.",
+      "usage": "Body and table text in documents."
+     }
+    ]
+   },
+   {
+    "name": "Interface",
+    "family": "sans",
+    "styles": [
+     {
+      "name": "body",
+      "fontSize": "15px",
+      "lineHeight": "1.6",
+      "fontWeight": 400,
+      "sample": "Self-hosted, single-user, with a little Discord inspiration.",
+      "usage": "Default site text."
+     },
+     {
+      "name": "prose",
+      "fontSize": "14px",
+      "lineHeight": "1.65",
+      "fontWeight": 400,
+      "sample": "Cozy is an app for AI roleplay.",
+      "usage": "Card descriptions, in fg-muted."
+     }
+    ]
+   },
+   {
+    "name": "Labels",
+    "family": "mono",
+    "styles": [
+     {
+      "name": "button",
+      "fontSize": "13px",
+      "lineHeight": "1.2",
+      "fontWeight": 600,
+      "sample": "View on GitHub",
+      "usage": "Buttons."
+     },
+     {
+      "name": "tag",
+      "fontSize": "12px",
+      "lineHeight": "1.3",
+      "fontWeight": 400,
+      "sample": "Apache-2.0",
+      "usage": "Tags, code, IPs and commands."
+     }
+    ]
+   }
+  ]
+ },
+ "spacing": {
+  "tokens": [
+   {
+    "name": "space-1",
+    "value": "6px",
+    "usage": "Tight gaps: tag padding, icon to label."
+   },
+   {
+    "name": "space-2",
+    "value": "10px",
+    "usage": "Section-title gap and underline offset."
+   },
+   {
+    "name": "space-3",
+    "value": "16px",
+    "usage": "Gap below section titles; page side padding."
+   },
+   {
+    "name": "space-4",
+    "value": "24px",
+    "usage": "Card padding and gap between cards."
+   },
+   {
+    "name": "space-5",
+    "value": "36px",
+    "usage": "Gap between major sections."
+   },
+   {
+    "name": "shell-gap",
+    "value": "10px",
+    "usage": "The app frame: the gap between the window edge and the shell, on every side and on phones too."
+   },
+   {
+    "name": "app-space-1",
+    "value": "4px",
+    "usage": "App density: hairline gaps, icon rows, chip gaps."
+   },
+   {
+    "name": "app-space-2",
+    "value": "6px",
+    "usage": "App density: within a control, label to field."
+   },
+   {
+    "name": "app-space-3",
+    "value": "8px",
+    "usage": "App density: between controls in a row, rows in a group."
+   },
+   {
+    "name": "app-space-4",
+    "value": "12px",
+    "usage": "App density: padding inside a card, panel or flyout."
+   },
+   {
+    "name": "app-space-5",
+    "value": "16px",
+    "usage": "App density: between cards; the page gutter on a phone."
+   },
+   {
+    "name": "app-space-6",
+    "value": "24px",
+    "usage": "App density: the page gutter on desktop; a major group break; the fade above a docked composer."
+   },
+   {
+    "name": "topbar-height",
+    "value": "56px",
+    "usage": "Top bar height on desktop, bottom rule included."
+   },
+   {
+    "name": "topbar-height-phone",
+    "value": "52px",
+    "usage": "Top bar height at 600px and below."
+   },
+   {
+    "name": "topbar-pad-start",
+    "value": "16px",
+    "usage": "Top bar padding on the left, before the first item (the logo's left edge). Same as app-space-5."
+   },
+   {
+    "name": "topbar-pad-end",
+    "value": "12px",
+    "usage": "Top bar padding on the right, after the last item. Same as app-space-4."
+   },
+   {
+    "name": "topbar-gap",
+    "value": "6px",
+    "usage": "Gap between top bar items. Same as app-space-2."
+   },
+   {
+    "name": "topbar-brand-gap",
+    "value": "18px",
+    "usage": "Extra space after the brand (logo and wordmark) before the next item."
+   },
+   {
+    "name": "control-height",
+    "value": "38px",
+    "usage": "Search box and primary buttons in the top bar, so their edges line up."
+   },
+   {
+    "name": "icon-btn-size",
+    "value": "36px",
+    "usage": "Icon-only buttons in the top bar on desktop."
+   },
+   {
+    "name": "icon-btn-size-phone",
+    "value": "44px",
+    "usage": "Icon-only buttons in the top bar at 600px and below: the tap target."
+   }
+  ]
+ },
+ "radius": {
+  "tokens": [
+   {
+    "name": "radius-sm",
+    "value": "6px",
+    "usage": "Buttons, tags, focus rings."
+   },
+   {
+    "name": "radius",
+    "value": "10px",
+    "usage": "Cards, callouts, tables."
+   },
+   {
+    "name": "radius-lg",
+    "value": "14px",
+    "usage": "The outer shell and document header."
+   }
+  ]
+ },
+ "shadow": {
+  "tokens": [
+   {
+    "name": "shadow",
+    "value": {
+     "dark": "0 1px 2px rgba(0,0,0,0.35), 0 8px 24px rgba(0,0,0,0.22)",
+     "light": "0 1px 2px rgba(60,56,54,0.10), 0 8px 24px rgba(60,56,54,0.07)"
+    },
+    "usage": "The shell."
+   },
+   {
+    "name": "shadow-card",
+    "value": {
+     "dark": "0 1px 2px rgba(0,0,0,0.30), 0 4px 12px rgba(0,0,0,0.20)",
+     "light": "0 1px 2px rgba(60,56,54,0.07), 0 4px 12px rgba(60,56,54,0.07)"
+    },
+    "usage": "Cards and primary buttons at rest."
+   },
+   {
+    "name": "shadow-lift",
+    "value": {
+     "dark": "0 2px 4px rgba(0,0,0,0.32), 0 12px 28px rgba(0,0,0,0.34)",
+     "light": "0 2px 4px rgba(60,56,54,0.09), 0 12px 26px rgba(60,56,54,0.13)"
+    },
+    "usage": "Hover on cards and buttons."
+   }
+  ]
+ }
+}
