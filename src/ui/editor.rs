@@ -9,14 +9,17 @@ use iced::advanced::text::highlighter::{self, Highlighter};
 use iced::keyboard::{Key, key::Named};
 use iced::widget::container;
 use iced::widget::text::Wrapping;
+use iced::widget::text_editor::Motion;
 use iced::{Background, Border, Element, Fill, Font, Padding, Theme};
 
+use crate::core::markup::{Markup, markup_ranges};
 use crate::core::settings::{ReadingMode, Settings};
 use crate::core::text_file::newlines_only;
 use crate::core::text_model::{Change, TextModel, offset, position};
 use crate::ui::app::Message;
+use crate::ui::idea_actions::IdeaAction;
 use crate::ui::text_editor::{
-    self, Action, Binding, Content, Cursor, Edit, KeyPress, Position, Status, TextEditor,
+    self, Action, Binding, Content, Cursor, Edit, KeyPress, PaintRun, Position, Status, TextEditor,
 };
 use crate::ui::theme::{CHAR_WIDTH_RATIO, Roles};
 
@@ -31,9 +34,10 @@ pub const PADDING: Padding = Padding {
     left: 24.0,
 };
 
-/// The editor in its column; `on_action` wraps what it reports. Without `editable` the text is
-/// dimmed; it can still be scrolled, selected and copied, and `App::update` drops any change to
-/// it.
+/// The editor in its column, with `paint` drawn under the text; `on_action` wraps what it
+/// reports. The draft (`EDITOR_ID`) also reports where its caret is drawn, for the feeling-note
+/// card. Without `editable` the text is dimmed; it can still be scrolled, selected and copied,
+/// and `App::update` drops any change to it.
 pub fn view<'a>(
     content: &'a Content,
     settings: &Settings,
@@ -41,11 +45,12 @@ pub fn view<'a>(
     id: &'static str,
     on_action: fn(Action) -> Message,
     padding: Padding,
+    paint: &'a [PaintRun],
 ) -> Element<'a, Message> {
     let tab_spaces = usize::from(settings.tab_spaces);
-    let editor = TextEditor::new(content)
+    let mut editor = TextEditor::new(content)
         .id(id)
-        .key_binding(move |press| key_binding(press, tab_spaces, editable))
+        .key_binding(move |press| key_binding(press, tab_spaces, editable, id))
         .wrapping(if settings.word_wrap {
             Wrapping::WordOrGlyph
         } else {
@@ -56,7 +61,11 @@ pub fn view<'a>(
         .padding(padding)
         .height(Fill)
         .style(move |theme, _status| style(theme, editable))
-        .on_action(on_action);
+        .on_action(on_action)
+        .paint(paint);
+    if id == EDITOR_ID {
+        editor = editor.on_caret(|caret, area| Message::Idea(IdeaAction::Caret(caret, area)));
+    }
     let editor: Element<'a, Message> = if settings.colour_markup {
         editor
             .highlight_with::<MarkupHighlighter>((), markup_format)
@@ -87,15 +96,32 @@ fn style(theme: &Theme, editable: bool) -> text_editor::Style {
 }
 
 /// Tab inserts spaces (never a tab character), Shift+Tab unindents, Ctrl+Z undoes, Ctrl+Shift+Z
-/// and Ctrl+Y redo, and the app's own Ctrl shortcuts are left for the app. A pane that isn't
-/// `editable` keeps only iced's own keys (moving, selecting, copying).
-fn key_binding(press: KeyPress, tab_spaces: usize, editable: bool) -> Option<Binding<Message>> {
+/// and Ctrl+Y redo, Ctrl+X and Ctrl+C also keep the selection's paint (`Message::Clip`), and the
+/// app's own Ctrl shortcuts are left for the app. A pane that isn't `editable` keeps only iced's
+/// own keys (moving, selecting, copying). `id` is the editor's.
+fn key_binding(
+    press: KeyPress,
+    tab_spaces: usize,
+    editable: bool,
+    id: &'static str,
+) -> Option<Binding<Message>> {
     // A custom binding is used even when the editor isn't focused, so check first.
     if !matches!(press.status, Status::Focused { .. }) {
         return None;
     }
-    if press.modifiers.command() && matches!(press.key.as_ref(), Key::Character("p" | "0" | ",")) {
+    if press.modifiers.command()
+        && matches!(
+            press.key.as_ref(),
+            Key::Character("p" | "0" | "," | "i" | "e" | "w" | "W")
+        )
+    {
         return None;
+    }
+    if let Some(cut_or_copy @ (Binding::Cut | Binding::Copy)) =
+        Binding::from_key_press(press.clone())
+    {
+        let clip = Binding::Custom(Message::Clip(id));
+        return Some(Binding::Sequence(vec![clip, cut_or_copy]));
     }
     if !editable {
         return Binding::from_key_press(press);
@@ -167,6 +193,29 @@ impl Pane {
             .is_some();
         debug_assert_eq!(self.model.text(), self.content.text());
         changed
+    }
+
+    /// The selected text as a byte range, or `None` when nothing is selected.
+    pub fn selection(&self) -> Option<Range<usize>> {
+        let cursor = self.content.cursor();
+        let anchor = cursor.selection?;
+        let text = self.model.text();
+        let a = offset(text, cursor.position.line, cursor.position.column);
+        let b = offset(text, anchor.line, anchor.column);
+        (a != b).then(|| a.min(b)..a.max(b))
+    }
+
+    /// Drops the selection, leaving the caret where it is, so the view doesn't scroll.
+    /// (`move_to` can't: it keeps any selection when given none.)
+    pub fn deselect(&mut self) {
+        let cursor = self.content.cursor();
+        if let Some(anchor) = cursor.selection {
+            // A move with a selection goes to the selection's edge on that side: the caret's own.
+            let before =
+                (cursor.position.line, cursor.position.column) < (anchor.line, anchor.column);
+            let motion = if before { Motion::Left } else { Motion::Right };
+            self.content.perform(Action::Move(motion));
+        }
     }
 
     /// Ctrl+Z. Returns whether the text changed.
@@ -247,12 +296,6 @@ impl Pane {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Markup {
-    Tag,
-    Macro,
-}
-
 fn markup_format(markup: &Markup, theme: &Theme) -> highlighter::Format<Font> {
     let roles = Roles::of(theme);
     let color = match markup {
@@ -263,37 +306,6 @@ fn markup_format(markup: &Markup, theme: &Theme) -> highlighter::Format<Font> {
         color: Some(color),
         font: None,
     }
-}
-
-/// Finds `<tags ...>` and `{{macros}}` within one line, as byte ranges.
-pub fn markup_ranges(line: &str) -> Vec<(Range<usize>, Markup)> {
-    let mut found = Vec::new();
-    let mut from = 0;
-    while from < line.len() {
-        let rest = &line[from..];
-        let next_tag = rest.match_indices('<').find(|(at, _)| {
-            // A tag starts like `<a`, `</`, `<!` or `<?`, so "a < b" is left alone.
-            let after = rest[at + 1..].chars().next();
-            after.is_some_and(|c| c.is_alphabetic() || "/!?".contains(c))
-        });
-        let candidates = [
-            next_tag.map(|(at, _)| (at, ">", Markup::Tag)),
-            rest.find("{{").map(|at| (at, "}}", Markup::Macro)),
-        ];
-        let Some((start, close, markup)) = candidates.into_iter().flatten().min_by_key(|c| c.0)
-        else {
-            break;
-        };
-        match rest[start..].find(close) {
-            Some(length) => {
-                let end = start + length + close.len();
-                found.push((from + start..from + end, markup));
-                from += end;
-            }
-            None => from += start + 1,
-        }
-    }
-    found
 }
 
 /// iced asks for colours one line at a time; `line` tracks how far it has got.
@@ -331,36 +343,6 @@ impl Highlighter for MarkupHighlighter {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn marked(line: &str) -> Vec<(&str, Markup)> {
-        markup_ranges(line)
-            .into_iter()
-            .map(|(range, markup)| (&line[range], markup))
-            .collect()
-    }
-
-    #[test]
-    fn finds_tags_and_macros() {
-        assert_eq!(
-            marked(r#"<system_instructions status="enabled">Hi {{char}}</system_instructions>"#),
-            vec![
-                (r#"<system_instructions status="enabled">"#, Markup::Tag),
-                ("{{char}}", Markup::Macro),
-                ("</system_instructions>", Markup::Tag),
-            ]
-        );
-        assert_eq!(
-            marked("{{#x}}…{{/x}}"),
-            vec![("{{#x}}", Markup::Macro), ("{{/x}}", Markup::Macro)]
-        );
-    }
-
-    #[test]
-    fn plain_prose_is_left_alone() {
-        assert!(marked("if a < b and c > d, it's fine").is_empty());
-        assert!(marked("an unclosed <tag and {{macro").is_empty());
-        assert!(marked("").is_empty());
-    }
 
     fn cursor_at(line: usize, column: usize) -> Cursor {
         Cursor {
@@ -416,6 +398,37 @@ mod tests {
         assert_eq!(pane.content.text(), "a\nb\n\néé");
         pane.replace(0..pane.model.text().len(), "x\ny");
         assert_eq!(pane.content.text(), "x\ny");
+    }
+
+    #[test]
+    fn selection_is_a_byte_range_and_deselect_drops_it() {
+        let mut pane = Pane::new("café au lait");
+        pane.content.move_to(Cursor {
+            position: Position { line: 0, column: 2 },
+            selection: Some(Position { line: 0, column: 9 }),
+        });
+        assert_eq!(pane.selection(), Some(2..9));
+        pane.deselect();
+        assert_eq!(pane.selection(), None);
+        assert_eq!(
+            pane.content.cursor().position.column,
+            2,
+            "the caret stays where it was"
+        );
+        pane.deselect();
+        assert_eq!(
+            pane.content.cursor().position.column,
+            2,
+            "nothing selected: no move"
+        );
+        // Selected the other way, the caret is at the end, and stays there.
+        pane.content.move_to(Cursor {
+            position: Position { line: 0, column: 9 },
+            selection: Some(Position { line: 0, column: 2 }),
+        });
+        pane.deselect();
+        assert_eq!(pane.selection(), None);
+        assert_eq!(pane.content.cursor().position.column, 9);
     }
 
     #[test]

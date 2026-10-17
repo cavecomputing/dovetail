@@ -5,9 +5,12 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::core::save::atomic_write;
+use crate::project::ideas::{Idea, Topic};
+use crate::project::paint::Span;
 
-/// Bumped when the manifest layout changes in a way older builds can't read.
-pub const FORMAT_VERSION: u32 = 1;
+/// Bumped when the manifest layout changes. 2 added ideas, topics and paint; every new field has
+/// a default, so a format 1 manifest still opens (and is written back as format 2).
+pub const FORMAT_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Manifest {
@@ -15,9 +18,20 @@ pub struct Manifest {
     pub name: String,
     /// Oldest first, so the last one is the newest version.
     pub versions: Vec<Version>,
-    /// Ideas arrive in phase 3. Kept as raw JSON until then so nothing written here is lost.
     #[serde(default)]
-    pub ideas: Vec<serde_json::Value>,
+    pub ideas: Vec<Idea>,
+    #[serde(default)]
+    pub topics: Vec<Topic>,
+    #[serde(default)]
+    pub draft: Draft,
+}
+
+/// What the manifest keeps about the draft besides its text (which is `draft.txt`).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Draft {
+    /// The draft's paint as of its last autosave, in byte offsets into `draft.txt`.
+    #[serde(default)]
+    pub paint: Vec<Span>,
 }
 
 /// One committed version. Its text lives in git under the tag `v<number>`.
@@ -27,9 +41,10 @@ pub struct Version {
     pub note: String,
     /// Seconds since 1970 (Unix time).
     pub committed_at: u64,
-    /// Paint ranges arrive in phase 3; raw JSON until then.
+    /// This version's paint, in byte offsets into its text. Fixed once committed, except when
+    /// Matt paints the old version itself.
     #[serde(default)]
-    pub paint: Vec<serde_json::Value>,
+    pub paint: Vec<Span>,
 }
 
 impl Version {
@@ -57,12 +72,19 @@ impl Manifest {
             name: name.to_string(),
             versions: Vec::new(),
             ideas: Vec::new(),
+            topics: Vec::new(),
+            draft: Draft::default(),
         }
     }
 
     pub fn load(path: &Path) -> anyhow::Result<Manifest> {
         let text = std::fs::read_to_string(path)?;
-        Ok(serde_json::from_str(&text)?)
+        let mut manifest: Manifest = serde_json::from_str(&text)?;
+        if manifest.format > FORMAT_VERSION {
+            anyhow::bail!("this project was saved by a newer version of the app");
+        }
+        manifest.format = FORMAT_VERSION;
+        Ok(manifest)
     }
 
     pub fn save(&self, path: &Path) -> anyhow::Result<()> {
@@ -75,6 +97,12 @@ impl Manifest {
     /// The newest version's number, 0 before the first commit.
     pub fn latest_version(&self) -> u32 {
         self.versions.last().map_or(0, |version| version.number)
+    }
+
+    /// The number the draft will get when it is committed. Notes and "cut on purpose" marks made
+    /// while editing the draft are filed under it.
+    pub fn draft_version(&self) -> u32 {
+        self.latest_version() + 1
     }
 }
 
@@ -108,21 +136,45 @@ mod tests {
             number: 1,
             note: "first".to_string(),
             committed_at: 1_700_000_000,
-            paint: vec![serde_json::json!({"idea": 1, "start": 0, "end": 4})],
+            paint: vec![Span {
+                idea: 1,
+                start: 0,
+                end: 4,
+                quote: "Nyx ".to_string(),
+            }],
         });
-        manifest.ideas.push(serde_json::json!({"name": "Autonomy"}));
+        manifest.add_idea("Autonomy");
+        manifest.draft.paint = manifest.versions[0].paint.clone();
         manifest.save(&path).unwrap();
         assert_eq!(Manifest::load(&path).unwrap(), manifest);
         assert_eq!(manifest.latest_version(), 1);
     }
 
     #[test]
-    fn missing_placeholders_default_to_empty() {
-        let text =
-            r#"{"format":1,"name":"A","versions":[{"number":1,"note":"","committed_at":0}]}"#;
-        let manifest: Manifest = serde_json::from_str(text).unwrap();
-        assert!(manifest.ideas.is_empty());
-        assert!(manifest.versions[0].paint.is_empty());
+    fn format_1_manifests_still_open() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("A.json");
+        // Exactly what phase 2 wrote, and an even older one without the placeholders.
+        for text in [
+            r#"{"format":1,"name":"A","versions":[{"number":1,"note":"","committed_at":0,"paint":[]}],"ideas":[]}"#,
+            r#"{"format":1,"name":"A","versions":[{"number":1,"note":"","committed_at":0}]}"#,
+        ] {
+            std::fs::write(&path, text).unwrap();
+            let manifest = Manifest::load(&path).unwrap();
+            assert_eq!(manifest.format, FORMAT_VERSION);
+            assert!(manifest.ideas.is_empty() && manifest.topics.is_empty());
+            assert!(manifest.versions[0].paint.is_empty());
+            assert!(manifest.draft.paint.is_empty());
+            assert_eq!(manifest.draft_version(), 2);
+        }
+    }
+
+    #[test]
+    fn refuses_a_manifest_from_a_newer_app() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("A.json");
+        std::fs::write(&path, r#"{"format":99,"name":"A","versions":[]}"#).unwrap();
+        assert!(Manifest::load(&path).is_err());
     }
 
     #[test]

@@ -132,8 +132,13 @@ spans and overlaps cost nothing.
 - `p` at or after the end of `removed` moves by `delta`.
 - `p` inside `removed`: a start moves to `at`, an end to `at + inserted.len()`. So retyping a word
   inside a painted sentence keeps it painted.
+- A span lying wholly inside `removed` is dropped, unless it is exactly `removed` (retyping
+  exactly the painted words). So pasting over a paragraph never hands its ideas the pasted text;
+  they show as missing until painted again.
 - A pure insert grows a span only when strictly inside it. Typing at the edge of paint stays
-  unpainted unless a brush is active.
+  unpainted unless a brush is active, with one exception (`continue_word`): text with no spaces
+  typed straight after a painted word continues that word, so retyping a span's last word one
+  key at a time keeps it painted.
 - A span that ends up empty is dropped. The idea then shows as **missing**, which is what the
   Commit check wants.
 
@@ -151,11 +156,13 @@ too. A copy per step is small (hundreds of spans, at most 1000 steps).
   mid-sentence starts a new span.
 - **Merging paragraphs:** deleting a `\n` is an ordinary change. Nothing special.
 - **Moves:** `key_binding` maps Ctrl+X and Ctrl+C to `Binding::Sequence(vec![Binding::Custom(
-  Message::Clip), Binding::Cut])` (or `Copy`). `Clip` stores `(selected text, spans relative to
-  it)` in `App`. When a recorded insert equals that text, those spans are added at `at`.
+  Message::Clip(id)), Binding::Cut])` (or `Copy`), in both panes. `Clip` stores `(selected text,
+  spans relative to it)` in the draft's `TextModel::clip`. When a recorded insert equals that
+  text, those spans are added at `at` instead of the brush's paint.
 - **Merging ideas:** relabel B's spans as A, then join same-idea overlaps. Splitting is repainting.
 - **Commit:** the draft's spans are copied into the new version, unchanged.
-- **Painting old v1:** adds spans to that version's list only.
+- **Painting old v1:** adds spans to that version's list, and to the draft only where the draft
+  has the same words at the same offset (as right after a Rewrite), never elsewhere.
 
 **Manifest format** (one entry per version; byte offsets into that version's text):
 

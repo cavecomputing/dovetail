@@ -11,7 +11,10 @@ use crate::core::opened::Doc;
 use crate::core::paths::display_path;
 use crate::core::save::SaveState;
 use crate::ui::app::{App, Message};
-use crate::ui::theme::{self, GLYPH_CLAUDE, GLYPH_MENU, GLYPH_PEN, Roles, icon_button, raised_box};
+use crate::ui::idea_actions::IdeaAction;
+use crate::ui::theme::{
+    self, GLYPH_CLAUDE, GLYPH_MENU, GLYPH_PEN, Roles, icon_button, menu_button, raised_box,
+};
 
 pub const HEIGHT: f32 = 24.0;
 const TEXT_SIZE: f32 = 11.0;
@@ -94,7 +97,9 @@ pub fn view(app: &App) -> Element<'_, Message> {
             ));
             right = right.push(space().width(8));
             let next = project.project.latest_version() + 1;
-            let commit = (app.editable() && !app.busy).then_some(Message::OpenCommit);
+            // The Commit check needs the newest version's text, read from git at startup.
+            let loaded = project.latest_text.is_some();
+            let commit = (app.editable() && !app.busy && loaded).then_some(Message::OpenCommit);
             right = right.push(word_button(format!("Commit v{next}"), commit));
         }
         None => {
@@ -268,6 +273,11 @@ pub fn menu(app: &App) -> Element<'_, Message> {
         // A long history scrolls after about eight rows, so Settings and Scratch stay in view.
         items = items
             .push(container(scrollable(versions).spacing(2)).max_height(8.0 * MENU_ROW_HEIGHT));
+        items = items.push(menu_item(
+            "Idea weights".to_string(),
+            "Ctrl+Shift+W",
+            Message::Idea(IdeaAction::ToggleWeights),
+        ));
     }
     items = items
         .push(menu_item(
@@ -296,7 +306,8 @@ pub fn menu(app: &App) -> Element<'_, Message> {
     .into()
 }
 
-fn menu_item<'a>(
+/// A menu row: its label, and a shortcut on the right.
+pub fn menu_item<'a>(
     label: String,
     shortcut: impl text::IntoFragment<'a>,
     message: Message,
@@ -317,16 +328,7 @@ fn menu_item<'a>(
     )
     .width(Fill)
     .padding([4, 8])
-    .style(|theme: &Theme, status| {
-        let roles = Roles::of(theme);
-        let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
-        button::Style {
-            background: hovered.then_some(Background::Color(roles.bg_inset)),
-            text_color: roles.fg,
-            border: Border::default().rounded(4),
-            ..button::Style::default()
-        }
-    })
+    .style(menu_button)
     .on_press(message)
     .into()
 }

@@ -9,7 +9,7 @@
 use std::ops::{Range, RangeInclusive};
 use std::time::{Duration, Instant};
 
-use crate::core::paint::{self, IdeaId, Span};
+use crate::project::paint::{self, IdeaId, Span};
 
 /// How many undo steps are kept; the oldest is dropped beyond this.
 const MAX_UNDO: usize = 1000;
@@ -59,6 +59,9 @@ pub struct TextModel {
     pub paint: Vec<Span>,
     /// When set, newly typed or pasted text is painted with this idea.
     pub brush: Option<IdeaId>,
+    /// The text last cut or copied (from either pane) and its paint, from `clipped`. Pasting
+    /// exactly that text puts the paint back.
+    pub clip: Option<(String, Vec<Span>)>,
     undo: Vec<Step>,
     redo: Vec<Step>,
 }
@@ -69,6 +72,7 @@ impl TextModel {
             text,
             paint: Vec::new(),
             brush: None,
+            clip: None,
             undo: Vec::new(),
             redo: Vec::new(),
         }
@@ -76,6 +80,25 @@ impl TextModel {
 
     pub fn text(&self) -> &str {
         &self.text
+    }
+
+    /// The text in `range` and the paint on it, moved to start at 0: what Cut and Copy keep for
+    /// `clip`.
+    pub fn clipped(&self, range: Range<usize>) -> (String, Vec<Span>) {
+        let paint = self
+            .paint
+            .iter()
+            .filter_map(|span| {
+                let start = span.start.max(range.start);
+                let end = span.end.min(range.end);
+                (start < end).then(|| Span {
+                    start: start - range.start,
+                    end: end - range.start,
+                    ..span.clone()
+                })
+            })
+            .collect();
+        (self.text[range].to_string(), paint)
     }
 
     /// The single change that turns `old` into `new`, or `None` if they're equal. `edit_start`
@@ -120,7 +143,18 @@ impl TextModel {
         let paint_before = self.paint.clone();
         self.text = new_text;
         paint::shift(&mut self.paint, &change);
-        if let Some(idea) = self.brush {
+        paint::continue_word(&mut self.paint, &change, &self.text);
+        // Pasting what was cut or copied puts its paint back; otherwise the brush paints it.
+        let clip = self
+            .clip
+            .as_ref()
+            .filter(|(clipped, spans)| *clipped == change.inserted && !spans.is_empty());
+        if let Some((_, spans)) = clip {
+            for span in spans {
+                let range = change.at + span.start..change.at + span.end;
+                paint::brush(&mut self.paint, range, span.idea);
+            }
+        } else if let Some(idea) = self.brush {
             paint::brush(
                 &mut self.paint,
                 change.at..change.at + change.inserted.len(),
@@ -187,13 +221,21 @@ impl TextModel {
         changes
     }
 
-    /// Paints `range` with `idea` as its own undo step.
-    #[allow(dead_code)] // Until project mode paints; remove then.
-    pub fn paint_range(&mut self, range: Range<usize>, idea: IdeaId) {
-        let paint_before = self.paint.clone();
-        paint::brush(&mut self.paint, range, idea);
+    /// Replaces the paint (painting or erasing a selection, making an idea) as its own undo step.
+    pub fn set_paint(&mut self, paint: Vec<Span>) {
+        let paint_before = std::mem::replace(&mut self.paint, paint);
         self.redo.clear();
         self.push_step(Vec::new(), false, Instant::now(), paint_before);
+    }
+
+    /// Removes every trace of `idea`'s paint, from the undo and redo history too, so undo can't
+    /// bring back paint of a deleted idea.
+    pub fn forget_idea(&mut self, idea: IdeaId) {
+        self.paint.retain(|span| span.idea != idea);
+        for step in self.undo.iter_mut().chain(self.redo.iter_mut()) {
+            step.paint_before.retain(|span| span.idea != idea);
+            step.paint_after.retain(|span| span.idea != idea);
+        }
     }
 
     /// Undoes the last step. Returns the changes to replay into the widget, in order (empty
@@ -553,7 +595,9 @@ mod tests {
     #[test]
     fn undo_restores_paint_a_delete_removed() {
         let mut model = TextModel::new("keep this part".to_string());
-        model.paint_range(5..9, 1);
+        let mut paint = Vec::new();
+        paint::brush(&mut paint, 5..9, 1);
+        model.set_paint(paint);
         model.replace(5..10, "");
         assert!(model.paint.is_empty(), "the painted word was deleted");
         model.undo();
@@ -568,10 +612,53 @@ mod tests {
     }
 
     #[test]
+    fn cut_and_paste_keeps_the_paint_even_with_another_brush() {
+        let now = Instant::now();
+        let mut model = TextModel::new("Nyx is quiet. She keeps her distance.".to_string());
+        let mut paint = Vec::new();
+        paint::brush(&mut paint, 14..37, 1);
+        model.set_paint(paint);
+        // Ctrl+X on " She keeps her distance." (13..37), then Ctrl+V at the start.
+        model.clip = Some(model.clipped(13..37));
+        model.record("Nyx is quiet.".to_string(), 13, now);
+        assert!(model.paint.is_empty());
+        model.brush = Some(2);
+        model.record(" She keeps her distance.Nyx is quiet.".to_string(), 0, now);
+        let painted: Vec<(IdeaId, &str)> = model
+            .paint
+            .iter()
+            .map(|span| (span.idea, &model.text()[span.start..span.end]))
+            .collect();
+        assert_eq!(painted, [(1, "She keeps her distance.")]);
+        // Other text still takes the brush.
+        type_at(&mut model, 0, "x", now);
+        assert!(model.paint.iter().any(|span| span.idea == 2));
+    }
+
+    #[test]
+    fn retyping_the_last_painted_word_keeps_it_painted() {
+        let now = Instant::now();
+        let mut model = TextModel::new("calm but bold".to_string());
+        model.set_paint(vec![Span {
+            idea: 1,
+            start: 4,
+            end: 13,
+            quote: String::new(),
+        }]);
+        // "bold" is selected and the first key replaces it, then the rest are typed.
+        model.record("calm but b".to_string(), 9, now);
+        type_at(&mut model, 10, "rave", now);
+        assert_eq!(model.text(), "calm but brave");
+        assert_eq!((model.paint[0].start, model.paint[0].end), (4, 14));
+    }
+
+    #[test]
     fn typing_shifts_paint_and_the_brush_paints_new_text() {
         let now = Instant::now();
         let mut model = TextModel::new("ab cd".to_string());
-        model.paint_range(3..5, 7);
+        let mut paint = Vec::new();
+        paint::brush(&mut paint, 3..5, 7);
+        model.set_paint(paint);
         type_at(&mut model, 0, "zz", now);
         assert_eq!((model.paint[0].start, model.paint[0].end), (5, 7));
         model.brush = Some(7);

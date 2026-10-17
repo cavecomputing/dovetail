@@ -1,7 +1,8 @@
 //! The Gruvbox palette as named roles (from docs/design-tokens.json), the bundled font, and the
 //! few widget styles more than one file uses. Colours anywhere else come from `Roles`, never hex.
 
-use iced::widget::{button, container};
+use iced::widget::text::Wrapping;
+use iced::widget::{button, container, text, text_input};
 use iced::{Background, Border, Color, Font, Theme, color};
 
 pub const FONT_REGULAR: &[u8] =
@@ -37,8 +38,11 @@ pub struct Roles {
     pub fg: Color,
     pub fg_muted: Color,
     pub fg_subtle: Color,
+    pub accent: Color,
     pub accent_text: Color,
+    pub accent_alt: Color,
     pub accent_cool: Color,
+    pub accent_rose: Color,
     pub accent_warm: Color,
     pub accent_aqua: Color,
 }
@@ -52,8 +56,11 @@ pub const DARK: Roles = Roles {
     fg: color!(0xebdbb2),
     fg_muted: color!(0xa89984),
     fg_subtle: color!(0x7c6f64),
+    accent: color!(0xfabd2f),
     accent_text: color!(0xfabd2f),
+    accent_alt: color!(0xb8bb26),
     accent_cool: color!(0x83a598),
+    accent_rose: color!(0xd3869b),
     accent_warm: color!(0xfe8019),
     accent_aqua: color!(0x8ec07c),
 };
@@ -67,8 +74,11 @@ pub const LIGHT: Roles = Roles {
     fg: color!(0x3c3836),
     fg_muted: color!(0x665c54),
     fg_subtle: color!(0x7c6f64),
+    accent: color!(0xb57614),
     accent_text: color!(0x8a5a0e),
+    accent_alt: color!(0x79740e),
     accent_cool: color!(0x076678),
+    accent_rose: color!(0x8f3f71),
     accent_warm: color!(0xaf3a03),
     accent_aqua: color!(0x376b4b),
 };
@@ -81,6 +91,21 @@ impl Roles {
         } else {
             &LIGHT
         }
+    }
+
+    /// The colour of idea colour slot `slot` (see `project::ideas::COLOUR_SLOTS`): aqua, blue,
+    /// purple, yellow, orange, green, subtle grey. Never red.
+    pub fn idea(&self, slot: usize) -> Color {
+        let slots = [
+            self.accent_aqua,
+            self.accent_cool,
+            self.accent_rose,
+            self.accent,
+            self.accent_warm,
+            self.accent_alt,
+            self.fg_subtle,
+        ];
+        slots[slot % slots.len()]
     }
 }
 
@@ -134,5 +159,59 @@ pub fn fill(color: Color) -> container::Style {
     container::Style {
         background: Some(Background::Color(color)),
         ..container::Style::default()
+    }
+}
+
+/// The bundled font in bold.
+pub fn bold() -> Font {
+    Font {
+        weight: iced::font::Weight::Bold,
+        ..MONO
+    }
+}
+
+/// Small muted words on one line, such as counts beside a heading.
+pub fn muted<'a>(words: impl text::IntoFragment<'a>) -> text::Text<'a> {
+    text(words)
+        .size(12)
+        .wrapping(Wrapping::None)
+        .style(|theme: &Theme| text::Style {
+            color: Some(Roles::of(theme).fg_muted),
+        })
+}
+
+/// Text in the subtle grey, for hints and labels.
+pub fn subtle(theme: &Theme) -> text::Style {
+    text::Style {
+        color: Some(Roles::of(theme).fg_subtle),
+    }
+}
+
+/// A text field: a thin border that turns yellow while it has focus.
+pub fn input_style(theme: &Theme, status: text_input::Status) -> text_input::Style {
+    let roles = Roles::of(theme);
+    let border = match status {
+        text_input::Status::Focused { .. } => roles.accent_text,
+        _ => roles.border,
+    };
+    text_input::Style {
+        background: Background::Color(Color::TRANSPARENT),
+        border: Border::default().rounded(4).width(1).color(border),
+        icon: roles.fg_muted,
+        placeholder: roles.fg_subtle,
+        value: roles.fg,
+        selection: roles.accent_cool.scale_alpha(0.35),
+    }
+}
+
+/// A row of a menu or panel: filled only while hovered.
+pub fn menu_button(theme: &Theme, status: button::Status) -> button::Style {
+    let roles = Roles::of(theme);
+    let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
+    button::Style {
+        background: hovered.then_some(Background::Color(roles.bg_inset)),
+        text_color: roles.fg,
+        border: Border::default().rounded(4),
+        ..button::Style::default()
     }
 }

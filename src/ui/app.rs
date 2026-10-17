@@ -17,15 +17,18 @@ use crate::core::save::{Autosaver, SaveState, atomic_write, failure_reason};
 use crate::core::scratch::{ScratchState, ScratchView, scratch_open_elsewhere};
 use crate::core::settings::{ReadingMode, Settings, Theme as ThemeSetting};
 use crate::core::text_file::{DiskStamp, changed_on_disk, read_text, save_text};
-use crate::project::{DRAFT_FILE, Project, RecentItem, open_project, recent_items};
+use crate::project::{DRAFT_FILE, Project, RecentItem, open_project, recent_items, save_draft};
 use crate::ui::editor::Pane;
+use crate::ui::idea_actions::IdeaAction;
 use crate::ui::project_actions::load_version;
 use crate::ui::project_view::{self, ProjectView};
 use crate::ui::settings_window::{self, Change};
 use crate::ui::switcher::{self, Switcher};
 use crate::ui::text_editor::{Action, Cursor, Position};
 use crate::ui::theme::{self, Roles};
-use crate::ui::{editor, status_bar, window_controls};
+use crate::ui::{
+    commit_dialog, editor, idea_panel, ideas_view, status_bar, weights_view, window_controls,
+};
 
 pub struct App {
     pub paths: Paths,
@@ -85,6 +88,8 @@ pub enum Message {
     Unindent,
     Undo,
     Redo,
+    /// Ctrl+X or Ctrl+C in the editor with this id: keep the selection's paint for a paste.
+    Clip(&'static str),
     Tick(Instant),
     Saved(u64, Result<Option<DiskStamp>, String>),
     TokenizerReady,
@@ -123,6 +128,8 @@ pub enum Message {
     Setting(Change),
     PollSettings,
     SystemTheme(iced::theme::Mode),
+
+    Idea(IdeaAction),
 }
 
 /// Runs the app on `doc` until its window closes.
@@ -181,6 +188,7 @@ impl App {
         if let Doc::Project(path) = &opened.doc {
             match open_project(path) {
                 Ok(found) => {
+                    pane.model.paint = found.draft_paint(pane.model.text());
                     load_reference = load_version(&found, found.latest_version());
                     project = Some(ProjectView::new(found, Pane::new("")));
                 }
@@ -194,7 +202,7 @@ impl App {
             let _ = tokenizer_sender.send(());
         });
 
-        let app = App {
+        let mut app = App {
             settings_modified: modified_time(&paths),
             recent: recent_items(&paths.data_dir),
             counts: Counts {
@@ -231,6 +239,7 @@ impl App {
             closing: false,
             menu_open: false,
         };
+        app.refresh_ideas();
         let tasks = Task::batch([
             open.map(Message::WindowOpened),
             Task::perform(tokenizer_ready, |_| Message::TokenizerReady),
@@ -257,6 +266,13 @@ impl App {
             // A read-only window still scrolls, selects and copies, but never changes the text.
             Message::Edit(action) if action.is_edit() && !self.editable() => {}
             Message::Edit(action) => {
+                // Selecting in one pane drops the other's selection, so nothing ever acts on a
+                // selection that isn't shown.
+                if let Some(project) = &mut self.project
+                    && selects(&action)
+                {
+                    project.reference.deselect();
+                }
                 if self.pane.perform(action) {
                     self.text_changed();
                 }
@@ -265,8 +281,23 @@ impl App {
                 if let Some(project) = &mut self.project
                     && !action.is_edit()
                 {
+                    if selects(&action) {
+                        self.pane.deselect();
+                        project.mouse_selecting = matches!(
+                            action,
+                            Action::Drag(_) | Action::SelectWord | Action::SelectLine
+                        );
+                    }
                     project.reference.perform(action);
                 }
+            }
+            Message::Clip(id) => {
+                let source = match &self.project {
+                    Some(project) if id == editor::REFERENCE_ID => &project.reference,
+                    _ => &self.pane,
+                };
+                let clip = source.selection().map(|range| source.model.clipped(range));
+                self.pane.model.clip = clip;
             }
             Message::Unindent => {
                 let tab_spaces = usize::from(self.settings.tab_spaces);
@@ -274,16 +305,19 @@ impl App {
                     self.text_changed();
                 }
             }
-            Message::Undo => {
-                if self.editable() && self.pane.undo() {
+            // A step may change only the paint, which still needs saving and drawing.
+            Message::Undo | Message::Redo if self.editable() => {
+                let changed = match message {
+                    Message::Undo => self.pane.undo(),
+                    _ => self.pane.redo(),
+                };
+                if changed {
                     self.text_changed();
+                } else if self.project.is_some() {
+                    self.ideas_changed();
                 }
             }
-            Message::Redo => {
-                if self.editable() && self.pane.redo() {
-                    self.text_changed();
-                }
-            }
+            Message::Undo | Message::Redo => {}
             Message::Tick(now) => {
                 self.now = now;
                 if let Some(project) = &mut self.project
@@ -321,10 +355,8 @@ impl App {
                 self.counts = Counts::of(self.pane.model.text());
                 if let Some(project) = &mut self.project {
                     project.reference_counts = Counts::of(project.reference.model.text());
-                    if project.reference_version == project.project.latest_version() {
-                        project.latest_counts = project.reference_counts;
-                    }
                 }
+                self.refresh_ideas();
             }
 
             Message::WindowOpened(window) if window == self.main_window => {
@@ -355,11 +387,22 @@ impl App {
                 self.menu_open = !self.menu_open;
                 self.recent = recent_items(&self.paths.data_dir);
             }
-            // Esc, or a click outside: closes the menu, the switcher and the Commit dialog.
+            // Esc, or a click outside: closes the menu, the switcher, the Commit dialog, the idea
+            // panel and the weights view. With none of them open, Esc puts the brush down.
             Message::CloseMenu => {
+                let mut closed = self.menu_open || self.switcher.is_some();
+                closed |= self.commit_note.is_some();
                 self.menu_open = false;
                 self.switcher = None;
                 self.commit_note = None;
+                if let Some(project) = &mut self.project {
+                    closed |= project.idea_panel.take().is_some();
+                    closed |= std::mem::take(&mut project.weights_open);
+                    project.commit_check = None;
+                }
+                if !closed {
+                    self.pane.model.brush = None;
+                }
                 return iced::widget::operation::focus(editor::EDITOR_ID);
             }
             Message::OpenDialog => {
@@ -467,6 +510,7 @@ impl App {
                 self.system_is_dark = mode != iced::theme::Mode::Light;
                 self.settings_changed();
             }
+            Message::Idea(action) => return self.update_ideas(action),
         }
         Task::none()
     }
@@ -476,6 +520,14 @@ impl App {
         self.autosaver.edited(now);
         self.saving_since.get_or_insert(now);
         self.counts = Counts::of(self.pane.model.text());
+        self.refresh_ideas();
+    }
+
+    /// Weighs the ideas and rebuilds the paint the editors draw (a project only).
+    pub fn refresh_ideas(&mut self) {
+        if let Some(project) = &mut self.project {
+            project.refresh_ideas(&self.pane.model, Roles::of(&self.theme));
+        }
     }
 
     fn settings_changed(&mut self) {
@@ -487,6 +539,7 @@ impl App {
             ThemeSetting::System => self.system_is_dark,
         };
         self.theme = theme::gruvbox(dark);
+        self.refresh_ideas();
     }
 
     /// Writes the current text in the background; `Saved` reports back.
@@ -497,14 +550,27 @@ impl App {
         let view = self.scratch_view();
         let doc = self.doc.clone();
         let disk_stamp = self.disk_stamp;
+        // A project saves its paint and ideas too, in the manifest, after the text.
+        let project = self.project.as_mut().map(|view| {
+            view.project.set_draft_paint(&self.pane.model.paint, &text);
+            (view.project.dir.clone(), view.project.manifest.clone())
+        });
         Task::perform(
             async move {
-                let result = match doc {
-                    Doc::Scratch => ScratchState { text, view }.save(&data_dir).map(|_| None),
-                    Doc::File { path, line_ending } => {
+                let result = match (doc, project) {
+                    (Doc::Scratch, _) => ScratchState { text, view }.save(&data_dir).map(|_| None),
+                    (Doc::File { path, line_ending }, _) => {
                         save_text(&path, &text, line_ending, disk_stamp)
                     }
-                    Doc::Project(path) => {
+                    (Doc::Project(_), Some((dir, manifest))) => {
+                        return save_draft(&dir, &manifest, &text)
+                            .map(|_| None)
+                            .map_err(|error| match error.downcast_ref() {
+                                Some(error) => failure_reason(error),
+                                None => error.to_string(),
+                            });
+                    }
+                    (Doc::Project(path), None) => {
                         atomic_write(&path.with_file_name(DRAFT_FILE), text.as_bytes())
                             .map(|_| None)
                     }
@@ -563,6 +629,15 @@ impl App {
             iced::time::every(Duration::from_secs(1)).map(|_| Message::PollSettings),
             iced::system::theme_changes().map(Message::SystemTheme),
         ];
+        // Letting go of the mouse ends a selection, which the brush paints in the left pane.
+        if self.project.is_some() {
+            subscriptions.push(event::listen_with(|event, _status, _window| match event {
+                iced::Event::Mouse(iced::mouse::Event::ButtonReleased(
+                    iced::mouse::Button::Left,
+                )) => Some(Message::Idea(IdeaAction::PaintSelection)),
+                _ => None,
+            }));
+        }
         // While anything is waiting to be saved: check the autosave delay and animate the dot.
         if self.autosaver.state() != SaveState::Saved {
             subscriptions.push(iced::time::every(Duration::from_millis(50)).map(Message::Tick));
@@ -592,6 +667,7 @@ impl App {
                     editor::EDITOR_ID,
                     Message::Edit,
                     editor::PADDING,
+                    &[],
                 ),
             };
             column![editor, status_bar::view(self)].into()
@@ -605,8 +681,21 @@ impl App {
             if self.menu_open {
                 page = stack![page, status_bar::menu(self)].into();
             }
+            if let Some(project) = &self.project {
+                let card = ideas_view::note_card(self, project);
+                let covered = project.idea_panel.is_some() || project.weights_open;
+                if let Some(card) = card.filter(|_| !covered && self.commit_note.is_none()) {
+                    page = stack![page, card].into();
+                }
+                if let Some(panel) = &project.idea_panel {
+                    page = stack![page, idea_panel::panel(self, project, panel)].into();
+                }
+                if project.weights_open {
+                    page = stack![page, weights_view::view(self, project)].into();
+                }
+            }
             if let (Some(project), Some(note)) = (&self.project, &self.commit_note) {
-                page = stack![page, project_view::commit_dialog(self, project, note)].into();
+                page = stack![page, commit_dialog::commit_dialog(self, project, note)].into();
             }
             if let Some(switcher) = &self.switcher {
                 page = stack![page, switcher::view(switcher)].into();
@@ -648,8 +737,26 @@ fn shortcut(event: iced::Event, status: event::Status, _window: window::Id) -> O
         keyboard::Key::Character(",") => Some(Message::OpenSettings),
         keyboard::Key::Character("0") => Some(Message::OpenScratch),
         keyboard::Key::Character("p") => Some(Message::OpenSwitcher),
+        keyboard::Key::Character("i") => Some(Message::Idea(IdeaAction::FromSelection)),
+        keyboard::Key::Character("e") => Some(Message::Idea(IdeaAction::Erase(None))),
+        keyboard::Key::Character("w" | "W") if modifiers.shift() => {
+            Some(Message::Idea(IdeaAction::ToggleWeights))
+        }
         _ => None,
     }
+}
+
+/// Whether `action` clicks or selects in a pane, so the user is now working in that pane.
+fn selects(action: &Action) -> bool {
+    matches!(
+        action,
+        Action::Click(_)
+            | Action::Drag(_)
+            | Action::SelectWord
+            | Action::SelectLine
+            | Action::SelectAll
+            | Action::Select(_)
+    )
 }
 
 /// Starts another copy of the app on `path` (or on scratch), so every file gets its own window.
