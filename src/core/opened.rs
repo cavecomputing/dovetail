@@ -10,7 +10,8 @@ use crate::core::paths::Paths;
 use crate::core::recent::{remember, same_file};
 use crate::core::save::{atomic_write, check_writable, failure_reason};
 use crate::core::scratch::{
-    ScratchState, claim_scratch, scratch_lock_path, scratch_text_path, take_cleared,
+    ScratchState, claim_scratch, scratch_lock_path, scratch_open_elsewhere, scratch_text_path,
+    take_cleared,
 };
 use crate::core::text_file::{DiskStamp, LineEnding, read_text, save_text};
 
@@ -125,23 +126,24 @@ pub fn open_doc(doc: Doc, paths: &Paths) -> OpenedDoc {
     opened
 }
 
-/// Opens the file at `path` in the window showing scratch, in scratch's place, as a launch on it
-/// would. A file the window couldn't edit or even show, being open in another window or not
-/// readable as text, is refused with the reason, so scratch stays. One the user can't write still
-/// opens, read-only.
-pub fn open_in_place(path: &Path, paths: &Paths) -> Result<OpenedDoc, String> {
+/// Opens `doc` in the window showing `own`, in its place, as a launch on it would. A document the
+/// window couldn't edit or even show, being open in another window or not readable as text, is
+/// refused with the reason, so the window keeps `own`. A file the user can't write still opens,
+/// read-only.
+pub fn open_in_place(own: &Doc, doc: Doc, paths: &Paths) -> Result<OpenedDoc, String> {
     let data_dir = &paths.data_dir;
-    if is_own_file(data_dir, &Doc::Scratch, path) {
-        return Err(OPEN_HERE.to_string());
+    match &doc {
+        Doc::Scratch if scratch_open_elsewhere(data_dir) => {
+            return Err("Scratch is already open in another window".to_string());
+        }
+        Doc::File { path, .. } if is_own_file(data_dir, own, path) => {
+            return Err(OPEN_HERE.to_string());
+        }
+        Doc::File { path, .. } if locked_elsewhere(&lock_for(data_dir, path)) => {
+            return Err(OPEN_ELSEWHERE.to_string());
+        }
+        _ => {}
     }
-    if locked_elsewhere(&lock_for(data_dir, path)) {
-        return Err(OPEN_ELSEWHERE.to_string());
-    }
-    let doc = Doc::File {
-        path: path.to_path_buf(),
-        line_ending: LineEnding::default(),
-        bom: false,
-    };
     let opened = open_doc(doc, paths);
     if let Some(reason) = &opened.read_only_reason
         && reason != NO_PERMISSION
@@ -484,7 +486,7 @@ mod tests {
         let paths = Paths::under(dir.path());
         let path = dir.path().join("notes.md");
         fs::write(&path, "\u{feff}a\r\nb").unwrap();
-        let opened = open_in_place(&path, &paths).unwrap();
+        let opened = open_in_place(&Doc::Scratch, file_doc(&path), &paths).unwrap();
         assert_eq!(opened.text, "a\nb");
         assert!(opened.read_only_reason.is_none() && opened.lock.is_some());
         assert!(matches!(
@@ -502,21 +504,28 @@ mod tests {
     }
 
     #[test]
-    fn open_in_place_refuses_what_scratch_shouldnt_be_swapped_for() {
+    fn open_in_place_refuses_what_the_window_couldnt_use() {
         let dir = tempfile::tempdir().unwrap();
         let paths = Paths::under(dir.path());
         let taken = dir.path().join("taken.txt");
         fs::write(&taken, "theirs").unwrap();
         let _other = open_doc(file_doc(&taken), &paths);
-        let refused = open_in_place(&taken, &paths);
+        let refused = open_in_place(&Doc::Scratch, file_doc(&taken), &paths);
         assert_eq!(refused.unwrap_err(), OPEN_ELSEWHERE);
         let binary = dir.path().join("binary.txt");
         fs::write(&binary, [0xff, 0xfe]).unwrap();
-        let refused = open_in_place(&binary, &paths);
+        let refused = open_in_place(&Doc::Scratch, file_doc(&binary), &paths);
         assert_eq!(refused.unwrap_err(), "Couldn't open: not a UTF-8 text file");
-        let _scratch = open_doc(Doc::Scratch, &paths);
-        let refused = open_in_place(&scratch_text_path(&paths.data_dir), &paths);
+        let scratch = open_doc(Doc::Scratch, &paths);
+        let scratch_file = file_doc(&scratch_text_path(&paths.data_dir));
+        let refused = open_in_place(&scratch.doc, scratch_file, &paths);
         assert_eq!(refused.unwrap_err(), OPEN_HERE);
+        // From a file window, scratch is open in another window.
+        let refused = open_in_place(&file_doc(&binary), Doc::Scratch, &paths);
+        assert_eq!(
+            refused.unwrap_err(),
+            "Scratch is already open in another window"
+        );
     }
 
     #[cfg(unix)]
@@ -530,7 +539,7 @@ mod tests {
         fs::set_permissions(&path, fs::Permissions::from_mode(0o444)).unwrap();
         // Root ignores permissions, so only check when they apply.
         if fs::OpenOptions::new().append(true).open(&path).is_err() {
-            let opened = open_in_place(&path, &paths).unwrap();
+            let opened = open_in_place(&Doc::Scratch, file_doc(&path), &paths).unwrap();
             assert_eq!(opened.text, "look");
             assert_eq!(opened.read_only_reason.as_deref(), Some(NO_PERMISSION));
         }

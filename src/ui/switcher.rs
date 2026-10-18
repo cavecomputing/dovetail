@@ -1,5 +1,5 @@
-//! The Ctrl+P quick switcher: type a few letters of a recent file, Enter opens it (in scratch's
-//! place, or from a file in a new window), Esc closes.
+//! The Ctrl+P quick switcher: type a few letters of a recent file, Enter opens it in this
+//! window, Esc closes.
 
 use std::path::{Path, PathBuf};
 
