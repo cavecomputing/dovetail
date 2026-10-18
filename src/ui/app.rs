@@ -88,6 +88,9 @@ pub enum Message {
     Unindent,
     /// Enter in the editor: a new line, indented like the caret's (`Pane::new_line`).
     NewLine,
+    /// Backspace in the editor, which takes back a whole indent in a line's leading spaces
+    /// (`Pane::backspace`).
+    Backspace,
     Undo,
     Redo,
     /// Ctrl+X or Ctrl+C while reviewing: copy the selected text, without the suggestions, and
@@ -307,12 +310,15 @@ impl App {
                 }
             }
             // The editing keys `editor::key_binding` binds. A read-only window takes none of them.
-            Message::Indent | Message::Unindent | Message::NewLine if self.editable() => {
+            Message::Indent | Message::Unindent | Message::NewLine | Message::Backspace
+                if self.editable() =>
+            {
                 let tab_spaces = usize::from(self.settings.tab_spaces);
                 let edited = match message {
                     Message::Indent => self.pane.indent(tab_spaces),
                     Message::Unindent => self.pane.unindent(tab_spaces),
                     Message::NewLine => self.pane.new_line(),
+                    Message::Backspace => self.pane.backspace(tab_spaces),
                     // The arm's pattern lets no other message in.
                     _ => Ok(false),
                 };
@@ -322,7 +328,7 @@ impl App {
                     Err(reason) => self.set_notice(Some(reason)),
                 }
             }
-            Message::Indent | Message::Unindent | Message::NewLine => {}
+            Message::Indent | Message::Unindent | Message::NewLine | Message::Backspace => {}
             Message::Undo | Message::Redo if self.editable() => {
                 let changed = match message {
                     Message::Undo => self.pane.undo(),

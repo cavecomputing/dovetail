@@ -107,10 +107,11 @@ the caret at the end of the last change. Undo of a step applies its changes in r
   paint inside the lines is untouched. It is now plain text and is tested without iced.
 - Ctrl+Z goes to `Binding::Custom(Message::Undo)`, Ctrl+Shift+Z and Ctrl+Y to `Message::Redo`, in
   `key_binding`.
-- Enter goes to `Message::NewLine`. `Pane::new_line` works out the text (a newline and the line's
-  indent) and does it as a widget edit through `Pane::perform`: a paste, over a selection it makes
-  first when the spaces before the caret go down too. So it is recorded like typing, review mode
-  checks it, and a refused edit puts the caret back.
+- Enter goes to `Message::NewLine` and Backspace to `Message::Backspace`. `Pane::new_line` and
+  `Pane::backspace` work out the edit (a newline and the line's indent; the spaces back to the
+  last indent stop) and do it as a widget edit through `Pane::perform`: a paste or delete, over a
+  selection they make first where needed. So it is recorded like typing, review mode checks it,
+  and a refused edit puts the caret back.
 - **Rewrite clear** (spec 7.4) is `replace(0..len, "")` on the scratch model, so Ctrl+Z restores it.
 - **Two panes** are two `{ content: Content, model: TextModel }` pairs, a small `Pane` struct in
   `app.rs`. v1 is read-only exactly as `editable` works today.
