@@ -3,7 +3,7 @@
 use std::fs::{self, OpenOptions, Permissions};
 use std::io::{self, ErrorKind};
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -77,8 +77,6 @@ pub struct Settings {
     pub colour_markup: bool,
     /// How long typing must pause before an autosave starts.
     pub autosave_delay_ms: u64,
-    /// Where new projects go. `None` means the default from `Paths::projects_dir`.
-    pub projects_folder: Option<PathBuf>,
     /// The assistant's server: any OpenAI-compatible API. Blank means `DEFAULT_BASE_URL`.
     pub base_url: String,
     /// The model name the server knows. Empty until set; the assistant pane asks for one.
@@ -102,7 +100,6 @@ impl Default for Settings {
             word_wrap: true,
             colour_markup: true,
             autosave_delay_ms: 500,
-            projects_folder: None,
             base_url: DEFAULT_BASE_URL.to_string(),
             model: String::new(),
             request_format: RequestFormat::Responses,
@@ -156,12 +153,6 @@ impl Settings {
                 &table,
                 "autosave_delay_ms",
                 defaults.autosave_delay_ms,
-                &mut bad_keys,
-            ),
-            projects_folder: key(
-                &table,
-                "projects_folder",
-                defaults.projects_folder,
                 &mut bad_keys,
             ),
             base_url: key(&table, "base_url", defaults.base_url, &mut bad_keys),
@@ -310,7 +301,6 @@ mod tests {
             theme: Theme::Light,
             reading_mode: ReadingMode::FullWidth,
             tab_spaces: 2,
-            projects_folder: Some(PathBuf::from("/home/me/stuff")),
             ..Settings::default()
         };
         settings.save(&path).unwrap();

@@ -836,11 +836,11 @@ data: [DONE]\n\n";
 
     #[test]
     fn chat_calls_without_an_id_get_one() {
-        let stream = "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"function\":{\"name\":\"list_ideas\",\"arguments\":\"{}\"}}]},\"finish_reason\":\"stop\"}]}\n\n";
+        let stream = "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"function\":{\"name\":\"get_selection\",\"arguments\":\"{}\"}}]},\"finish_reason\":\"stop\"}]}\n\n";
         let events = decoded(RequestFormat::ChatCompletions, &[stream.as_bytes()]);
         match &events[0] {
             StreamEvent::ToolCall(call) => {
-                assert_eq!(call.name, "list_ideas");
+                assert_eq!(call.name, "get_selection");
                 assert!(call.call_id.starts_with("call_"));
             }
             other => panic!("expected a tool call, got {other:?}"),

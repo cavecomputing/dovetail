@@ -1,14 +1,12 @@
 //! Entry point: reads the command line and decides what this window opens.
 //!
 //! - no arguments: the scratch space
-//! - a project manifest (`.<PROJECT_EXT>`): that project
-//! - any other path: that text file, created if missing
+//! - a path: that text file, created if missing
 //! - `--print-brand`: prints the names from `brand.rs` for `scripts/install.sh`, then exits
 
 mod ai;
 mod brand;
 mod core;
-mod project;
 mod ui;
 
 use std::path::{Path, PathBuf};
@@ -22,21 +20,11 @@ fn main() -> iced::Result {
             print_brand();
             return Ok(());
         }
-        Some(path) => {
+        Some(path) => Doc::File {
             // An absolute path, so a window opened from here still finds it.
-            let path = std::path::absolute(&path).unwrap_or(path);
-            if path
-                .extension()
-                .is_some_and(|ext| ext == brand::PROJECT_EXT)
-            {
-                Doc::Project(path)
-            } else {
-                Doc::File {
-                    path,
-                    line_ending: Default::default(),
-                }
-            }
-        }
+            path: std::path::absolute(&path).unwrap_or(path),
+            line_ending: Default::default(),
+        },
         None => Doc::Scratch,
     };
     ui::app::run(doc)
@@ -48,8 +36,6 @@ fn print_brand() {
         ("APP_NAME", brand::APP_NAME),
         ("BIN_NAME", brand::BIN_NAME),
         ("APP_ID", brand::APP_ID),
-        ("PROJECT_EXT", brand::PROJECT_EXT),
-        ("PROJECT_MIME", brand::PROJECT_MIME),
     ];
     for (name, value) in names {
         println!("{name}='{}'", value.replace('\'', r"'\''"));

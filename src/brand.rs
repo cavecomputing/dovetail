@@ -7,17 +7,8 @@ pub const APP_NAME: &str = "Dovetail";
 /// The binary and command name. Must match `[package] name` in Cargo.toml.
 pub const BIN_NAME: &str = "dovetail";
 
-/// Reverse-DNS application id: the Wayland app id, the `.desktop` file name and the MIME prefix.
+/// Reverse-DNS application id: the Wayland app id and the `.desktop` file name.
 pub const APP_ID: &str = "io.cavecomputing.Dovetail";
-
-/// File extension of a project manifest, without the dot.
-pub const PROJECT_EXT: &str = "dovetail";
-
-/// MIME type registered for project manifests.
-pub const PROJECT_MIME: &str = "application/x-dovetail-project";
 
 /// Folder name under `~/.config/` and `~/.local/share/`.
 pub const CONFIG_DIR_NAME: &str = "dovetail";
-
-/// Folder under `~/Documents/` where new projects are created.
-pub const PROJECTS_DIR_NAME: &str = "Dovetail";

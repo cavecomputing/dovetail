@@ -115,25 +115,17 @@ fn pane(app: &App) -> Element<'_, Message> {
     column![head, rule, chat(app), bottom].height(Fill).into()
 }
 
-/// What the assistant is focused on (accent), what it can see, and in a project its ideas.
+/// What the assistant is focused on (accent) and what it can see.
 fn chips(app: &App) -> Element<'_, Message> {
     let mut chips = row![].spacing(6);
-    let manifest = app.project.as_ref().map(|view| &view.project.manifest);
-    let (selection, caret) = (app.pane.selection(), app.pane.caret());
-    if let Some(focus) = context::focus(&app.pane.model, selection, caret, manifest) {
+    if let Some(focus) = context::focus(app.pane.model.text(), app.pane.selection()) {
         chips = chips.push(chip(format!("Focus: {focus}"), true));
     }
-    let sees = match &app.project {
-        Some(view) => format!("Sees v{} + draft", view.reference_version),
-        None if matches!(app.doc, Doc::Scratch) => "Sees scratch".to_string(),
-        None => format!("Sees {}", title(&app.doc)),
+    let sees = match &app.doc {
+        Doc::Scratch => "Sees scratch".to_string(),
+        doc => format!("Sees {}", title(doc)),
     };
     chips = chips.push(chip(sees, false));
-    if let Some(view) = &app.project {
-        let ideas = view.project.manifest.live_ideas().count();
-        let plural = if ideas == 1 { "idea" } else { "ideas" };
-        chips = chips.push(chip(format!("{ideas} {plural} + notes"), false));
-    }
     chips.wrap().vertical_spacing(6).into()
 }
 
@@ -240,16 +232,10 @@ fn empty_chat(app: &App) -> Element<'_, Message> {
         .spacing(10)
         .into();
     }
-    muted_prose(match app.project {
-        Some(_) => {
-            "Ask about the draft, the versions, the ideas or their weights. Edits it suggests \
-             show in the draft for you to accept or reject."
-        }
-        None => {
-            "Ask about the text. It can read and search it, count tokens and suggest edits, \
-             which show in the text for you to accept or reject."
-        }
-    })
+    muted_prose(
+        "Ask about the text. It can read and search it, count tokens and suggest edits, which \
+         show in the text for you to accept or reject.",
+    )
 }
 
 fn bubble(words: &str) -> Element<'_, Message> {
@@ -304,20 +290,11 @@ fn cards(app: &App, turn: usize) -> impl Iterator<Item = Element<'_, Message>> {
         .map(move |card| card_view(app, card))
 }
 
-/// A waiting suggestion: what it paints (or "Edit"), its size change, the new text, and Accept,
-/// Reject and Try shorter. A decided one shrinks to one muted line saying how it went.
+/// A waiting suggestion: "Edit", its size change, the new text, and Accept, Reject and Try
+/// shorter. A decided one shrinks to one muted line saying how it went.
 fn card_view<'a>(app: &'a App, card: &'a Card) -> Element<'a, Message> {
-    let roles = Roles::of(&app.theme);
+    let color = Roles::of(&app.theme).accent_cool;
     let suggestion = &card.suggestion;
-    let idea = app
-        .project
-        .as_ref()
-        .zip(suggestion.idea)
-        .and_then(|(view, idea)| view.project.manifest.idea(idea));
-    let (color, label) = match idea {
-        Some(idea) => (roles.idea(idea.colour), format!("Paints {}", idea.name)),
-        None => (roles.accent_cool, "Edit".to_string()),
-    };
     let id = match &card.state {
         CardState::Waiting(id) => *id,
         decided => {
@@ -327,8 +304,8 @@ fn card_view<'a>(app: &'a App, card: &'a Card) -> Element<'a, Message> {
                 CardState::Gone(reason) => reason.as_str(),
                 CardState::Waiting(_) => "",
             };
-            // Wraps, so a long idea name never hides how it went.
-            let line = muted(format!("{label} · {outcome}")).wrapping(Wrapping::WordOrGlyph);
+            // Wraps, so a long reason is read in full.
+            let line = muted(format!("Edit · {outcome}")).wrapping(Wrapping::WordOrGlyph);
             return row![dot(color), line]
                 .spacing(8)
                 .align_y(iced::Center)
@@ -350,10 +327,7 @@ fn card_view<'a>(app: &'a App, card: &'a Card) -> Element<'a, Message> {
     let mut body = column![
         row![
             dot(color),
-            // A long idea name is cut off rather than pushing the size change out of the card.
-            container(text(label).size(12).wrapping(Wrapping::None))
-                .width(Fill)
-                .clip(true),
+            container(text("Edit").size(12)).width(Fill),
             muted(size),
         ]
         .spacing(8)
@@ -404,8 +378,6 @@ fn composer(app: &App) -> Element<'_, Message> {
     let assistant = &app.assistant;
     let placeholder = if app.settings.model.trim().is_empty() {
         "Set a model in Settings first"
-    } else if app.project.is_some() && assistant.versions.is_none() {
-        "Reading the versions…"
     } else {
         "Ask about this text…"
     };

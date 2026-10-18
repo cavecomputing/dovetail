@@ -32,23 +32,21 @@ impl App {
         Task::none()
     }
 
-    /// Ctrl+S. Everything autosaves, so in a .txt or a project this writes now instead of after
-    /// the pause. Scratch has no file, so it asks where to save one (Save as).
+    /// Ctrl+S. Everything autosaves, so in a .txt this writes now instead of after the pause.
+    /// Scratch has no file, so it asks where to save one (Save as).
     pub fn save_now(&mut self) -> Task<Message> {
         if matches!(self.doc, Doc::Scratch) {
             return self.pick_save_path();
         }
-        // Not while git is busy (a commit writes the draft itself), and not over a file that
-        // changed on disk (the status bar asks what to do).
+        // Not over a file that changed on disk (the status bar asks what to do).
         let waiting = self.autosaver.pending() && !self.autosaver.is_saving();
-        if self.editable() && waiting && !self.busy && !self.disk_conflict {
+        if self.editable() && waiting && !self.disk_conflict {
             return self.save(Instant::now());
         }
         Task::none()
     }
 
-    /// Save as: asks where to save this text as a .txt; `SaveAsPicked` brings the answer. A
-    /// project saves into its own folder, so it has no Save as.
+    /// Save as: asks where to save this text as a .txt; `SaveAsPicked` brings the answer.
     pub fn pick_save_path(&mut self) -> Task<Message> {
         self.menu_open = false;
         let name = match &self.doc {
@@ -57,7 +55,6 @@ impl App {
                 || "untitled.txt".to_string(),
                 |name| name.to_string_lossy().into_owned(),
             ),
-            Doc::Project(_) => return Task::none(),
         };
         let dialog = self.save_dialog("Save as", name);
         Task::perform(dialog.save_file(), |picked| picked)
@@ -65,8 +62,8 @@ impl App {
     }
 
     /// Makes `path` this window's file: the text is written there and the window carries on
-    /// editing it, undo history and all. Scratch is emptied (as a Rewrite does), keeping its text
-    /// for the next scratch window's Ctrl+Z; a .txt keeps its last save.
+    /// editing it, undo history and all. Scratch is emptied, keeping its text for the next scratch
+    /// window's Ctrl+Z; a .txt keeps its last save.
     pub fn save_as(&mut self, path: PathBuf) -> Task<Message> {
         let line_ending = match &self.doc {
             Doc::File {
@@ -76,7 +73,7 @@ impl App {
                 // Its own file: save, even with nothing new, so a file moved or deleted
                 // outside the app is written again.
                 if same_file(current, &path) {
-                    let can_save = self.editable() && !self.busy && !self.autosaver.is_saving();
+                    let can_save = self.editable() && !self.autosaver.is_saving();
                     return match can_save {
                         true => self.save(Instant::now()),
                         false => Task::none(),
@@ -114,7 +111,6 @@ impl App {
                 self.read_only_reason = None;
                 self.autosaver.mark_saved();
                 self.saving_since = None;
-                self.saved_at = Some(Instant::now());
             }
         }
         Task::none()
@@ -125,7 +121,7 @@ impl App {
     fn save_dialog(&self, title: &str, name: String) -> rfd::AsyncFileDialog {
         let folder = match &self.doc {
             Doc::File { path, .. } => path.parent(),
-            _ => self.paths.projects_dir.parent(),
+            Doc::Scratch => Some(self.paths.documents_dir.as_path()),
         };
         let dialog = rfd::AsyncFileDialog::new()
             .set_title(title)

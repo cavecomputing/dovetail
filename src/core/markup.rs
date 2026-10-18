@@ -1,5 +1,5 @@
-//! XML tags and {{macros}} in a prompt: where they are, for colouring them and for leaving them
-//! out of names. Tags and macros are found one line at a time.
+//! XML tags and {{macros}} in a prompt: where they are, for colouring them. Tags and macros are
+//! found one line at a time.
 
 use std::ops::Range;
 
@@ -40,22 +40,6 @@ pub fn markup_ranges(line: &str) -> Vec<(Range<usize>, Markup)> {
     found
 }
 
-/// `text` with each tag and macro replaced by a space, found the same way the editor colours
-/// them.
-pub fn without_markup(text: &str) -> String {
-    let lines: Vec<String> = text
-        .split('\n')
-        .map(|line| {
-            let mut plain = line.to_string();
-            for (range, _) in markup_ranges(line).into_iter().rev() {
-                plain.replace_range(range, " ");
-            }
-            plain
-        })
-        .collect();
-    lines.join("\n")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -88,12 +72,5 @@ mod tests {
         assert!(marked("if a < b and c > d, it's fine").is_empty());
         assert!(marked("an unclosed <tag and {{macro").is_empty());
         assert!(marked("").is_empty());
-    }
-
-    #[test]
-    fn without_markup_drops_what_the_editor_colours_and_nothing_else() {
-        assert_eq!(without_markup("<b>Nyx</b> {{char}}"), " Nyx   ");
-        // A tag never runs across a line break, as in the editor.
-        assert_eq!(without_markup("if a<b then\nc>d"), "if a<b then\nc>d");
     }
 }

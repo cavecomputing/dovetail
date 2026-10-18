@@ -8,11 +8,10 @@
 //! - Horizontal scroll: with wrapping off, text, caret, selection and clicks follow the scroll
 //!   cosmic-text already keeps on the cursor (upstream ignores it, so long lines were cut off).
 //! - `Content::scroll_line` reports the top line and `Content::scroll_to_line` restores it.
-//! - Paint: `TextEditor::paint` draws idea paint under the glyphs and gutter stripes beside each
-//!   painted paragraph (lines between blank or tag-only lines); `TextEditor::on_caret` reports where the caret is drawn.
-//! - Review mode: paint looks for suggested edits (struck, ghost, a dashed "pending" stripe), and
-//!   each suggestion's Accept and Reject buttons, drawn and clicked inside the widget
-//!   (`TextEditor::on_decide`). The widget uses iced's own theme, for the palette roles.
+//! - Paint: `TextEditor::paint` draws runs under the glyphs: find matches, and in review mode the
+//!   looks of suggested edits (struck, ghost) and each suggestion's Accept and Reject buttons,
+//!   drawn and clicked inside the widget (`TextEditor::on_decide`). The widget uses iced's own
+//!   theme, for the palette roles.
 use iced::advanced::clipboard::{self, Clipboard};
 use iced::advanced::graphics;
 use iced::advanced::graphics::text::cosmic_text;
@@ -40,8 +39,7 @@ use std::ops;
 use std::ops::DerefMut;
 use std::sync::Arc;
 
-// ours: XML tags, so a line of only tags can end a paragraph; the palette for the buttons.
-use crate::core::markup::{Markup, markup_ranges};
+// ours: the palette for the buttons.
 use crate::ui::theme::{Roles, bold};
 
 pub use iced::advanced::text::editor::{
@@ -76,9 +74,8 @@ where
     highlighter_settings: Highlighter::Settings,
     highlighter_format: fn(&Highlighter::Highlight, &Theme) -> highlighter::Format<Renderer::Font>,
     last_status: Option<Status>,
-    // ours: idea paint, and who hears where the caret is and which suggestions are decided.
+    // ours: what is drawn under the text, and who hears which suggestions are decided.
     paint: Vec<PaintRun>,
-    on_caret: Option<Box<dyn Fn(Option<Rectangle>, Rectangle) -> Message + 'a>>,
     on_decide: Option<Box<dyn Fn(u64, bool) -> Message + 'a>>,
 }
 
@@ -87,7 +84,7 @@ where
 pub struct PaintRun {
     pub start: Position,
     pub end: Position,
-    /// The idea's colour, opaque: the fill is drawn see-through, the gutter stripe solid.
+    /// Its colour, opaque: a fill is drawn see-through.
     pub color: Color,
     pub look: PaintLook,
 }
@@ -95,26 +92,14 @@ pub struct PaintRun {
 /// ours: how a painted range is drawn.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PaintLook {
-    Fill,
-    /// The fill plus a dashed outline in this colour (the warning colour): the idea is missing.
-    Missing(Color),
-    /// No fill, a line through the text in this colour: the idea was cut on purpose.
-    Cut(Color),
-    /// A suggestion's new text: a fainter fill and a dashed underline.
+    /// A suggestion's new text: a faint fill and a dashed underline.
     Ghost,
-    /// Text a suggestion would replace: a line through it in this colour, and no gutter stripe.
+    /// Text a suggestion would replace: a line through it in this colour.
     Struck(Color),
-    /// The room after suggestion `id` where its Accept and Reject buttons are drawn. With
-    /// `stripe`, its paragraph gets a dashed "pending" stripe in the gutter.
-    Buttons {
-        id: u64,
-        stripe: bool,
-    },
-    /// A find match: a fill over any paint at full height (never sharing a lane), no gutter
-    /// stripe, and an outline in this colour for the selected one.
-    Found {
-        outline: Option<Color>,
-    },
+    /// The room after suggestion `id` where its Accept and Reject buttons are drawn.
+    Buttons { id: u64 },
+    /// A find match: a fill, and an outline in this colour for the selected one.
+    Found { outline: Option<Color> },
 }
 
 impl<'a, Message, Theme, Renderer> TextEditor<'a, highlighter::PlainText, Message, Theme, Renderer>
@@ -144,7 +129,6 @@ where
             highlighter_format: |_highlight, _theme| highlighter::Format::default(),
             last_status: None,
             paint: Vec::new(),
-            on_caret: None,
             on_decide: None,
         }
     }
@@ -261,13 +245,11 @@ where
             highlighter_format: to_format,
             last_status: self.last_status,
             paint: self.paint,
-            on_caret: self.on_caret,
             on_decide: self.on_decide,
         }
     }
 
-    /// ours: draws these painted ranges under the text, and a stripe per idea beside each
-    /// paragraph (a run of lines that are neither blank nor only XML tags) that holds some of it, in the left padding.
+    /// ours: draws these runs under the text.
     pub fn paint(mut self, paint: Vec<PaintRun>) -> Self {
         self.paint = paint;
         self
@@ -277,17 +259,6 @@ where
     /// the suggestion's id (from its `PaintLook::Buttons` run).
     pub fn on_decide(mut self, on_decide: impl Fn(u64, bool) -> Message + 'a) -> Self {
         self.on_decide = Some(Box::new(on_decide));
-        self
-    }
-
-    /// ours: reports where the caret is drawn (window coordinates, one line tall; `None` when it
-    /// is scrolled out of view) and the text area it is in, whenever either changes. For floating
-    /// a card beside it.
-    pub fn on_caret(
-        mut self,
-        on_caret: impl Fn(Option<Rectangle>, Rectangle) -> Message + 'a,
-    ) -> Self {
-        self.on_caret = Some(Box::new(on_caret));
         self
     }
 
@@ -489,16 +460,10 @@ fn horizontal_scroll(editor: &graphics::text::Editor, wrapping: Wrapping) -> f32
     }
 }
 
-// ours: drawing paint, suggestions and gutter stripes.
-const PAINT_ALPHA: f32 = 0.22;
+// ours: drawing suggestions and find matches.
 const GHOST_ALPHA: f32 = 0.12;
 const FOUND_ALPHA: f32 = 0.24;
 const PAINT_RADIUS: f32 = 3.0;
-/// The gutter is this wide and ends this far left of the text.
-const GUTTER_WIDTH: f32 = 10.0;
-const GUTTER_GAP: f32 = 12.0;
-const STRIPE_WIDTH: f32 = 3.0;
-const STRIPE_STEP: f32 = 6.0;
 const DASH: f32 = 4.0;
 const DASH_GAP: f32 = 3.0;
 const DASH_THICKNESS: f32 = 1.5;
@@ -517,55 +482,30 @@ fn text_box(
     )
 }
 
-/// ours: a dashed line from `start`, `length` long, going down or across, as small rectangles.
-fn dashed(start: Point, length: f32, down: bool, thickness: f32) -> Vec<Rectangle> {
+/// ours: a dashed line across from `start`, `length` long, as small rectangles.
+fn dashed(start: Point, length: f32) -> Vec<Rectangle> {
     let mut dashes = Vec::new();
     let mut along = 0.0;
     while along < length {
-        let dash = DASH.min(length - along);
-        dashes.push(if down {
-            Rectangle::new(
-                Point::new(start.x, start.y + along),
-                Size::new(thickness, dash),
-            )
-        } else {
-            Rectangle::new(
-                Point::new(start.x + along, start.y),
-                Size::new(dash, thickness),
-            )
-        });
+        let dash = Size::new(DASH.min(length - along), DASH_THICKNESS);
+        dashes.push(Rectangle::new(Point::new(start.x + along, start.y), dash));
         along += DASH + DASH_GAP;
     }
     dashes
 }
 
-/// ours: a dashed box just inside `rect`.
-fn dashed_outline(rect: Rectangle, thickness: f32) -> Vec<Rectangle> {
-    let right = rect.x + rect.width - thickness;
-    let bottom = rect.y + rect.height - thickness;
-    [
-        dashed(rect.position(), rect.width, false, thickness),
-        dashed(Point::new(rect.x, bottom), rect.width, false, thickness),
-        dashed(rect.position(), rect.height, true, thickness),
-        dashed(Point::new(right, rect.y), rect.height, true, thickness),
-    ]
-    .concat()
-}
-
-/// ours: draws `paint` on the visible rows only, then a stripe per idea beside each visible
-/// paragraph. `gutter_left` is where the editor starts; stripes stay out of the text area.
+/// ours: draws `paint` on the visible rows only.
 fn draw_paint<R: renderer::Renderer>(
     renderer: &mut R,
     buffer: &cosmic_text::Buffer,
     paint: &[PaintRun],
     text_bounds: Rectangle,
-    gutter_left: f32,
     scroll_x: f32,
     text_size: f32,
 ) {
-    // Fill a rectangle clipped to `clip`.
-    let mut fill = |rect: Rectangle, radius: border::Radius, color: Color, clip: Rectangle| {
-        if let Some(bounds) = clip.intersection(&rect) {
+    // Fill a rectangle clipped to the text area.
+    let mut fill = |rect: Rectangle, radius: border::Radius, color: Color| {
+        if let Some(bounds) = text_bounds.intersection(&rect) {
             renderer.fill_quad(
                 renderer::Quad {
                     bounds,
@@ -576,72 +516,26 @@ fn draw_paint<R: renderer::Renderer>(
             );
         }
     };
-    // Each visible line once, with the top and bottom of its painted box over all its rows.
-    let mut lines: Vec<(usize, f32, f32)> = Vec::new();
-
+    let square = border::Radius::default();
     for row in buffer.layout_runs() {
         let (top, box_height) = text_box(&row, text_bounds, text_size);
-        let mut pieces = Vec::new();
         for run in paint {
             if run.start.line > row.line_i || run.end.line < row.line_i {
                 continue;
             }
             let start = cosmic_text::Cursor::new(run.start.line, run.start.column);
             let end = cosmic_text::Cursor::new(run.end.line, run.end.column);
-            if let Some((x, width)) = row.highlight(start, end)
-                && width > 0.0
-            {
-                pieces.push((text_bounds.x + x - scroll_x, width, run));
-            }
-        }
-
-        // Split the row where pieces start and end; where fills overlap, each gets a slice of
-        // the height, so every idea stays visible.
-        let mut edges: Vec<f32> = pieces.iter().flat_map(|(x, w, _)| [*x, x + w]).collect();
-        edges.sort_by(f32::total_cmp);
-        edges.dedup();
-        for pair in edges.windows(2) {
-            let (left, right) = (pair[0], pair[1]);
-            let fills: Vec<_> = pieces
-                .iter()
-                .filter(|(x, w, run)| {
-                    matches!(
-                        run.look,
-                        PaintLook::Fill | PaintLook::Missing(_) | PaintLook::Ghost
-                    ) && *x <= left
-                        && x + w >= right
-                })
-                .collect();
-            let slice = box_height / fills.len().max(1) as f32;
-            for (lane, (x, w, run)) in fills.iter().enumerate() {
-                let round_left = if *x >= left { PAINT_RADIUS } else { 0.0 };
-                let round_right = if x + w <= right { PAINT_RADIUS } else { 0.0 };
-                let radius = border::Radius {
-                    top_left: round_left,
-                    bottom_left: round_left,
-                    top_right: round_right,
-                    bottom_right: round_right,
-                };
-                let rect = Rectangle::new(
-                    Point::new(left, top + slice * lane as f32),
-                    Size::new(right - left, slice),
-                );
-                let alpha = match run.look {
-                    PaintLook::Ghost => GHOST_ALPHA,
-                    _ => PAINT_ALPHA,
-                };
-                fill(rect, radius, run.color.scale_alpha(alpha), text_bounds);
-            }
-        }
-        for (x, width, run) in &pieces {
-            let square = border::Radius::default();
+            let Some((x, width)) = row.highlight(start, end).filter(|(_, width)| *width > 0.0)
+            else {
+                continue;
+            };
+            let x = text_bounds.x + x - scroll_x;
             match run.look {
-                PaintLook::Fill | PaintLook::Buttons { .. } => {}
+                PaintLook::Buttons { .. } => {}
                 PaintLook::Found { outline: color } => {
-                    let outline =
-                        Rectangle::new(Point::new(*x, top), Size::new(*width, box_height));
+                    let outline = Rectangle::new(Point::new(x, top), Size::new(width, box_height));
                     let lit = run.color.scale_alpha(FOUND_ALPHA);
-                    fill(outline, border::Radius::new(PAINT_RADIUS), lit, text_bounds);
+                    fill(outline, border::Radius::new(PAINT_RADIUS), lit);
                     let Some(color) = color else { continue };
                     let sides = [
                         Rectangle::new(outline.position(), Size::new(outline.width, 1.0)),
@@ -656,120 +550,26 @@ fn draw_paint<R: renderer::Renderer>(
                         ),
                     ];
                     for side in sides {
-                        fill(side, square, color, text_bounds);
+                        fill(side, square, color);
                     }
                 }
-                PaintLook::Cut(color) | PaintLook::Struck(color) => {
+                PaintLook::Struck(color) => {
                     let y = text_bounds.y + row.line_y - text_size * 0.3;
-                    let line = Rectangle::new(Point::new(*x, y), Size::new(*width, 1.0));
-                    fill(line, square, color, text_bounds);
-                }
-                // Dashes along each side of the box, 1px outside it.
-                PaintLook::Missing(color) => {
-                    let outline =
-                        Rectangle::new(Point::new(*x, top), Size::new(*width, box_height))
-                            .expand(1.0 + DASH_THICKNESS);
-                    for dash in dashed_outline(outline, DASH_THICKNESS) {
-                        fill(dash, square, color, text_bounds);
-                    }
+                    let line = Rectangle::new(Point::new(x, y), Size::new(width, 1.0));
+                    fill(line, square, color);
                 }
                 PaintLook::Ghost => {
-                    let bottom = Point::new(*x, top + box_height - DASH_THICKNESS);
-                    for dash in dashed(bottom, *width, false, DASH_THICKNESS) {
-                        fill(dash, square, run.color, text_bounds);
+                    let ghost = Rectangle::new(Point::new(x, top), Size::new(width, box_height));
+                    let faint = run.color.scale_alpha(GHOST_ALPHA);
+                    fill(ghost, border::Radius::new(PAINT_RADIUS), faint);
+                    let bottom = Point::new(x, top + box_height - DASH_THICKNESS);
+                    for dash in dashed(bottom, width) {
+                        fill(dash, square, run.color);
                     }
                 }
             }
         }
-
-        match lines.last_mut() {
-            Some(last) if last.0 == row.line_i => last.2 = top + box_height,
-            _ => lines.push((row.line_i, top, top + box_height)),
-        }
     }
-
-    // Gutter stripes, one paragraph at a time.
-    let gutter = Rectangle {
-        x: gutter_left,
-        width: text_bounds.x - gutter_left - 1.0,
-        ..text_bounds
-    };
-    // A blank line, or one holding only XML tags (like `</rules>`), ends a paragraph.
-    let blank = |line: usize| {
-        let mut rest = buffer.lines[line].text().to_string();
-        for (range, markup) in markup_ranges(&rest).into_iter().rev() {
-            if markup == Markup::Tag {
-                rest.replace_range(range, "");
-            }
-        }
-        rest.trim().is_empty()
-    };
-    let mut i = 0;
-    while i < lines.len() {
-        if blank(lines[i].0) {
-            i += 1;
-            continue;
-        }
-        let mut j = i;
-        while j + 1 < lines.len() && !blank(lines[j + 1].0) {
-            j += 1;
-        }
-        // The whole paragraph, including lines scrolled out of view.
-        let mut first = lines[i].0;
-        while first > 0 && !blank(first - 1) {
-            first -= 1;
-        }
-        let mut last = lines[j].0;
-        while last + 1 < buffer.lines.len() && !blank(last + 1) {
-            last += 1;
-        }
-        let stripes = paragraph_stripes(paint, first, last);
-        // Many ideas squeeze closer together rather than run into the text.
-        let room = GUTTER_WIDTH + GUTTER_GAP - 2.0 - STRIPE_WIDTH;
-        let step = STRIPE_STEP.min(room / (stripes.len().max(2) - 1) as f32);
-        let x = text_bounds.x - GUTTER_GAP - GUTTER_WIDTH;
-        for (n, (color, pending)) in stripes.into_iter().enumerate() {
-            let stripe = Rectangle::new(
-                Point::new(x + step * n as f32, lines[i].1),
-                Size::new(STRIPE_WIDTH, lines[j].2 - lines[i].1),
-            );
-            if pending {
-                for dash in dashed_outline(stripe, 1.0) {
-                    fill(dash, border::Radius::default(), color, gutter);
-                }
-            } else {
-                fill(stripe, border::Radius::new(2.0), color, gutter);
-            }
-        }
-        i = j + 1;
-    }
-}
-
-/// ours: the gutter stripes of lines `first..=last`: the colour of each idea painted there, once,
-/// in paint order, then a dashed "pending" stripe (`true`) for each colour of suggestion whose
-/// buttons are there.
-fn paragraph_stripes(paint: &[PaintRun], first: usize, last: usize) -> Vec<(Color, bool)> {
-    let mut stripes = Vec::new();
-    for pending in [false, true] {
-        for run in paint {
-            let striped = match run.look {
-                PaintLook::Fill | PaintLook::Missing(_) | PaintLook::Cut(_) => !pending,
-                PaintLook::Buttons { stripe, .. } => stripe && pending,
-                PaintLook::Ghost | PaintLook::Struck(_) | PaintLook::Found { .. } => false,
-            };
-            // Paint that ends at the very start of a line doesn't reach into it.
-            let end_line = if run.end.column == 0 && run.end.line > run.start.line {
-                run.end.line - 1
-            } else {
-                run.end.line
-            };
-            let touches = run.start != run.end && run.start.line <= last && end_line >= first;
-            if striped && touches && !stripes.contains(&(run.color, pending)) {
-                stripes.push((run.color, pending));
-            }
-        }
-    }
-    stripes
 }
 
 /// ours: where each suggestion's Accept and Reject buttons are, on the first visible row of the
@@ -786,7 +586,7 @@ fn suggestion_buttons(
     for row in buffer.layout_runs() {
         let (top, height) = text_box(&row, text_bounds, text_size);
         for run in paint {
-            let PaintLook::Buttons { id, .. } = run.look else {
+            let PaintLook::Buttons { id } = run.look else {
                 continue;
             };
             if run.start.line > row.line_i
@@ -857,8 +657,6 @@ pub struct State<Highlighter: text::Highlighter> {
     highlighter_format_address: usize,
     // ours: flips every frame drawn while scrolled sideways (see `draw`).
     repaint_flip: std::cell::Cell<bool>,
-    // ours: the caret's place and text area last reported to `on_caret`.
-    last_caret: Option<(Option<Rectangle>, Rectangle)>,
 }
 
 #[derive(Debug, Clone)]
@@ -926,7 +724,6 @@ where
             highlighter_settings: self.highlighter_settings.clone(),
             highlighter_format_address: self.highlighter_format as usize,
             repaint_flip: std::cell::Cell::new(false),
-            last_caret: None,
         })
     }
 
@@ -1065,33 +862,6 @@ where
                     shell.capture_event();
                     return;
                 }
-            }
-        }
-
-        // ours: before each frame, tell the app if the caret moved on screen.
-        if let Some(on_caret) = self.on_caret.as_ref()
-            && is_redraw
-        {
-            let internal = self.content.0.borrow();
-            let text_bounds = layout.bounds().shrink(self.padding);
-            let line_height = self
-                .line_height
-                .to_absolute(self.text_size.unwrap_or_else(|| renderer.default_size()));
-            let point = match internal.editor.selection() {
-                Selection::Caret(point) => point,
-                Selection::Range(ranges) => ranges.last().map_or(Point::ORIGIN, |range| {
-                    Point::new(range.x + range.width, range.y)
-                }),
-            };
-            let scroll = horizontal_scroll(&internal.editor, self.wrapping);
-            let caret = Rectangle::new(
-                point + (text_bounds.position() - Point::ORIGIN) - Vector::new(scroll, 0.0),
-                Size::new(1.0, f32::from(line_height)),
-            );
-            let caret = text_bounds.intersects(&caret).then_some(caret);
-            if Some((caret, text_bounds)) != state.last_caret {
-                state.last_caret = Some((caret, text_bounds));
-                shell.publish(on_caret(caret, text_bounds));
             }
         }
 
@@ -1390,7 +1160,6 @@ where
                 internal.editor.buffer(),
                 &self.paint,
                 text_bounds,
-                bounds.x,
                 scrolled.x,
                 size.0,
             );
@@ -1707,80 +1476,5 @@ impl<Message> Update<Message> {
             }
             _ => None,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn run(start: (usize, usize), end: (usize, usize), color: Color) -> PaintRun {
-        PaintRun {
-            start: Position {
-                line: start.0,
-                column: start.1,
-            },
-            end: Position {
-                line: end.0,
-                column: end.1,
-            },
-            color,
-            look: PaintLook::Fill,
-        }
-    }
-
-    #[test]
-    fn a_paragraph_gets_each_idea_on_it_once() {
-        let (red, blue) = (Color::from_rgb(1.0, 0.0, 0.0), Color::BLACK);
-        let paint = [
-            run((0, 0), (0, 5), blue),
-            run((2, 3), (3, 1), red),
-            run((3, 2), (3, 4), blue),
-            // Ends at the start of line 5, so it isn't on line 5.
-            run((4, 0), (5, 0), red),
-            // Empty paint shows nowhere.
-            run((7, 1), (7, 1), red),
-        ];
-        assert_eq!(paragraph_stripes(&paint, 0, 0), vec![(blue, false)]);
-        assert_eq!(
-            paragraph_stripes(&paint, 2, 3),
-            vec![(red, false), (blue, false)]
-        );
-        assert_eq!(paragraph_stripes(&paint, 5, 7), vec![]);
-        assert_eq!(paragraph_stripes(&paint, 1, 1), vec![]);
-    }
-
-    #[test]
-    fn a_suggestion_adds_a_pending_stripe_after_the_ideas() {
-        let (red, blue) = (Color::from_rgb(1.0, 0.0, 0.0), Color::BLACK);
-        let looked = |look, color| PaintRun {
-            look,
-            ..run((0, 2), (0, 6), color)
-        };
-        let paint = [
-            looked(PaintLook::Ghost, blue),
-            looked(PaintLook::Struck(blue), blue),
-            looked(
-                PaintLook::Buttons {
-                    id: 1,
-                    stripe: true,
-                },
-                red,
-            ),
-            run((0, 0), (0, 2), red),
-        ];
-        assert_eq!(
-            paragraph_stripes(&paint, 0, 0),
-            vec![(red, false), (red, true)]
-        );
-        // Outside a project there are no stripes for suggestions.
-        let paint = [looked(
-            PaintLook::Buttons {
-                id: 1,
-                stripe: false,
-            },
-            red,
-        )];
-        assert_eq!(paragraph_stripes(&paint, 0, 0), vec![]);
     }
 }

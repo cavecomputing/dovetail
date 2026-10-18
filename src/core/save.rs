@@ -169,7 +169,7 @@ impl Autosaver {
     }
 
     /// Call when the text on screen is known to match the disk without this saver writing it,
-    /// such as after reloading the file or when a commit wrote it. A save still running stays
+    /// such as after reloading the file or when Save as wrote it. A save still running stays
     /// running until `finish`, so a second one can't start beside it.
     pub fn mark_saved(&mut self) {
         self.saved_generation = self.edited_generation;

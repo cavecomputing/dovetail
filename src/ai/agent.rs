@@ -101,7 +101,7 @@ impl Conversation {
             settings,
             api_key,
             &instructions(snapshot),
-            &catalogue(snapshot),
+            &catalogue(),
             &items,
         );
         match &request {
@@ -224,7 +224,6 @@ impl Conversation {
 /// that can't take tools fails here too. Returns the reply's text (maybe empty, if the model
 /// called a tool instead), or why it failed, in words.
 pub async fn test_connection(settings: &Settings, api_key: Option<&str>) -> Result<String, String> {
-    let snapshot = Snapshot::default();
     let question = Item::User {
         text: "Reply with the single word OK.".to_string(),
         note: String::new(),
@@ -233,7 +232,7 @@ pub async fn test_connection(settings: &Settings, api_key: Option<&str>) -> Resu
         settings,
         api_key,
         "This is a connection test.",
-        &catalogue(&snapshot),
+        &catalogue(),
         &[question],
     )?;
     let mut reply = Reply::new(request);

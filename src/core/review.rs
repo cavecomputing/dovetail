@@ -1,6 +1,6 @@
 //! Review mode: edits the assistant suggests, shown inside the text until each one is accepted or
-//! rejected. Suggestions never enter the text model, so saving, counts, undo and paint can't
-//! contain them.
+//! rejected. Suggestions never enter the text model, so saving, counts and undo can't contain
+//! them.
 //!
 //! While any are waiting, the editor shows a display string instead of the text: the text with
 //! each suggestion spliced in (the text it replaces, struck through, then its new text as ghost
@@ -10,7 +10,6 @@
 use std::ops::Range;
 
 use crate::core::text_model::Change;
-use crate::project::paint::IdeaId;
 
 /// The room after each suggestion where the editor draws its Accept and Reject buttons. The
 /// editor draws these characters invisible; they aren't spaces, so the room never breaks across
@@ -31,8 +30,6 @@ pub struct Suggestion {
     pub range: Range<usize>,
     /// What it puts there; empty for a pure delete.
     pub text: String,
-    /// The idea it belongs to: it shows in that idea's colour, and accepted text takes its paint.
-    pub idea: Option<IdeaId>,
 }
 
 /// The suggestions waiting in one pane, in text order and never overlapping.
@@ -50,13 +47,7 @@ impl Review {
     /// Adds a suggestion to replace `range` of `text` with `new_text`, and returns its id.
     /// Refused, with the reason, when the range is outside the text or splits a character,
     /// changes nothing, or overlaps (or starts at the same place as) another suggestion.
-    pub fn add(
-        &mut self,
-        text: &str,
-        range: Range<usize>,
-        new_text: &str,
-        idea: Option<IdeaId>,
-    ) -> Result<u64, String> {
+    pub fn add(&mut self, text: &str, range: Range<usize>, new_text: &str) -> Result<u64, String> {
         if range.start > range.end
             || range.end > text.len()
             || !text.is_char_boundary(range.start)
@@ -86,7 +77,6 @@ impl Review {
                 id: self.last_id,
                 range,
                 text: new_text.to_string(),
-                idea,
             },
         );
         Ok(self.last_id)
@@ -201,7 +191,7 @@ impl DisplayMap {
 
     /// Where byte `offset` of the text is in the display string. An offset right where a
     /// suggestion's ghost text sits goes before it, or after its buttons when `after` is set
-    /// (the start of a painted span does, so its paint doesn't spread over the ghost).
+    /// (where `Pane` puts the caret).
     pub fn to_display(&self, offset: usize, after: bool) -> usize {
         let mut found = None;
         for piece in &self.pieces {
@@ -257,7 +247,7 @@ mod tests {
     fn review_of(text: &str, edits: &[(Range<usize>, &str)]) -> Review {
         let mut review = Review::default();
         for (range, new_text) in edits {
-            review.add(text, range.clone(), new_text, None).unwrap();
+            review.add(text, range.clone(), new_text).unwrap();
         }
         review
     }
@@ -323,7 +313,7 @@ mod tests {
         let text = "ab";
         let mut review = review_of(text, &[(1..1, "X")]);
         assert!(
-            review.add(text, 1..2, "", None).is_err(),
+            review.add(text, 1..2, "").is_err(),
             "two suggestions can't start at the same place"
         );
         let map = DisplayMap::new(text, review.suggestions());
@@ -342,18 +332,12 @@ mod tests {
     fn bad_suggestions_are_refused() {
         let text = "café au lait";
         let mut review = review_of(text, &[(0..5, "tea")]);
-        assert!(review.add(text, 2..9, "x", None).is_err(), "overlaps");
-        assert!(review.add(text, 0..0, "x", None).is_err(), "same start");
-        assert!(review.add(text, 4..4, "x", None).is_err(), "splits é");
-        assert!(review.add(text, 6..40, "x", None).is_err(), "past the end");
-        assert!(
-            review.add(text, 6..8, "au", None).is_err(),
-            "changes nothing"
-        );
-        assert!(
-            review.add(text, 5..5, "!", None).is_ok(),
-            "right after is fine"
-        );
+        assert!(review.add(text, 2..9, "x").is_err(), "overlaps");
+        assert!(review.add(text, 0..0, "x").is_err(), "same start");
+        assert!(review.add(text, 4..4, "x").is_err(), "splits é");
+        assert!(review.add(text, 6..40, "x").is_err(), "past the end");
+        assert!(review.add(text, 6..8, "au").is_err(), "changes nothing");
+        assert!(review.add(text, 5..5, "!").is_ok(), "right after is fine");
         assert_eq!(review.suggestions()[1].range, 5..5);
     }
 

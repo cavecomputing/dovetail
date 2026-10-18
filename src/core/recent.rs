@@ -18,6 +18,15 @@ pub fn recent_files(data_dir: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
+/// The recent files that still exist, newest first, for the menu and the switcher: a file
+/// deleted or moved since is left out.
+pub fn existing_recent_files(data_dir: &Path) -> Vec<PathBuf> {
+    recent_files(data_dir)
+        .into_iter()
+        .filter(|path| path.exists())
+        .collect()
+}
+
 /// Moves `path` to the top of the list (adding it if new) and saves the list.
 pub fn remember(data_dir: &Path, path: &Path) -> io::Result<()> {
     let mut list = recent_files(data_dir);
@@ -86,6 +95,17 @@ mod tests {
         let list = recent_files(dir.path());
         assert_eq!(list.len(), MAX_RECENT);
         assert_eq!(list[0], PathBuf::from("/14.txt"));
+    }
+
+    #[test]
+    fn existing_files_leave_out_the_ones_that_are_gone() {
+        let dir = tempfile::tempdir().unwrap();
+        let notes = dir.path().join("notes.txt");
+        fs::write(&notes, "hi").unwrap();
+        remember(dir.path(), &dir.path().join("gone.txt")).unwrap();
+        remember(dir.path(), &notes).unwrap();
+        assert_eq!(recent_files(dir.path()).len(), 2);
+        assert_eq!(existing_recent_files(dir.path()), vec![notes]);
     }
 
     #[test]

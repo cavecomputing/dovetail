@@ -2,7 +2,7 @@
 //! few widget styles more than one file uses. Colours anywhere else come from `Roles`, never hex.
 
 use iced::widget::text::Wrapping;
-use iced::widget::{button, container, text, text_input};
+use iced::widget::{button, container, text};
 use iced::{Background, Border, Color, Font, Theme, color};
 
 pub const FONT_REGULAR: &[u8] =
@@ -20,10 +20,7 @@ pub const GLYPH_MINIMIZE: &str = "\u{eaba}";
 pub const GLYPH_MAXIMIZE: &str = "\u{eab9}";
 pub const GLYPH_CLOSE: &str = "\u{eab8}";
 pub const GLYPH_MENU: &str = "\u{eb94}";
-pub const GLYPH_PEN: &str = "\u{ea73}";
-pub const GLYPH_LOCK: &str = "\u{ea75}";
 pub const GLYPH_FILE: &str = "\u{ea7b}";
-pub const GLYPH_PROJECT: &str = "\u{ea62}";
 pub const GLYPH_CLAUDE: &str = "\u{ea6b}";
 pub const GLYPH_UP: &str = "\u{eaa1}";
 pub const GLYPH_DOWN: &str = "\u{ea9a}";
@@ -40,11 +37,8 @@ pub struct Roles {
     pub fg: Color,
     pub fg_muted: Color,
     pub fg_subtle: Color,
-    pub accent: Color,
     pub accent_text: Color,
-    pub accent_alt: Color,
     pub accent_cool: Color,
-    pub accent_rose: Color,
     pub accent_warm: Color,
     pub accent_aqua: Color,
     /// A primary button's fill, and the text on it.
@@ -61,11 +55,8 @@ pub const DARK: Roles = Roles {
     fg: color!(0xebdbb2),
     fg_muted: color!(0xa89984),
     fg_subtle: color!(0x7c6f64),
-    accent: color!(0xfabd2f),
     accent_text: color!(0xfabd2f),
-    accent_alt: color!(0xb8bb26),
     accent_cool: color!(0x83a598),
-    accent_rose: color!(0xd3869b),
     accent_warm: color!(0xfe8019),
     accent_aqua: color!(0x8ec07c),
     btn_bg: color!(0xfabd2f),
@@ -81,11 +72,8 @@ pub const LIGHT: Roles = Roles {
     fg: color!(0x3c3836),
     fg_muted: color!(0x665c54),
     fg_subtle: color!(0x7c6f64),
-    accent: color!(0xb57614),
     accent_text: color!(0x8a5a0e),
-    accent_alt: color!(0x79740e),
     accent_cool: color!(0x076678),
-    accent_rose: color!(0x8f3f71),
     accent_warm: color!(0xaf3a03),
     accent_aqua: color!(0x376b4b),
     btn_bg: color!(0x79740e),
@@ -100,21 +88,6 @@ impl Roles {
         } else {
             &LIGHT
         }
-    }
-
-    /// The colour of idea colour slot `slot` (see `project::ideas::COLOUR_SLOTS`): aqua, blue,
-    /// purple, yellow, orange, green, subtle grey. Never red.
-    pub fn idea(&self, slot: usize) -> Color {
-        let slots = [
-            self.accent_aqua,
-            self.accent_cool,
-            self.accent_rose,
-            self.accent,
-            self.accent_warm,
-            self.accent_alt,
-            self.fg_subtle,
-        ];
-        slots[slot % slots.len()]
     }
 }
 
@@ -163,7 +136,7 @@ pub fn raised_box(theme: &Theme) -> container::Style {
     }
 }
 
-/// A dialog's card over the dimmed document: the Commit dialog, the weights view, Settings.
+/// A dialog's card over the dimmed document: Settings.
 pub fn dialog_box(theme: &Theme) -> container::Style {
     let roles = Roles::of(theme);
     container::Style {
@@ -204,23 +177,6 @@ pub fn muted<'a>(words: impl text::IntoFragment<'a>) -> text::Text<'a> {
 pub fn subtle(theme: &Theme) -> text::Style {
     text::Style {
         color: Some(Roles::of(theme).fg_subtle),
-    }
-}
-
-/// A text field: a thin border that turns yellow while it has focus.
-pub fn input_style(theme: &Theme, status: text_input::Status) -> text_input::Style {
-    let roles = Roles::of(theme);
-    let border = match status {
-        text_input::Status::Focused { .. } => roles.accent_text,
-        _ => roles.border,
-    };
-    text_input::Style {
-        background: Background::Color(Color::TRANSPARENT),
-        border: Border::default().rounded(4).width(1).color(border),
-        icon: roles.fg_muted,
-        placeholder: roles.fg_subtle,
-        value: roles.fg,
-        selection: roles.accent_cool.scale_alpha(0.35),
     }
 }
 

@@ -10,7 +10,6 @@ use iced::advanced::text::highlighter::{self, Highlighter};
 use iced::keyboard::{Key, key::Named};
 use iced::widget::container;
 use iced::widget::text::Wrapping;
-use iced::widget::text_editor::Motion;
 use iced::{Background, Border, Color, Element, Fill, Font, Padding, Theme};
 
 use crate::core::markup::{Markup, markup_ranges};
@@ -18,9 +17,7 @@ use crate::core::review::{DisplayMap, Review, Shown, Suggestion};
 use crate::core::settings::{ReadingMode, Settings};
 use crate::core::text_file::newlines_only;
 use crate::core::text_model::{Change, TextModel, offset, position, positions};
-use crate::project::paint::{IdeaId, Span};
 use crate::ui::app::Message;
-use crate::ui::idea_actions::IdeaAction;
 use crate::ui::text_editor::{
     self, Action, Binding, Content, Cursor, Edit, KeyPress, PaintLook, PaintRun, Position, Status,
     TextEditor,
@@ -28,8 +25,6 @@ use crate::ui::text_editor::{
 use crate::ui::theme::{CHAR_WIDTH_RATIO, MONO, Roles};
 
 pub const EDITOR_ID: &str = "doc";
-/// The left pane of a project: a committed version, read-only.
-pub const REFERENCE_ID: &str = "reference";
 pub const LINE_HEIGHT: f32 = 1.5;
 /// Text starts near the top left, like any text editor, with just enough room to breathe.
 pub const PADDING: Padding = Padding {
@@ -39,17 +34,13 @@ pub const PADDING: Padding = Padding {
     left: 16.0,
 };
 
-/// The pane's editor in its column, with `paint` (and any suggestions, from `Pane::suggestion_runs`)
-/// drawn under the text; `on_action` wraps what it reports. The draft (`EDITOR_ID`) also reports
-/// where its caret is drawn, for the feeling-note card. Without `editable` the text is dimmed; it
-/// can still be scrolled, selected and copied, and `App::update` drops any change to it.
+/// The pane's editor in its column, with `paint` (any suggestions, from `Pane::suggestion_runs`,
+/// and find matches) drawn under the text. Without `editable` the text is dimmed; it can still be
+/// scrolled, selected and copied, and `App::update` drops any change to it.
 pub fn view<'a>(
     pane: &'a Pane,
     settings: &Settings,
     editable: bool,
-    id: &'static str,
-    on_action: fn(Action) -> Message,
-    padding: Padding,
     paint: Vec<PaintRun>,
 ) -> Element<'a, Message> {
     let tab_spaces = usize::from(settings.tab_spaces);
@@ -58,9 +49,9 @@ pub fn view<'a>(
         markup: settings.colour_markup,
         review: pane.review_highlights(),
     };
-    let mut editor = TextEditor::new(&pane.content)
-        .id(id)
-        .key_binding(move |press| key_binding(press, tab_spaces, editable, reviewing, id))
+    let editor = TextEditor::new(&pane.content)
+        .id(EDITOR_ID)
+        .key_binding(move |press| key_binding(press, tab_spaces, editable, reviewing))
         .wrapping(if settings.word_wrap {
             Wrapping::WordOrGlyph
         } else {
@@ -68,10 +59,10 @@ pub fn view<'a>(
         })
         .size(settings.font_size)
         .line_height(LINE_HEIGHT)
-        .padding(padding)
+        .padding(PADDING)
         .height(Fill)
         .style(move |theme, _status| style(theme, editable))
-        .on_action(on_action)
+        .on_action(Message::Edit)
         .paint(paint)
         .on_decide(|id, accept| {
             Message::Decide(if accept {
@@ -81,14 +72,11 @@ pub fn view<'a>(
             })
         })
         .highlight_with::<MarkupHighlighter>(colouring, highlight_format);
-    if id == EDITOR_ID {
-        editor = editor.on_caret(|caret, area| Message::Idea(IdeaAction::Caret(caret, area)));
-    }
 
     let column = match settings.reading_mode {
         ReadingMode::Comfort { chars } => {
             let text_width = f32::from(chars) * settings.font_size * CHAR_WIDTH_RATIO;
-            container(editor).max_width(text_width + padding.left + padding.right)
+            container(editor).max_width(text_width + PADDING.left + PADDING.right)
         }
         ReadingMode::FullWidth => container(editor),
     };
@@ -107,18 +95,16 @@ fn style(theme: &Theme, editable: bool) -> text_editor::Style {
 }
 
 /// Tab inserts spaces (never a tab character), Shift+Tab unindents, Ctrl+Z undoes, Ctrl+Shift+Z
-/// and Ctrl+Y redo, Ctrl+X and Ctrl+C also keep the selection's paint (`Message::Clip`), and the
-/// app's own Ctrl shortcuts are left for the app. A pane that isn't `editable` keeps only iced's
-/// own keys (moving, selecting, copying). While `reviewing`, Tab accepts the suggestion at the
-/// caret and Esc rejects it (typing is off, see `Pane::perform`), and Ctrl+C and Ctrl+X copy
-/// through `Message::Clip` alone, since the widget's text has the suggestions in it. `id` is the
-/// editor's.
+/// and Ctrl+Y redo, and the app's own Ctrl shortcuts are left for the app. A pane that isn't
+/// `editable` keeps only iced's own keys (moving, selecting, copying). While `reviewing`, Tab
+/// accepts the suggestion at the caret and Esc rejects it (typing is off, see `Pane::perform`),
+/// and Ctrl+C and Ctrl+X copy through `Message::Clip`, since the widget's text has the
+/// suggestions in it.
 fn key_binding(
     press: KeyPress,
     tab_spaces: usize,
     editable: bool,
     reviewing: bool,
-    id: &'static str,
 ) -> Option<Binding<Message>> {
     // A custom binding is used even when the editor isn't focused, so check first.
     if !matches!(press.status, Status::Focused { .. }) {
@@ -128,34 +114,17 @@ fn key_binding(
         && matches!(
             press.key.as_ref(),
             Key::Character(
-                "p" | "0"
-                    | ","
-                    | "i"
-                    | "e"
-                    | "l"
-                    | "w"
-                    | "W"
-                    | "s"
-                    | "S"
-                    | "o"
-                    | "n"
-                    | "f"
-                    | "="
-                    | "+"
-                    | "-"
+                "p" | "0" | "," | "l" | "w" | "W" | "s" | "S" | "o" | "n" | "f" | "=" | "+" | "-"
             )
         )
     {
         return None;
     }
-    if let Some(cut_or_copy @ (Binding::Cut | Binding::Copy)) =
-        Binding::from_key_press(press.clone())
+    if reviewing
+        && let Some(Binding::<Message>::Cut | Binding::Copy) =
+            Binding::from_key_press(press.clone())
     {
-        let clip = Binding::Custom(Message::Clip(id));
-        return match reviewing {
-            true => Some(clip),
-            false => Some(Binding::Sequence(vec![clip, cut_or_copy])),
-        };
+        return Some(Binding::Custom(Message::Clip));
     }
     if !editable {
         return Binding::from_key_press(press);
@@ -229,26 +198,20 @@ impl Pane {
     }
 
     /// Shows a suggestion to put `text` in place of `range` (byte offsets into the model's
-    /// text), in `idea`'s colour when it names one. The caret stays where it is. Returns its
-    /// id, or why it was refused.
-    pub fn suggest(
-        &mut self,
-        range: Range<usize>,
-        text: &str,
-        idea: Option<IdeaId>,
-    ) -> Result<u64, String> {
+    /// text). The caret stays where it is. Returns its id, or why it was refused.
+    pub fn suggest(&mut self, range: Range<usize>, text: &str) -> Result<u64, String> {
         let caret = self.to_text(self.content.cursor().position);
         let id = self
             .review
-            .add(self.model.text(), range, &newlines_only(text), idea)?;
+            .add(self.model.text(), range, &newlines_only(text))?;
         self.show_review();
         self.put_caret(caret);
         Ok(id)
     }
 
-    /// Accepts or rejects suggestions. Accepting puts the new text in as one undo step, painted
-    /// with the suggestion's idea when it names one, and leaves the caret after it; rejecting
-    /// leaves the caret where it was. Returns whether the text changed.
+    /// Accepts or rejects suggestions. Accepting puts the new text in as one undo step and leaves
+    /// the caret after it; rejecting leaves the caret where it was. Returns whether the text
+    /// changed.
     pub fn decide(&mut self, decision: Decision) -> bool {
         let caret = self.content.cursor().position;
         let at_caret = self.display.as_ref().and_then(|display| {
@@ -339,14 +302,8 @@ impl Pane {
     }
 
     /// The suggestions as the editor draws them: the replaced text struck through, the new text
-    /// as ghost text, and room for the buttons, in their idea's colour (`idea_color`) or the
-    /// cool accent. With `stripe` (in a project) each also gets a pending stripe in the gutter.
-    pub fn suggestion_runs(
-        &self,
-        roles: &Roles,
-        idea_color: impl Fn(IdeaId) -> Option<Color>,
-        stripe: bool,
-    ) -> Vec<PaintRun> {
+    /// as ghost text, and room for the buttons, in the cool accent.
+    pub fn suggestion_runs(&self, roles: &Roles) -> Vec<PaintRun> {
         let Some(display) = &self.display else {
             return Vec::new();
         };
@@ -356,29 +313,19 @@ impl Pane {
         };
         let mut runs = Vec::new();
         for piece in display.pieces.iter().filter(|p| !p.display.is_empty()) {
-            let Some(suggestion) = self
-                .suggestions()
-                .iter()
-                .find(|s| Some(s.id) == piece.suggestion)
-            else {
+            let Some(id) = piece.suggestion else {
                 continue;
             };
             let look = match piece.shown {
                 Shown::Text => continue,
                 Shown::Struck => PaintLook::Struck(roles.fg_subtle),
                 Shown::Ghost => PaintLook::Ghost,
-                Shown::Buttons => PaintLook::Buttons {
-                    id: suggestion.id,
-                    stripe,
-                },
+                Shown::Buttons => PaintLook::Buttons { id },
             };
             runs.push(PaintRun {
                 start: at(piece.display.start),
                 end: at(piece.display.end),
-                color: suggestion
-                    .idea
-                    .and_then(&idea_color)
-                    .unwrap_or(roles.accent_cool),
+                color: roles.accent_cool,
                 look,
             });
         }
@@ -477,23 +424,11 @@ impl Pane {
         (a != b).then(|| a.min(b)..a.max(b))
     }
 
-    /// The selected text and its paint, for Ctrl+C and Ctrl+X: the model's text, never the
+    /// The selected text, for Ctrl+C and Ctrl+X while reviewing: the model's text, never the
     /// suggestions shown in it.
-    pub fn copied(&self) -> Option<(String, Vec<Span>)> {
-        self.selection().map(|range| self.model.clipped(range))
-    }
-
-    /// Drops the selection, leaving the caret where it is, so the view doesn't scroll.
-    /// (`move_to` can't: it keeps any selection when given none.)
-    pub fn deselect(&mut self) {
-        let cursor = self.content.cursor();
-        if let Some(anchor) = cursor.selection {
-            // A move with a selection goes to the selection's edge on that side: the caret's own.
-            let before =
-                (cursor.position.line, cursor.position.column) < (anchor.line, anchor.column);
-            let motion = if before { Motion::Left } else { Motion::Right };
-            self.content.perform(Action::Move(motion));
-        }
+    pub fn copied(&self) -> Option<String> {
+        self.selection()
+            .map(|range| self.model.text()[range].to_string())
     }
 
     /// Ctrl+Z. Returns whether the text changed.
@@ -508,7 +443,7 @@ impl Pane {
         self.replay(&changes)
     }
 
-    /// Replaces `range` (byte offsets) with `text` as one undo step, such as the Rewrite clear.
+    /// Replaces `range` (byte offsets) with `text` as one undo step, such as a reload from disk.
     pub fn replace(&mut self, range: Range<usize>, text: &str) {
         let change = self.model.replace(range, text);
         self.replay(&[change]);
@@ -682,6 +617,7 @@ mod tests {
     use crate::core::review::{BUTTON_ROOM, GHOST_START};
     use iced::keyboard::Modifiers;
     use iced::keyboard::key::{Code, Physical};
+    use iced::widget::text_editor::Motion;
 
     fn cursor_at(line: usize, column: usize) -> Cursor {
         Cursor {
@@ -740,42 +676,28 @@ mod tests {
     }
 
     #[test]
-    fn selection_is_a_byte_range_and_deselect_drops_it() {
+    fn selection_is_a_byte_range() {
         let mut pane = Pane::new("café au lait");
         pane.content.move_to(Cursor {
             position: Position { line: 0, column: 2 },
             selection: Some(Position { line: 0, column: 9 }),
         });
         assert_eq!(pane.selection(), Some(2..9));
-        pane.deselect();
-        assert_eq!(pane.selection(), None);
-        assert_eq!(
-            pane.content.cursor().position.column,
-            2,
-            "the caret stays where it was"
-        );
-        pane.deselect();
-        assert_eq!(
-            pane.content.cursor().position.column,
-            2,
-            "nothing selected: no move"
-        );
-        // Selected the other way, the caret is at the end, and stays there.
+        // Selected the other way, it's the same range.
         pane.content.move_to(Cursor {
             position: Position { line: 0, column: 9 },
             selection: Some(Position { line: 0, column: 2 }),
         });
-        pane.deselect();
-        assert_eq!(pane.selection(), None);
-        assert_eq!(pane.content.cursor().position.column, 9);
+        assert_eq!(pane.selection(), Some(2..9));
+        assert_eq!(Pane::new("café").selection(), None);
     }
 
-    /// A pane showing "Be quick. Stay calm." with "Be quick." to become "Take your time." (in
-    /// idea 3) and "calm" to become "steady".
+    /// A pane showing "Be quick. Stay calm." with "Be quick." to become "Take your time." and
+    /// "calm" to become "steady".
     fn reviewing_pane() -> (Pane, u64, u64) {
         let mut pane = Pane::new("Be quick. Stay calm.");
-        let first = pane.suggest(0..9, "Take your time.", Some(3)).unwrap();
-        let second = pane.suggest(15..19, "steady", None).unwrap();
+        let first = pane.suggest(0..9, "Take your time.").unwrap();
+        let second = pane.suggest(15..19, "steady").unwrap();
         (pane, first, second)
     }
 
@@ -809,8 +731,7 @@ mod tests {
             pane.content.text(),
             format!("Take your time. Stay calm{z}steady{room}.")
         );
-        // The accepted text took idea 3's paint; the other suggestion moved along.
-        assert_eq!((pane.model.paint[0].idea, pane.model.paint[0].end), (3, 15));
+        // The other suggestion moved along.
         assert_eq!(pane.suggestions()[0].range, 21..25);
 
         assert!(!pane.decide(Decision::Reject(Some(second))));
@@ -822,7 +743,6 @@ mod tests {
         pane.undo();
         pane.undo();
         assert_eq!(pane.content.text(), "Be quick. Stay calm.");
-        assert!(pane.model.paint.is_empty());
     }
 
     #[test]
@@ -844,8 +764,8 @@ mod tests {
     fn suggesting_and_rejecting_leave_the_caret_where_it_was() {
         let mut pane = Pane::new("Be quick. Stay calm.");
         pane.content.move_to(cursor_at(0, 12));
-        let id = pane.suggest(15..19, "steady", None).unwrap();
-        pane.suggest(0..9, "Take your time.", None).unwrap();
+        let id = pane.suggest(15..19, "steady").unwrap();
+        pane.suggest(0..9, "Take your time.").unwrap();
         assert_eq!(pane.content.cursor().position, pane.position(12, true));
         assert!(!pane.decide(Decision::Reject(Some(id))));
         assert_eq!(pane.content.cursor().position, pane.position(12, true));
@@ -907,11 +827,11 @@ mod tests {
             text: None,
             status: Status::Focused { is_hovered: false },
         };
-        let binding = |reviewing| key_binding(ctrl_c.clone(), 4, true, reviewing, EDITOR_ID);
-        assert!(matches!(binding(false), Some(Binding::Sequence(_))));
+        let binding = |reviewing| key_binding(ctrl_c.clone(), 4, true, reviewing);
+        assert!(matches!(binding(false), Some(Binding::Copy)));
         assert!(matches!(
             binding(true),
-            Some(Binding::Custom(Message::Clip(EDITOR_ID)))
+            Some(Binding::Custom(Message::Clip))
         ));
         // `Clip` copies the model's text under the selection, without ghost text or buttons.
         let (mut pane, _, _) = reviewing_pane();
@@ -919,17 +839,14 @@ mod tests {
             position: pane.position(12, true),
             selection: Some(pane.position(4, true)),
         });
-        assert_eq!(
-            pane.copied().map(|(text, _)| text).as_deref(),
-            Some("uick. St")
-        );
+        assert_eq!(pane.copied().as_deref(), Some("uick. St"));
     }
 
     #[test]
     fn undo_and_replace_while_reviewing_move_or_drop_suggestions() {
         let mut pane = Pane::new("one two");
         pane.replace(0..3, "ONE");
-        let id = pane.suggest(4..7, "2", None).unwrap();
+        let id = pane.suggest(4..7, "2").unwrap();
         // Undoing the edit before the suggestion moves it with the text.
         assert!(pane.undo());
         assert_eq!(pane.model.text(), "one two");
