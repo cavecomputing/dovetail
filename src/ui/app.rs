@@ -326,9 +326,17 @@ impl App {
                 }
             }
             Message::Undo | Message::Redo => {}
-            // Esc in the editor rejects the suggestion at the caret, except while the find bar
-            // is open: then that Esc only closes the bar (`CloseMenu`).
-            Message::Decide(Decision::Reject(None)) if self.find.open => {}
+            // Tab in the editor accepts the suggestion the caret is on; anywhere else it indents.
+            Message::Decide(Decision::Accept(None))
+                if self.pane.suggestion_at_caret().is_none() =>
+            {
+                return self.update(Message::Indent);
+            }
+            // Esc in the editor rejects the suggestion the caret is on. With the caret anywhere
+            // else, or while the find bar is open, it does nothing here (that Esc only closes the
+            // bar, through `CloseMenu`).
+            Message::Decide(Decision::Reject(None))
+                if self.find.open || self.pane.suggestion_at_caret().is_none() => {}
             Message::Decide(decision) => self.decide(decision),
             Message::Tick(now) => {
                 self.now = now;
