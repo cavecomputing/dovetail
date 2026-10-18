@@ -215,6 +215,8 @@ src/
     counts.rs            word and token counts (tokenizer loads in the background)
     find.rs              every match of a find query, ignoring case
     markup.rs            where XML tags and {{macros}} are, for colouring them
+    markdown.rs          which parts of a Markdown (.md) line to colour, and whether a code fence
+                         is open
     text_file.rs         reading and saving .txt files: line endings, outside-change check
     recent.rs            the recently opened files (data folder), fuzzy matching
     text_model.rs        a pane's text and its undo/redo history, in byte offsets
@@ -225,7 +227,8 @@ src/
     theme.rs             Gruvbox palette roles, the font and its icon glyphs, shared styles
     editor.rs            the editor pane (widget + text model), key bindings, and review mode
                          (suggestions as ghost text, Accept and Reject)
-    highlighter.rs       how the editor colours its text: tags and macros, suggested edits
+    highlighter.rs       how the editor colours its text: Markdown, tags and macros, suggested
+                         edits
     text_editor.rs       a copy of iced's text editor widget (draws find matches, suggested edits
                          and their buttons), changes marked `ours:`
     key_guard.rs         keeps Ctrl+digit and Ctrl+punctuation (and ⌘ plus a letter on macOS) from

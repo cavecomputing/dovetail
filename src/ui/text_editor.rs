@@ -335,6 +335,10 @@ where
     editor: R::Editor,
     // ours: a top line to scroll to at the next layout, from `Content::scroll_to_line`.
     scroll_to: Option<usize>,
+    // ours: the first line any edit since the last layout changed. iced's editor keeps only the
+    // last edit's, but an undo or an indent can make several edits at once, and Markdown colours
+    // depend on the lines above, so colouring must start again from the first.
+    changed_from: Option<usize>,
 }
 
 impl<R> Content<R>
@@ -351,6 +355,7 @@ where
         Self(RefCell::new(Internal {
             editor: R::Editor::with_text(text),
             scroll_to: None,
+            changed_from: None,
         }))
     }
 
@@ -358,7 +363,17 @@ where
     pub fn perform(&mut self, action: Action) {
         let internal = self.0.get_mut();
 
+        // ours: the first line an edit changes is the top of the selection, or the line the
+        // caret lands on (Backspace at a line's start joins it to the one above).
+        let before = internal.editor.cursor();
+        let edit = action.is_edit();
         internal.editor.perform(action);
+        if edit {
+            let anchor = before.selection.unwrap_or(before.position);
+            let first =
+                (before.position.line.min(anchor.line)).min(internal.editor.cursor().position.line);
+            internal.changed_from = Some(internal.changed_from.map_or(first, |l| l.min(first)));
+        }
     }
 
     /// Moves the current cursor to reflect the given one.
@@ -756,6 +771,11 @@ where
                 .update(&self.highlighter_settings);
 
             state.highlighter_settings = self.highlighter_settings.clone();
+        }
+
+        // ours: colour again from the first line edited since the last layout.
+        if let Some(line) = internal.changed_from.take() {
+            state.highlighter.borrow_mut().change_line(line);
         }
 
         let limits = limits
@@ -1476,5 +1496,38 @@ impl<Message> Update<Message> {
             }
             _ => None,
         }
+    }
+}
+
+// ours: tests of the changes above.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use iced::advanced::text::editor::Motion;
+
+    fn caret(line: usize, column: usize) -> Cursor {
+        Cursor {
+            position: Position { line, column },
+            selection: None,
+        }
+    }
+
+    #[test]
+    fn several_edits_colour_again_from_the_first_line_they_changed() {
+        let mut content = Content::with_text("a\nb\nc\nd");
+        let changed_from = |content: &Content| content.0.borrow().changed_from;
+        content.perform(Action::Move(Motion::Down));
+        assert_eq!(changed_from(&content), None, "moving changes nothing");
+        // An indent of lines 1 and 3, top line first: iced would only say line 3.
+        for line in [1, 3] {
+            content.move_to(caret(line, 0));
+            content.perform(Action::Edit(Edit::Insert(' ')));
+        }
+        assert_eq!(changed_from(&content), Some(1));
+        // Backspace at the start of line 1 joins it to line 0.
+        content.0.get_mut().changed_from = None;
+        content.move_to(caret(1, 0));
+        content.perform(Action::Edit(Edit::Backspace));
+        assert_eq!(changed_from(&content), Some(0));
     }
 }

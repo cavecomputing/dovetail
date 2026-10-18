@@ -3,6 +3,7 @@
 pub mod counts;
 pub mod find;
 pub mod lock;
+pub mod markdown;
 pub mod markup;
 pub mod opened;
 pub mod paths;

@@ -10,6 +10,7 @@ use iced::window::{self, Direction};
 use iced::{Element, Size, Subscription, Task, Theme, event, keyboard};
 
 use crate::core::counts::{Counts, load_tokenizer_in_background, token_count, word_count};
+use crate::core::markdown::is_markdown;
 use crate::core::opened::{Doc, open_doc};
 use crate::core::paths::Paths;
 use crate::core::recent::existing_recent_files;
@@ -735,11 +736,13 @@ impl App {
 }
 
 impl App {
-    /// The document: the editor, with any suggestions and find matches drawn in it.
+    /// The document: the editor, with any suggestions and find matches drawn in it, and
+    /// Markdown coloured in a .md file.
     pub fn document_view(&self) -> Element<'_, Message> {
         let mut paint = self.pane.suggestion_runs(Roles::of(&self.theme));
         paint.extend(self.find_runs());
-        editor::view(&self.pane, &self.settings, self.editable(), paint)
+        let markdown = matches!(&self.doc, Doc::File { path, .. } if is_markdown(path));
+        editor::view(&self.pane, &self.settings, self.editable(), markdown, paint)
     }
 }
 
