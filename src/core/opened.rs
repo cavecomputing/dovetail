@@ -12,7 +12,7 @@ use crate::core::save::{atomic_write, check_writable, failure_reason};
 use crate::core::scratch::{
     ScratchState, claim_scratch, scratch_lock_path, scratch_text_path, take_cleared,
 };
-use crate::core::text_file::{DiskStamp, LineEnding, read_text};
+use crate::core::text_file::{DiskStamp, LineEnding, read_text, save_text};
 
 /// What a window is showing.
 #[derive(Debug, Clone)]
@@ -21,6 +21,8 @@ pub enum Doc {
     File {
         path: PathBuf,
         line_ending: LineEnding,
+        /// Whether the file starts with a byte order mark, kept out of the text.
+        bom: bool,
     },
 }
 
@@ -85,10 +87,12 @@ pub fn open_doc(doc: Doc, paths: &Paths) -> OpenedDoc {
         Doc::File { path, .. } => {
             let _ = remember(&paths.data_dir, &path);
             let mut line_ending = LineEnding::default();
+            let mut bom = false;
             match read_text(&path) {
                 Ok(file) => {
                     opened.text = file.text;
                     line_ending = file.line_ending;
+                    bom = file.bom;
                     opened.read_only_reason = writable_reason(&path);
                 }
                 Err(error) if error.kind() == ErrorKind::NotFound => {
@@ -100,7 +104,11 @@ pub fn open_doc(doc: Doc, paths: &Paths) -> OpenedDoc {
                 Err(error) => opened.read_only_reason = Some(format!("Couldn't open: {error}")),
             }
             opened.disk_stamp = DiskStamp::of(&path);
-            opened.doc = Doc::File { path, line_ending };
+            opened.doc = Doc::File {
+                path,
+                line_ending,
+                bom,
+            };
         }
     }
     if let Doc::File { path, .. } = &opened.doc
@@ -119,13 +127,15 @@ pub fn open_doc(doc: Doc, paths: &Paths) -> OpenedDoc {
 }
 
 /// Gives a window's text a new home at `path` (Save as): claims the file so no other window
-/// edits it, writes `text` there with `line_ending`, and remembers it as recent. Returns the
-/// claim to hold while the window lives and the file as written, or why nothing was written.
+/// edits it, writes `text` there with `line_ending` and `bom`, and remembers it as recent.
+/// Returns the claim to hold while the window lives and the file as written, or why nothing was
+/// written.
 pub fn save_as(
     data_dir: &Path,
     path: &Path,
     text: &str,
     line_ending: LineEnding,
+    bom: bool,
 ) -> Result<(Option<File>, Option<DiskStamp>), String> {
     let lock = match claim_lock(&lock_for(data_dir, path)) {
         Err(TryLockError::WouldBlock) => return Err(OPEN_ELSEWHERE.to_string()),
@@ -133,10 +143,10 @@ pub fn save_as(
         Err(TryLockError::Error(_)) => None,
         Ok(lock) => Some(lock),
     };
-    atomic_write(path, line_ending.apply(text).as_bytes())
-        .map_err(|error| failure_reason(&error))?;
+    let stamp =
+        save_text(path, text, line_ending, bom, None).map_err(|error| failure_reason(&error))?;
     let _ = remember(data_dir, path);
-    Ok((lock, DiskStamp::of(path)))
+    Ok((lock, stamp))
 }
 
 /// Empties `path` for Ctrl+N, when the save dialog has agreed to replace a file there, unless
@@ -176,6 +186,7 @@ mod tests {
         Doc::File {
             path: path.to_path_buf(),
             line_ending: LineEnding::default(),
+            bom: false,
         }
     }
 
@@ -184,8 +195,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let paths = Paths::under(dir.path());
         let path = dir.path().join("notes.txt");
-        let (lock, stamp) = save_as(&paths.data_dir, &path, "a\nb", LineEnding::CrLf).unwrap();
-        assert_eq!(fs::read_to_string(&path).unwrap(), "a\r\nb");
+        let (lock, stamp) =
+            save_as(&paths.data_dir, &path, "a\nb", LineEnding::CrLf, true).unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "\u{feff}a\r\nb");
         assert!(lock.is_some() && stamp.is_some());
         // Another window opening it now gets it read-only.
         let other = open_doc(file_doc(&path), &paths);
@@ -202,7 +214,7 @@ mod tests {
         let path = dir.path().join("open.txt");
         fs::write(&path, "theirs").unwrap();
         let _other = open_doc(file_doc(&path), &paths);
-        let refused = save_as(&paths.data_dir, &path, "mine", LineEnding::Lf);
+        let refused = save_as(&paths.data_dir, &path, "mine", LineEnding::Lf, false);
         assert_eq!(refused.unwrap_err(), "That file is open in another window");
         assert_eq!(fs::read_to_string(&path).unwrap(), "theirs");
     }
@@ -213,7 +225,7 @@ mod tests {
         let paths = Paths::under(dir.path());
         let _scratch_window = open_doc(Doc::Scratch, &paths);
         let path = scratch_text_path(&paths.data_dir);
-        let refused = save_as(&paths.data_dir, &path, "mine", LineEnding::Lf);
+        let refused = save_as(&paths.data_dir, &path, "mine", LineEnding::Lf, false);
         assert_eq!(refused.unwrap_err(), OPEN_ELSEWHERE);
         assert_eq!(
             empty_file(&paths.data_dir, &path).unwrap_err(),

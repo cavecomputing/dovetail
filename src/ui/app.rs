@@ -434,10 +434,16 @@ impl App {
             | Message::SwitcherMove(_)
             | Message::SwitcherOpen => return self.update_switcher(message),
             Message::ReloadFromDisk => {
-                if let Doc::File { path, line_ending } = &mut self.doc {
+                if let Doc::File {
+                    path,
+                    line_ending,
+                    bom,
+                } = &mut self.doc
+                {
                     match read_text(path) {
                         Ok(file) => {
                             *line_ending = file.line_ending;
+                            *bom = file.bom;
                             self.disk_stamp = DiskStamp::of(path);
                             // One undo step, so Ctrl+Z brings this window's text back.
                             let length = self.pane.model.text().len();
@@ -556,9 +562,11 @@ impl App {
             async move {
                 let result = match doc {
                     Doc::Scratch => ScratchState { text, view }.save(&data_dir).map(|_| None),
-                    Doc::File { path, line_ending } => {
-                        save_text(&path, &text, line_ending, disk_stamp)
-                    }
+                    Doc::File {
+                        path,
+                        line_ending,
+                        bom,
+                    } => save_text(&path, &text, line_ending, bom, disk_stamp),
                 };
                 result.map_err(|error| failure_reason(&error))
             },
