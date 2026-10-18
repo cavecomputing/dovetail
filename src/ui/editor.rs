@@ -1,7 +1,7 @@
-//! The text editing widget: the text column, Tab as spaces, Enter keeping the indent, undo and
-//! redo (its colours come from `highlighter`). A `Pane` pairs the widget's content with the text
-//! model behind it, and shows suggested edits inside the text until each is accepted or rejected
-//! (review mode).
+//! The text editing widget: the text column, Tab as spaces, Enter and Backspace that know about
+//! indents, undo and redo (its colours come from `highlighter`). A `Pane` pairs the widget's
+//! content with the text model behind it, and shows suggested edits inside the text until each is
+//! accepted or rejected (review mode).
 
 use std::ops::Range;
 use std::sync::Arc;
@@ -100,12 +100,12 @@ fn style(theme: &Theme, editable: bool) -> text_editor::Style {
 }
 
 /// Tab indents (with spaces, never a tab character), Shift+Tab unindents, Enter (and Shift+Enter)
-/// starts a line indented like the caret's, Ctrl+Z undoes, Ctrl+Shift+Z and Ctrl+Y redo, and the
-/// app's own Ctrl shortcuts are left for the app. A pane that isn't `editable` keeps only iced's
-/// own keys (moving, selecting, copying). While `reviewing`, Tab accepts the suggestion the caret
-/// is on and Esc rejects it (`App::update` turns a Tab anywhere else back into an indent), and
-/// Ctrl+C and Ctrl+X go through `Message::Clip`, since the widget's text has the suggestions in
-/// it.
+/// starts a line indented like the caret's, Backspace in a line's leading spaces goes back to the
+/// last indent stop, Ctrl+Z undoes, Ctrl+Shift+Z and Ctrl+Y redo, and the app's own Ctrl
+/// shortcuts are left for the app. A pane that isn't `editable` keeps only iced's own keys
+/// (moving, selecting, copying). While `reviewing`, Tab accepts the suggestion the caret is on and
+/// Esc rejects it (`App::update` turns a Tab anywhere else back into an indent), and Ctrl+C and
+/// Ctrl+X go through `Message::Clip`, since the widget's text has the suggestions in it.
 fn key_binding(press: KeyPress, editable: bool, reviewing: bool) -> Option<Binding<Message>> {
     // A custom binding is used even when the editor isn't focused, so check first.
     if !matches!(press.status, Status::Focused { .. }) {
@@ -166,6 +166,7 @@ fn key_binding(press: KeyPress, editable: bool, reviewing: bool) -> Option<Bindi
         }
         Key::Named(Named::Tab) => Some(Binding::Custom(Message::Indent)),
         Key::Named(Named::Enter) => Some(Binding::Custom(Message::NewLine)),
+        Key::Named(Named::Backspace) => Some(Binding::Custom(Message::Backspace)),
         _ => Binding::from_key_press(press),
     }
 }
@@ -528,17 +529,44 @@ impl Pane {
         let line_start = text[..range.start].rfind('\n').map_or(0, |at| at + 1);
         let before = &text[line_start..range.start];
         let indent = &before[..before.len() - before.trim_start_matches([' ', '\t']).len()];
-        let typed = Action::Edit(Edit::Paste(Arc::new(format!("\n{indent}"))));
+        let typed = Edit::Paste(Arc::new(format!("\n{indent}")));
         if indent.is_empty() || indent.len() < before.len() {
-            return self.perform(typed);
+            return self.perform(Action::Edit(typed));
         }
         self.content.move_to(Cursor {
             position: self.position(range.end, false),
             selection: Some(self.position(line_start, true)),
         });
-        let edited = self.perform(typed);
+        self.perform_or_put_back(typed, cursor)
+    }
+
+    /// Backspace. In the spaces at the start of a line it deletes back to the previous indent
+    /// stop (a multiple of `tab_spaces`), so one press takes back a Tab; anywhere else, or with a
+    /// selection, it deletes as usual. Returns whether the text changed, or why it can't.
+    pub fn backspace(&mut self, tab_spaces: usize) -> Result<bool, String> {
+        let cursor = self.content.cursor();
+        let caret = self.caret();
+        let text = self.model.text();
+        let line_start = text[..caret].rfind('\n').map_or(0, |at| at + 1);
+        let column = caret - line_start;
+        let in_indent = column > 0 && text[line_start..caret].bytes().all(|byte| byte == b' ');
+        if self.selection().is_some() || !in_indent {
+            return self.perform(Action::Edit(Edit::Backspace));
+        }
+        let stop = (column - 1) / tab_spaces * tab_spaces;
+        self.content.move_to(Cursor {
+            position: cursor.position,
+            selection: Some(self.position(line_start + stop, true)),
+        });
+        self.perform_or_put_back(Edit::Delete, cursor)
+    }
+
+    /// Does `edit` where the caret and selection have just been put, as `perform` does any edit.
+    /// If it's refused, they go back to `before`.
+    fn perform_or_put_back(&mut self, edit: Edit, before: Cursor) -> Result<bool, String> {
+        let edited = self.perform(Action::Edit(edit));
         if edited.is_err() {
-            self.content.move_to(cursor);
+            self.content.move_to(before);
         }
         edited
     }
@@ -1165,6 +1193,71 @@ mod tests {
         pane.select(2..5);
         assert_eq!(pane.new_line(), Ok(true));
         assert_eq!(pane.content.text(), "\n   two\nthree");
+    }
+
+    #[test]
+    fn backspace_in_an_indent_goes_back_to_the_last_stop() {
+        let mut pane = Pane::new("      x\n");
+        pane.content.move_to(cursor_at(0, 6));
+        assert_eq!(pane.backspace(4), Ok(true));
+        assert_eq!(pane.content.text(), "    x\n");
+        assert_eq!(pane.content.cursor(), cursor_at(0, 4));
+        assert_eq!(pane.backspace(4), Ok(true));
+        assert_eq!(pane.content.text(), "x\n");
+        assert_eq!(pane.model.text(), pane.content.text());
+        pane.undo();
+        assert_eq!(pane.content.text(), "    x\n", "each press is an undo step");
+        // From one space, back to the start of the line.
+        let mut pane = Pane::new("a\n x");
+        pane.content.move_to(cursor_at(1, 1));
+        assert_eq!(pane.backspace(4), Ok(true));
+        assert_eq!(pane.content.text(), "a\nx");
+        // At the start of the line, it joins the line to the one above as usual.
+        assert_eq!(pane.backspace(4), Ok(true));
+        assert_eq!(pane.content.text(), "ax");
+    }
+
+    #[test]
+    fn backspace_after_text_or_over_a_selection_deletes_as_usual() {
+        let mut pane = Pane::new("  é  ");
+        pane.content.move_to(cursor_at(0, 6));
+        assert_eq!(pane.backspace(4), Ok(true));
+        assert_eq!(pane.content.text(), "  é ");
+        // A tab isn't an indent of spaces.
+        let mut pane = Pane::new("\t\t");
+        pane.content.move_to(cursor_at(0, 2));
+        assert_eq!(pane.backspace(4), Ok(true));
+        assert_eq!(pane.content.text(), "\t");
+        // A selection is deleted, and nothing else.
+        let mut pane = Pane::new("        x");
+        pane.content.move_to(Cursor {
+            position: Position { line: 0, column: 7 },
+            selection: Some(Position { line: 0, column: 6 }),
+        });
+        assert_eq!(pane.backspace(4), Ok(true));
+        assert_eq!(pane.content.text(), "       x");
+        assert!(matches!(
+            binding_for(Named::Backspace, Modifiers::empty()),
+            Some(Binding::Custom(Message::Backspace))
+        ));
+    }
+
+    #[test]
+    fn backspace_in_an_indent_while_reviewing() {
+        let mut pane = Pane::new("        one\ntwo");
+        pane.suggest(12..15, "2").unwrap();
+        pane.put_caret(8);
+        assert_eq!(pane.backspace(4), Ok(true));
+        assert_eq!(pane.model.text(), "    one\ntwo");
+        assert_eq!(pane.suggestions()[0].range, 8..11);
+        // In spaces a suggestion changes, it is refused and the caret stays put.
+        let mut pane = Pane::new("        x");
+        pane.suggest(5..6, "").unwrap();
+        pane.put_caret(8);
+        let cursor = pane.content.cursor();
+        assert_eq!(pane.backspace(4), Err(IN_A_SUGGESTION.to_string()));
+        assert_eq!(pane.content.cursor(), cursor);
+        assert_eq!(pane.model.text(), "        x");
     }
 
     #[test]
