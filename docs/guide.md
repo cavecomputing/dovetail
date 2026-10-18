@@ -54,6 +54,23 @@ macOS, `%LOCALAPPDATA%\Programs\Dovetail` on Windows. The scripts tell you if it
 and macOS, add `export PATH="$HOME/.local/bin:$PATH"` to the end of `~/.bashrc` (or `~/.zshrc`)
 and open a new terminal.
 
+### Arch and Omarchy: a pacman package
+
+Instead of `scripts/install.sh`, you can build a pacman package, so Dovetail is installed, updated
+and removed like any other package. It lives in `packaging/arch/` and builds the latest `main` from
+GitHub:
+
+```sh
+cd text/packaging/arch
+makepkg -si           # builds, then asks to install it and any missing dependencies
+```
+
+That puts `dovetail` in `/usr/bin`, with its icon and launcher entry under `/usr/share`. To update,
+run `makepkg -si` there again (it fetches the newest commit); to remove it,
+`sudo pacman -R dovetail-git`. Don't mix it with `scripts/install.sh`: if you used the script
+before, delete `~/.local/bin/dovetail` and
+`~/.local/share/applications/io.cavecomputing.Dovetail.desktop` first, or the old copy wins.
+
 ### Updating and uninstalling
 
 To update, run `git pull` in the `text` folder, then the same install script again. Your settings,
