@@ -1,13 +1,13 @@
 //! App's handlers for the file shortcuts: New file (Ctrl+N), Save (Ctrl+S) and Save as
 //! (Ctrl+Shift+S).
 
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::Instant;
 
 use iced::Task;
 
 use crate::core::opened::{Doc, empty_file, save_as};
+use crate::core::recent::same_file;
 use crate::core::save::failure_reason;
 use crate::core::scratch::clear_scratch;
 use crate::core::text_file::{LineEnding, save_text, suggested_file_name};
@@ -132,11 +132,4 @@ impl App {
             None => dialog,
         }
     }
-}
-
-/// Whether `a` and `b` are the same file on disk (through any links), or the same path when one
-/// is missing.
-fn same_file(a: &Path, b: &Path) -> bool {
-    let real = |path: &Path| fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    real(a) == real(b)
 }

@@ -32,7 +32,7 @@ pub fn existing_recent_files(data_dir: &Path) -> Vec<PathBuf> {
 /// Moves `path` to the top of the list (adding it if new) and saves the list.
 pub fn remember(data_dir: &Path, path: &Path) -> io::Result<()> {
     let mut list = recent_files(data_dir);
-    list.retain(|old| old != path);
+    list.retain(|old| !same_file(old, path));
     list.insert(0, path.to_path_buf());
     list.truncate(MAX_RECENT);
     let mut text = String::new();
@@ -41,6 +41,13 @@ pub fn remember(data_dir: &Path, path: &Path) -> io::Result<()> {
         text.push('\n');
     }
     atomic_write(&data_dir.join(RECENT_FILE), text.as_bytes())
+}
+
+/// Whether `a` and `b` are the same file on disk however each is spelled (through links, `..`,
+/// or other letter case where the disk ignores case), or the same path when one is missing.
+pub fn same_file(a: &Path, b: &Path) -> bool {
+    let real = |path: &Path| fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    real(a) == real(b)
 }
 
 /// How well `query` fuzzy-matches `label`, higher is better; `None` if it doesn't match at all.
@@ -86,6 +93,18 @@ mod tests {
             recent_files(dir.path()),
             vec![PathBuf::from("/a.txt"), PathBuf::from("/b.txt")]
         );
+    }
+
+    #[test]
+    fn one_file_is_one_entry_however_it_is_spelled() {
+        let dir = tempfile::tempdir().unwrap();
+        let notes = dir.path().join("notes.txt");
+        fs::write(&notes, "hi").unwrap();
+        fs::create_dir(dir.path().join("sub")).unwrap();
+        let other_spelling = dir.path().join("sub").join("..").join("notes.txt");
+        remember(dir.path(), &notes).unwrap();
+        remember(dir.path(), &other_spelling).unwrap();
+        assert_eq!(recent_files(dir.path()), vec![other_spelling]);
     }
 
     #[test]

@@ -1,13 +1,13 @@
 //! What launching on a document means: which text to show, where the cursor goes, and whether
 //! the window may edit it (and if not, why not).
 
-use std::fs::{self, File, TryLockError};
+use std::fs::{File, TryLockError};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use crate::core::lock::{claim_lock, file_lock_path};
 use crate::core::paths::Paths;
-use crate::core::recent::remember;
+use crate::core::recent::{remember, same_file};
 use crate::core::save::{atomic_write, check_writable, failure_reason};
 use crate::core::scratch::{
     ScratchState, claim_scratch, scratch_lock_path, scratch_text_path, take_cleared,
@@ -153,8 +153,7 @@ const OPEN_ELSEWHERE: &str = "That file is open in another window";
 /// The lock that guards writing `path`. Scratch's text is guarded by scratch's own lock, so no
 /// window can open or save over it while scratch is open.
 fn lock_for(data_dir: &Path, path: &Path) -> PathBuf {
-    let real = |path: &Path| fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    if real(path) == real(&scratch_text_path(data_dir)) {
+    if same_file(path, &scratch_text_path(data_dir)) {
         return scratch_lock_path(data_dir);
     }
     file_lock_path(data_dir, path)
