@@ -25,6 +25,8 @@ foreach ($line in & $binary --print-brand) {
         Set-Variable -Name $Matches[1] -Value ($Matches[2] -replace "'\\''", "'")
     }
 }
+# Without names, the paths below would point at the whole Programs folder, which -Uninstall deletes.
+if (-not ($APP_NAME -and $BIN_NAME)) { throw "$binary --print-brand printed no names" }
 
 $installDir = "$env:LOCALAPPDATA\Programs\$APP_NAME"
 $exe = "$installDir\$BIN_NAME.exe"
