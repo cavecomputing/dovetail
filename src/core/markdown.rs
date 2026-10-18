@@ -364,24 +364,31 @@ fn inline_ranges(line: &str, from: usize) -> Vec<(Range<usize>, Markdown)> {
             let underscore = byte == b'_';
             let opens = after.is_some_and(|c| !c.is_whitespace()) && !(underscore && word(before));
             let closes = before.is_some_and(|c| !c.is_whitespace()) && !(underscore && word(after));
-            let opener = openers
-                .iter()
-                .rposition(|&(b, _, length)| b == byte && length == run)
-                .filter(|_| closes);
-            match opener {
-                Some(index) => {
-                    let start = openers[index].1;
-                    openers.truncate(index);
-                    let markdown = match (byte, run) {
-                        (b'~', _) => Markdown::Strike,
-                        (_, 1) => Markdown::Italic,
-                        // No bold italic face is bundled, so ***this*** is bold.
-                        _ => Markdown::Bold,
-                    };
-                    found.push((start..at + run, markdown));
+            // A closer pairs with the latest opener of its length. A run of three also pairs with
+            // one of one or two, and the rest of it closes or stays open on its own, so
+            // `**a *b***` and `***a** b*` are each bold and italic. `left` is what hasn't closed.
+            let mut left = run;
+            while let Some(index) = openers.iter().rposition(|&(b, _, length)| {
+                closes && left > 0 && b == byte && (length == left || length.max(left) == 3)
+            }) {
+                let (_, start, length) = openers[index];
+                let used = length.min(left);
+                openers.truncate(index);
+                if length > used {
+                    openers.push((byte, start, length - used));
                 }
-                None if opens => openers.push((byte, at, run)),
-                None => {}
+                let markdown = match (byte, used) {
+                    (b'~', _) => Markdown::Strike,
+                    (_, 1) => Markdown::Italic,
+                    // No bold italic face is bundled, so ***this*** is bold.
+                    _ => Markdown::Bold,
+                };
+                let closer = at + run - left;
+                found.push((start + length - used..closer + used, markdown));
+                left -= used;
+            }
+            if left == run && opens {
+                openers.push((byte, at, run));
             }
         }
         at += run;
@@ -617,8 +624,24 @@ mod tests {
             marked("**bold *it* `c`**"),
             vec![("**bold *it* `c`**", Bold), ("*it*", Italic), ("`c`", Code)]
         );
-        // Mismatched runs don't pair up.
+        // Mismatched runs don't pair up, but a run of three is bold and italic together.
         assert_eq!(marked("**half*"), vec![]);
+        assert_eq!(
+            marked("**bold *italic***"),
+            vec![("**bold *italic***", Bold), ("*italic*", Italic)]
+        );
+        assert_eq!(
+            marked("*a **b***"),
+            vec![("*a **b***", Italic), ("**b**", Bold)]
+        );
+        assert_eq!(
+            marked("***bold** italic*"),
+            vec![("***bold** italic*", Italic), ("**bold**", Bold)]
+        );
+        assert_eq!(
+            marked("_a __b___ c"),
+            vec![("_a __b___", Italic), ("__b__", Bold)]
+        );
     }
 
     #[test]
