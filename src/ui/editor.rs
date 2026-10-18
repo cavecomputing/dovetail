@@ -823,7 +823,7 @@ mod tests {
             key: Key::Character("c".into()),
             modified_key: Key::Character("c".into()),
             physical_key: Physical::Code(Code::KeyC),
-            modifiers: Modifiers::CTRL,
+            modifiers: Modifiers::COMMAND,
             text: None,
             status: Status::Focused { is_hovered: false },
         };
