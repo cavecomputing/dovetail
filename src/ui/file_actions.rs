@@ -25,7 +25,7 @@ impl App {
     /// Starts the new file at `path` empty (the dialog has already agreed to replace anything
     /// there) and opens it in its own window.
     pub fn start_new_file(&mut self, path: PathBuf) -> Task<Message> {
-        self.notice = match empty_file(&self.paths.data_dir, &path) {
+        self.notice = match empty_file(&self.paths.data_dir, &self.doc, &path) {
             Ok(()) => open_in_new_window(Some(path)).err(),
             Err(reason) => Some(reason),
         };
@@ -93,7 +93,7 @@ impl App {
         {
             let _ = save_text(current, text, line_ending, bom, self.disk_stamp);
         }
-        match save_as(data_dir, &path, text, line_ending, bom) {
+        match save_as(data_dir, &self.doc, &path, text, line_ending, bom) {
             Err(reason) => self.notice = Some(reason),
             Ok((lock, stamp)) => {
                 self.notice = match self.doc {

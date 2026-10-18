@@ -126,17 +126,21 @@ pub fn open_doc(doc: Doc, paths: &Paths) -> OpenedDoc {
     opened
 }
 
-/// Gives a window's text a new home at `path` (Save as): claims the file so no other window
-/// edits it, writes `text` there with `line_ending` and `bom`, and remembers it as recent.
-/// Returns the claim to hold while the window lives and the file as written, or why nothing was
-/// written.
+/// Gives the text of the window showing `own` a new home at `path` (Save as): claims the file so
+/// no other window edits it, writes `text` there with `line_ending` and `bom`, and remembers it as
+/// recent. Returns the claim to hold while the window lives and the file as written, or why
+/// nothing was written.
 pub fn save_as(
     data_dir: &Path,
+    own: &Doc,
     path: &Path,
     text: &str,
     line_ending: LineEnding,
     bom: bool,
 ) -> Result<(Option<File>, Option<DiskStamp>), String> {
+    if is_own_file(data_dir, own, path) {
+        return Err(OPEN_HERE.to_string());
+    }
     let lock = match claim_lock(&lock_for(data_dir, path)) {
         Err(TryLockError::WouldBlock) => return Err(OPEN_ELSEWHERE.to_string()),
         // Without a lock file there is nothing to guard with, so carry on.
@@ -149,9 +153,12 @@ pub fn save_as(
     Ok((lock, stamp))
 }
 
-/// Empties `path` for Ctrl+N, when the save dialog has agreed to replace a file there, unless
-/// another window has it open.
-pub fn empty_file(data_dir: &Path, path: &Path) -> Result<(), String> {
+/// Empties `path` for Ctrl+N in the window showing `own`, when the save dialog has agreed to
+/// replace a file there, unless that window or another one has it open.
+pub fn empty_file(data_dir: &Path, own: &Doc, path: &Path) -> Result<(), String> {
+    if is_own_file(data_dir, own, path) {
+        return Err(OPEN_HERE.to_string());
+    }
     match claim_lock(&lock_for(data_dir, path)) {
         Err(TryLockError::WouldBlock) => Err(OPEN_ELSEWHERE.to_string()),
         _ => atomic_write(path, b"").map_err(|error| failure_reason(&error)),
@@ -159,6 +166,17 @@ pub fn empty_file(data_dir: &Path, path: &Path) -> Result<(), String> {
 }
 
 const OPEN_ELSEWHERE: &str = "That file is open in another window";
+const OPEN_HERE: &str = "That file is open in this window";
+
+/// True when `path` is where the window showing `own` keeps its text (scratch's file, for
+/// scratch). The window's own claim on it would otherwise read as another window's.
+fn is_own_file(data_dir: &Path, own: &Doc, path: &Path) -> bool {
+    let own_lock = match own {
+        Doc::Scratch => scratch_lock_path(data_dir),
+        Doc::File { path, .. } => lock_for(data_dir, path),
+    };
+    lock_for(data_dir, path) == own_lock
+}
 
 /// The lock that guards writing `path`. Scratch's text is guarded by scratch's own lock, so no
 /// window can open or save over it while scratch is open.
@@ -195,8 +213,15 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let paths = Paths::under(dir.path());
         let path = dir.path().join("notes.txt");
-        let (lock, stamp) =
-            save_as(&paths.data_dir, &path, "a\nb", LineEnding::CrLf, true).unwrap();
+        let (lock, stamp) = save_as(
+            &paths.data_dir,
+            &Doc::Scratch,
+            &path,
+            "a\nb",
+            LineEnding::CrLf,
+            true,
+        )
+        .unwrap();
         assert_eq!(fs::read_to_string(&path).unwrap(), "\u{feff}a\r\nb");
         assert!(lock.is_some() && stamp.is_some());
         // Another window opening it now gets it read-only.
@@ -214,7 +239,14 @@ mod tests {
         let path = dir.path().join("open.txt");
         fs::write(&path, "theirs").unwrap();
         let _other = open_doc(file_doc(&path), &paths);
-        let refused = save_as(&paths.data_dir, &path, "mine", LineEnding::Lf, false);
+        let refused = save_as(
+            &paths.data_dir,
+            &Doc::Scratch,
+            &path,
+            "mine",
+            LineEnding::Lf,
+            false,
+        );
         assert_eq!(refused.unwrap_err(), "That file is open in another window");
         assert_eq!(fs::read_to_string(&path).unwrap(), "theirs");
     }
@@ -225,10 +257,18 @@ mod tests {
         let paths = Paths::under(dir.path());
         let _scratch_window = open_doc(Doc::Scratch, &paths);
         let path = scratch_text_path(&paths.data_dir);
-        let refused = save_as(&paths.data_dir, &path, "mine", LineEnding::Lf, false);
+        let txt_window = file_doc(&dir.path().join("other.txt"));
+        let refused = save_as(
+            &paths.data_dir,
+            &txt_window,
+            &path,
+            "mine",
+            LineEnding::Lf,
+            false,
+        );
         assert_eq!(refused.unwrap_err(), OPEN_ELSEWHERE);
         assert_eq!(
-            empty_file(&paths.data_dir, &path).unwrap_err(),
+            empty_file(&paths.data_dir, &txt_window, &path).unwrap_err(),
             OPEN_ELSEWHERE
         );
         let other = open_doc(file_doc(&path), &paths);
@@ -239,12 +279,38 @@ mod tests {
     }
 
     #[test]
+    fn a_windows_own_file_is_open_in_this_window() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::under(dir.path());
+        let path = dir.path().join("notes.txt");
+        fs::write(&path, "mine").unwrap();
+        let window = open_doc(file_doc(&path), &paths);
+        let refused = empty_file(&paths.data_dir, &window.doc, &path);
+        assert_eq!(refused.unwrap_err(), OPEN_HERE);
+        let scratch = open_doc(Doc::Scratch, &paths);
+        let scratch_file = scratch_text_path(&paths.data_dir);
+        let refused = save_as(
+            &paths.data_dir,
+            &scratch.doc,
+            &scratch_file,
+            "x",
+            LineEnding::Lf,
+            false,
+        );
+        assert_eq!(refused.unwrap_err(), OPEN_HERE);
+        // From the scratch window, the file is open in another window.
+        let refused = empty_file(&paths.data_dir, &scratch.doc, &path);
+        assert_eq!(refused.unwrap_err(), OPEN_ELSEWHERE);
+        assert_eq!(fs::read_to_string(&path).unwrap(), "mine");
+    }
+
+    #[test]
     fn empty_file_empties_a_file_no_window_has_open() {
         let dir = tempfile::tempdir().unwrap();
         let paths = Paths::under(dir.path());
         let path = dir.path().join("old.txt");
         fs::write(&path, "old text").unwrap();
-        empty_file(&paths.data_dir, &path).unwrap();
+        empty_file(&paths.data_dir, &Doc::Scratch, &path).unwrap();
         assert_eq!(fs::read_to_string(&path).unwrap(), "");
     }
 
