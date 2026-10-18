@@ -17,7 +17,7 @@ use crate::core::recent::existing_recent_files;
 use crate::core::save::{Autosaver, SaveState, failure_reason};
 use crate::core::scratch::{ScratchState, ScratchView, scratch_open_elsewhere};
 use crate::core::settings::{ReadingMode, Settings, Theme as ThemeSetting};
-use crate::core::text_file::{DiskStamp, changed_on_disk, read_text, save_text};
+use crate::core::text_file::{DiskStamp, TEXT_EXTENSIONS, changed_on_disk, read_text, save_text};
 use crate::ui::assistant_actions::{Assistant, AssistantAction, CardState};
 use crate::ui::editor::{Decision, Pane};
 use crate::ui::find_bar::{self, Find, FindAction};
@@ -436,10 +436,10 @@ impl App {
                 self.menu_open = false;
                 let mut dialog = rfd::AsyncFileDialog::new();
                 // macOS puts every filter's extensions in one list, where "*" isn't a wildcard,
-                // so only .txt could be picked; with no filter it allows any file.
+                // so only .txt and .md could be picked; with no filter it allows any file.
                 if !cfg!(target_os = "macos") {
                     dialog = dialog
-                        .add_filter("Text", &["txt"])
+                        .add_filter("Text and Markdown", &TEXT_EXTENSIONS)
                         .add_filter("All files", &["*"]);
                 }
                 let dialog = dialog.pick_file();

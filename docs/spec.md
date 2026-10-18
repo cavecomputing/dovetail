@@ -33,7 +33,7 @@ Matt writes prompts by putting two Typora windows side by side: the old version 
 |---|---|
 | Launch the app | Opens the one continuous **scratch space**, resuming exactly where it was left (text, cursor, scroll). |
 | Open a project file (`.dovetail`) | Opens that project (`rewrite` branch only). |
-| Open a `.txt` | Opens just that text file. |
+| Open a `.txt`, `.md` or `.markdown` | Opens just that text file. Markdown is coloured (§5), never rendered. The Open, New file and Save as dialogs offer all three. |
 
 - **No tabs.** Each opened file or project gets its own window, which plays well with tiling WMs.
 - `Ctrl+P` opens a quick switcher with fuzzy search over recent files (and projects, on the `rewrite` branch).
@@ -45,7 +45,7 @@ Matt writes prompts by putting two Typora windows side by side: the old version 
 - **Find** (`Ctrl+F`): a bar just above the status bar. Matches ignore case and are lit up in the text, the current one outlined; Enter and Shift+Enter step through them, Esc closes the bar and leaves the match selected. On the `rewrite` branch, in a project it searches the draft.
 - Startup has to be near-instant: launch, jot, close. This is a key reason to prefer pure Rust over a webview.
 - Launch from the app menu or a short terminal command.
-- Install for the current user from a checkout, one script per OS (2026-10-18). On Linux it registers a `.desktop` app that can open `.txt` files (the `rewrite` branch also registers a MIME type for `.dovetail`). On Windows it adds a Start Menu entry and an "Open with" entry for `.txt` files. On macOS it makes an app bundle in `~/Applications` that registers no file types: Finder hands a file to an app in an Apple Event, which winit 0.30 can't receive, so for now files open from the terminal command or from inside the app.
+- Install for the current user from a checkout, one script per OS (2026-10-18). On Linux it registers a `.desktop` app that can open `.txt` and Markdown files (the `rewrite` branch also registers a MIME type for `.dovetail`). On Windows it adds a Start Menu entry and an "Open with" entry for `.txt`, `.md` and `.markdown` files. On macOS it makes an app bundle in `~/Applications` that registers no file types: Finder hands a file to an app in an Apple Event, which winit 0.30 can't receive, so for now files open from the terminal command or from inside the app.
 
 ## 4. Saving
 
@@ -54,7 +54,7 @@ Matt writes prompts by putting two Typora windows side by side: the old version 
 - `Ctrl+Shift+S` (Save as) moves a `.txt` to a new file and keeps editing there; the old file keeps its last save. On the `rewrite` branch, projects live in their own folder, so they have no Save as.
 - **Closing waits for the save.** The window only closes once the latest autosave has been written. If a save fails, the window stays open and says why. Known gap: logging out, shutting down or restarting the computer (every OS; on Windows that includes Windows Update's restarts), and Quit from the Dock on macOS, end the app without waiting (`⌘Q` and the app menu's Quit do wait).
 - The scratch space persists between launches as a single document.
-- Plain docs are ordinary `.txt` files.
+- Plain docs are ordinary `.txt` files, or Markdown `.md` files, saved exactly the same way.
 
 ## 5. Plain editor (the default)
 

@@ -1,5 +1,6 @@
 # Installs the app for the current user on Windows: the release binary in
-# %LOCALAPPDATA%\Programs\<app>, a Start Menu entry, and an "Open with" entry for .txt files.
+# %LOCALAPPDATA%\Programs\<app>, a Start Menu entry, and an "Open with" entry for .txt and
+# Markdown (.md, .markdown) files.
 # Every name comes from src/brand.rs (the binary prints them with --print-brand), so nothing is
 # hardcoded here. Run it from a PowerShell window in the repo:
 #
@@ -31,12 +32,13 @@ if (-not ($APP_NAME -and $BIN_NAME)) { throw "$binary --print-brand printed no n
 $installDir = "$env:LOCALAPPDATA\Programs\$APP_NAME"
 $exe = "$installDir\$BIN_NAME.exe"
 $shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) "$APP_NAME.lnk"
-# "Open with": the app's own entry, and its name in the list Windows offers for .txt files.
+# "Open with": the app's own entry, and its name in the list Windows offers for each file type.
 $appKey = "HKCU:\Software\Classes\Applications\$BIN_NAME.exe"
-$openWithKey = "HKCU:\Software\Classes\.txt\OpenWithList\$BIN_NAME.exe"
+$fileTypes = '.txt', '.md', '.markdown'
+$openWithKeys = $fileTypes | ForEach-Object { "HKCU:\Software\Classes\$_\OpenWithList\$BIN_NAME.exe" }
 
 if ($Uninstall) {
-    Remove-Item -Recurse -Force $installDir, $shortcut, $appKey, $openWithKey -ErrorAction SilentlyContinue
+    Remove-Item -Recurse -Force (@($installDir, $shortcut, $appKey) + $openWithKeys) -ErrorAction SilentlyContinue
     Write-Output "Removed $APP_NAME. Settings are still in $env:APPDATA\$CONFIG_DIR_NAME and scratch in $env:LOCALAPPDATA\$CONFIG_DIR_NAME"
     exit
 }
@@ -55,12 +57,16 @@ $link.Save()
 New-Item -Force "$appKey\shell\open\command" -Value "`"$exe`" `"%1`"" | Out-Null
 New-ItemProperty -Force $appKey -Name FriendlyAppName -Value $APP_NAME | Out-Null
 New-Item -Force "$appKey\SupportedTypes" | Out-Null
-New-ItemProperty -Force "$appKey\SupportedTypes" -Name .txt -Value '' | Out-Null
-New-Item -Force $openWithKey | Out-Null
+foreach ($fileType in $fileTypes) {
+    New-ItemProperty -Force "$appKey\SupportedTypes" -Name $fileType -Value '' | Out-Null
+}
+foreach ($openWithKey in $openWithKeys) {
+    New-Item -Force $openWithKey | Out-Null
+}
 
 Write-Output "Installed $APP_NAME as $exe"
 Write-Output "Settings live in $env:APPDATA\$CONFIG_DIR_NAME and scratch in $env:LOCALAPPDATA\$CONFIG_DIR_NAME"
-Write-Output "To open .txt files with it by default: right-click one, Open with, Choose another app."
+Write-Output "To open .txt or .md files with it by default: right-click one, Open with, Choose another app."
 if (($env:Path -split ';') -notcontains $installDir) {
     Write-Output "Note: to run '$BIN_NAME' from a terminal, add $installDir to your PATH."
 }

@@ -47,7 +47,7 @@ pub struct OpenedDoc {
 }
 
 /// Opens `doc`: claims it so no second window edits it, reads it, and decides whether it can be
-/// edited. A `.txt` that doesn't exist yet is created empty.
+/// edited. A file that doesn't exist yet is created empty.
 pub fn open_doc(doc: Doc, paths: &Paths) -> OpenedDoc {
     let mut opened = OpenedDoc {
         doc: doc.clone(),

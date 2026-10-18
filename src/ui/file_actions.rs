@@ -10,11 +10,11 @@ use crate::core::opened::{Doc, empty_file, save_as};
 use crate::core::recent::same_file;
 use crate::core::save::failure_reason;
 use crate::core::scratch::clear_scratch;
-use crate::core::text_file::{LineEnding, save_text, suggested_file_name};
+use crate::core::text_file::{LineEnding, TEXT_EXTENSIONS, save_text, suggested_file_name};
 use crate::ui::app::{App, Message, open_in_new_window};
 
 impl App {
-    /// Ctrl+N: asks where the new .txt goes; `NewFilePicked` brings the answer.
+    /// Ctrl+N: asks where the new file (.txt or .md) goes; `NewFilePicked` brings the answer.
     pub fn new_file(&mut self) -> Task<Message> {
         self.menu_open = false;
         let dialog = self.save_dialog("New file", "untitled.txt".to_string());
@@ -32,7 +32,7 @@ impl App {
         Task::none()
     }
 
-    /// Ctrl+S. Everything autosaves, so in a .txt this writes now instead of after the pause.
+    /// Ctrl+S. Everything autosaves, so in a file this writes now instead of after the pause.
     /// Scratch has no file, so it asks where to save one (Save as).
     pub fn save_now(&mut self) -> Task<Message> {
         if matches!(self.doc, Doc::Scratch) {
@@ -46,7 +46,7 @@ impl App {
         Task::none()
     }
 
-    /// Save as: asks where to save this text as a .txt; `SaveAsPicked` brings the answer.
+    /// Save as: asks where to save this text as a .txt or .md; `SaveAsPicked` brings the answer.
     pub fn pick_save_path(&mut self) -> Task<Message> {
         self.menu_open = false;
         let name = match &self.doc {
@@ -63,7 +63,7 @@ impl App {
 
     /// Makes `path` this window's file: the text is written there and the window carries on
     /// editing it, undo history and all. Scratch is emptied, keeping its text for the next scratch
-    /// window's Ctrl+Z; a .txt keeps its last save.
+    /// window's Ctrl+Z; a file keeps its last save.
     pub fn save_as(&mut self, path: PathBuf) -> Task<Message> {
         let (line_ending, bom) = match &self.doc {
             Doc::File {
@@ -118,8 +118,10 @@ impl App {
         Task::none()
     }
 
-    /// A save dialog for a .txt, titled `title`, offering `name`, starting beside the open file
-    /// or in the documents folder.
+    /// A save dialog for a .txt or .md, titled `title`, offering `name`, starting beside the open
+    /// file or in the documents folder. The filter lists every extension the app opens: macOS
+    /// adds the first one (.txt) to a name that has none of them, so notes.md would become
+    /// notes.md.txt without .md there, and Windows can do the same to one the filter leaves out.
     fn save_dialog(&self, title: &str, name: String) -> rfd::AsyncFileDialog {
         let folder = match &self.doc {
             Doc::File { path, .. } => path.parent(),
@@ -127,7 +129,7 @@ impl App {
         };
         let dialog = rfd::AsyncFileDialog::new()
             .set_title(title)
-            .add_filter("Text", &["txt"])
+            .add_filter("Text and Markdown", &TEXT_EXTENSIONS)
             .set_file_name(name);
         match folder.filter(|folder| folder.is_dir()) {
             Some(folder) => dialog.set_directory(folder),

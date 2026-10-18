@@ -247,7 +247,7 @@ pub fn menu(app: &App) -> Element<'_, Message> {
         menu_item("Open…".to_string(), "Ctrl+O", Message::OpenDialog),
         menu_item("Open recent…".to_string(), "Ctrl+P", Message::OpenSwitcher),
     ];
-    // Scratch has no file, so Ctrl+S saves it to one; a .txt can move to another.
+    // Scratch has no file, so Ctrl+S saves it to one; a file can move to another.
     items = match &app.doc {
         Doc::Scratch => items.push(menu_item(
             "Save to a file…".to_string(),
