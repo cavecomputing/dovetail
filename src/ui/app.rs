@@ -86,8 +86,11 @@ pub enum Message {
     Edit(Action),
     Indent,
     Unindent,
-    /// Enter in the editor: a new line, indented like the caret's (`Pane::new_line`).
-    NewLine,
+    /// Enter in the editor: a new line, indented like the caret's (`Pane::new_line`). In a
+    /// Markdown file Enter without Shift also continues a list (`Pane::markdown_new_line`).
+    NewLine {
+        shift: bool,
+    },
     /// Backspace in the editor, which takes back a whole indent in a line's leading spaces
     /// (`Pane::backspace`).
     Backspace,
@@ -320,17 +323,21 @@ impl App {
             // The editing keys `editor::key_binding` binds. A read-only window takes none of them.
             Message::Indent
             | Message::Unindent
-            | Message::NewLine
+            | Message::NewLine { .. }
             | Message::Backspace
             | Message::DeleteTo(_)
             | Message::MoveLines { .. }
                 if self.editable() =>
             {
                 let tab_spaces = usize::from(self.settings.tab_spaces);
+                let markdown = self.markdown();
                 let edited = match message {
                     Message::Indent => self.pane.indent(tab_spaces),
                     Message::Unindent => self.pane.unindent(tab_spaces),
-                    Message::NewLine => self.pane.new_line(),
+                    Message::NewLine { shift: false } if markdown => {
+                        self.pane.markdown_new_line(tab_spaces)
+                    }
+                    Message::NewLine { .. } => self.pane.new_line(),
                     Message::Backspace => self.pane.backspace(tab_spaces),
                     Message::DeleteTo(motion) => self.pane.delete_to(motion),
                     Message::MoveLines { up } => self.pane.move_lines(up),
@@ -345,7 +352,7 @@ impl App {
             }
             Message::Indent
             | Message::Unindent
-            | Message::NewLine
+            | Message::NewLine { .. }
             | Message::Backspace
             | Message::DeleteTo(_)
             | Message::MoveLines { .. } => {}
@@ -773,8 +780,19 @@ impl App {
     pub fn document_view(&self) -> Element<'_, Message> {
         let mut paint = self.pane.suggestion_runs(Roles::of(&self.theme));
         paint.extend(self.find_runs());
-        let markdown = matches!(&self.doc, Doc::File { path, .. } if is_markdown(path));
-        editor::view(&self.pane, &self.settings, self.editable(), markdown, paint)
+        editor::view(
+            &self.pane,
+            &self.settings,
+            self.editable(),
+            self.markdown(),
+            paint,
+        )
+    }
+
+    /// Whether the document is a Markdown file (.md or .markdown), which is coloured and has the
+    /// Markdown keys. Scratch never is.
+    fn markdown(&self) -> bool {
+        matches!(&self.doc, Doc::File { path, .. } if is_markdown(path))
     }
 }
 

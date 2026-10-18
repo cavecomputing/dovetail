@@ -214,8 +214,8 @@ src/
     counts.rs            word and token counts (tokenizer loads in the background)
     find.rs              every match of a find query, ignoring case
     markup.rs            where XML tags and {{macros}} are, for colouring them
-    markdown.rs          which parts of a Markdown (.md) line to colour, and whether a code fence
-                         is open
+    markdown.rs          which parts of a Markdown (.md) line to colour, whether a code fence is
+                         open, and what Enter types in a list
     text_file.rs         reading and saving .txt and .md files: line endings, outside-change check
     recent.rs            the recently opened files (data folder), fuzzy matching
     text_model.rs        a pane's text and its undo/redo history, in byte offsets

@@ -115,6 +115,11 @@ the caret at the end of the last change. Undo of a step applies its changes in r
   and a refused edit puts the caret back. Ctrl+Backspace and Ctrl+Delete go to
   `Message::DeleteTo(motion)` the same way: `Pane::delete_to` selects with the widget's own word
   motion, so a word is what Ctrl+← steps over, then deletes.
+- In a Markdown file, Enter without Shift goes to `Pane::markdown_new_line` instead. It asks
+  `core::markdown::list_enter` (no iced; it reads the caret's line, and scans the fences from the
+  top to know whether the line is code) what to do: type a newline and the next item's prefix,
+  delete the empty item's marker, or unindent it with `Pane::unindent`. Each goes through the
+  same paths as above, so it is one undo step and review mode checks it.
 - Alt+↑ and Alt+↓ go to `Message::MoveLines`, a model change: `TextModel::move_lines` swaps the
   lines with the one above or below as one `Change` and one undo step, and `Pane::move_lines`
   replays it and puts the caret and selection back on the same text, a line up or down.
