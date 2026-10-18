@@ -1,0 +1,45 @@
+# Builds, tests and lints the app on Linux, macOS and Windows on every push, so a change that only
+# breaks another OS shows up here instead of on that machine. These are the same three commands
+# CLAUDE.md asks for before every commit; warnings fail the run.
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    strategy:
+      # Let every OS finish, so one failure doesn't hide another.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      # Keeps compiled dependencies between runs, so only our own code rebuilds.
+      - uses: Swatinem/rust-cache@v2
+      # --locked fails if Cargo.lock is out of date with Cargo.toml.
+      - run: cargo build --locked
+      - run: cargo test --locked
+      - run: cargo clippy --locked --all-targets -- -D warnings
+
+  # Formatting is the same on every OS, so it is checked once.
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --check
