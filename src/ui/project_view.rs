@@ -28,12 +28,12 @@ const SLIDE: Duration = Duration::from_millis(300);
 /// mockup.
 const HIDE_REFERENCE_BELOW: f32 = 1100.0;
 const PANE_PADDING: Padding = Padding {
-    top: 28.0,
-    right: 24.0,
-    bottom: 40.0,
-    // The pane's 24px margin, then the gutter stripes (10px) and their 12px gap, as in the
-    // mockup, so the stripes never touch the window edge or the divider.
-    left: 46.0,
+    top: 12.0,
+    right: 16.0,
+    bottom: 24.0,
+    // A 12px margin, then the gutter stripes (10px) and their 12px gap, so the stripes never
+    // touch the window edge or the divider.
+    left: 34.0,
 };
 
 pub struct ProjectView {

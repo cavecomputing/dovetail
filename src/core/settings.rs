@@ -19,7 +19,8 @@ pub enum Theme {
     System,
 }
 
-/// Comfort is a centred column `chars` characters wide; full width uses the whole window.
+/// Full width (the default) lets text use the whole window; Comfort caps lines at `chars`
+/// characters. Either way the text starts at the top left, like any text editor.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "mode")]
 pub enum ReadingMode {
@@ -32,9 +33,7 @@ pub enum ReadingMode {
 
 impl Default for ReadingMode {
     fn default() -> ReadingMode {
-        ReadingMode::Comfort {
-            chars: default_comfort_chars(),
-        }
+        ReadingMode::FullWidth
     }
 }
 
@@ -102,7 +101,7 @@ impl Default for Settings {
     fn default() -> Settings {
         Settings {
             theme: Theme::Dark,
-            font_size: 16.0,
+            font_size: 14.0,
             reading_mode: ReadingMode::default(),
             tab_spaces: 4,
             word_wrap: true,
@@ -291,7 +290,8 @@ mod tests {
         assert!(settings.colour_markup);
         assert!(!settings.show_line_col);
         assert_eq!(settings.theme, Theme::Dark);
-        assert_eq!(settings.reading_mode, ReadingMode::Comfort { chars: 80 });
+        assert_eq!(settings.font_size, 14.0);
+        assert_eq!(settings.reading_mode, ReadingMode::FullWidth);
         assert_eq!(settings.window_controls, WindowControls::Auto);
         assert_eq!(settings.base_url, DEFAULT_BASE_URL);
         assert_eq!(settings.model, "");
@@ -395,7 +395,7 @@ mod tests {
             ..Settings::default()
         };
         odd.clamp();
-        assert_eq!(odd.font_size, 16.0);
+        assert_eq!(odd.font_size, Settings::default().font_size);
         assert_eq!(odd.tab_spaces, 1);
     }
 
