@@ -121,7 +121,9 @@ pub enum Message {
     /// Accept or reject suggested edits (their buttons in the text, Tab or Esc).
     Decide(Decision),
     Tick(Instant),
-    Saved(u64, Result<Option<DiskStamp>, String>),
+    /// A save of the document with this number (`App::document`) ended: its generation and
+    /// how it went.
+    Saved(u64, u64, Result<Option<DiskStamp>, String>),
     TokenizerReady,
     TokensCounted(Option<usize>),
 
@@ -430,12 +432,15 @@ impl App {
                     self.uncounted_edit = None;
                     tasks.push(self.count_tokens());
                 }
-                if self.autosaver.should_save_now(now) {
+                // Over a file changed on disk, saves wait for Reload or Keep mine.
+                if !self.disk_conflict && self.autosaver.should_save_now(now) {
                     tasks.push(self.save(now));
                 }
                 return Task::batch(tasks);
             }
-            Message::Saved(generation, result) => {
+            // A save of a document the window has left; its own saver went with it.
+            Message::Saved(document, ..) if document != self.document => {}
+            Message::Saved(_, generation, result) => {
                 let failed = result.is_err();
                 if let Ok(Some(stamp)) = result {
                     self.disk_stamp = Some(stamp);
@@ -586,6 +591,10 @@ impl App {
                     self.disk_stamp = DiskStamp::of(path);
                     self.disk_conflict = false;
                     let focus = iced::widget::operation::focus(editor::EDITOR_ID);
+                    // One save at a time: a running one is followed by the autosave.
+                    if self.autosaver.is_saving() {
+                        return focus;
+                    }
                     return Task::batch([self.save(Instant::now()), focus]);
                 }
             }
@@ -705,9 +714,10 @@ impl App {
         let view = self.scratch_view();
         let doc = self.doc.clone();
         let disk_stamp = self.disk_stamp;
+        let document = self.document;
         Task::perform(
             async move { write_doc(&doc, text, view, &data_dir, disk_stamp) },
-            move |result| Message::Saved(generation, result),
+            move |result| Message::Saved(document, generation, result),
         )
     }
 
@@ -719,7 +729,7 @@ impl App {
         let view = self.scratch_view();
         let result = write_doc(&self.doc, text, view, &self.paths.data_dir, self.disk_stamp);
         let written = result.is_ok();
-        let _ = self.update(Message::Saved(generation, result));
+        let _ = self.update(Message::Saved(self.document, generation, result));
         written
     }
 
@@ -1089,7 +1099,7 @@ mod tests {
         let _ = app.update(Message::OpenPath(notes.clone()));
         assert!(matches!(app.doc, Doc::Scratch));
         let _ = app.update(Message::Edit(Action::Edit(Edit::Insert('b'))));
-        let _ = app.update(Message::Saved(generation, Ok(None)));
+        let _ = app.update(Message::Saved(0, generation, Ok(None)));
         assert!(matches!(&app.doc, Doc::File { path, .. } if *path == notes));
         assert_eq!(ScratchState::load(&paths.data_dir).unwrap().text, "ab");
     }
@@ -1207,6 +1217,35 @@ mod tests {
         // An answer for the document shown still works.
         let _ = app.update(Message::SaveAsPicked(app.document, picked.clone()));
         assert_eq!(std::fs::read_to_string(&picked).unwrap(), "from scratch");
+    }
+
+    #[test]
+    fn a_save_of_the_document_left_doesnt_touch_the_next_ones() {
+        let (_dir, _paths, mut app, notes) = scratch_window("");
+        let _ = app.update(Message::OpenPath(notes.clone()));
+        let _ = app.update(Message::Edit(Action::Edit(Edit::Insert('!'))));
+        // Someone else changes the file, so the save is refused, and no retry starts over it.
+        std::fs::write(&notes, "theirs").unwrap();
+        assert!(!app.save_before_leaving());
+        let _ = app.update(Message::Tick(Instant::now() + Duration::from_secs(60)));
+        assert!(!app.autosaver.is_saving());
+        // A save running when Keep mine is chosen: Keep mine doesn't start a second one.
+        let file = app.document;
+        let running = app.autosaver.begin(Instant::now());
+        let _ = app.update(Message::KeepMine);
+        let refused = Err("Save failed: changed on disk".to_string());
+        let _ = app.update(Message::Saved(file, running, refused));
+        assert!(!app.disk_conflict && !app.autosaver.is_saving());
+        let _ = app.update(Message::OpenScratch);
+        assert!(matches!(app.doc, Doc::Scratch));
+        // Typed in scratch, then a save of notes.md lands late: scratch's edits still count.
+        for letter in "abcdefg".chars() {
+            let _ = app.update(Message::Edit(Action::Edit(Edit::Insert(letter))));
+        }
+        // (notes.md's generations count its own edits, which may well be more.)
+        let _ = app.update(Message::Saved(file, 100, Ok(None)));
+        assert!(app.autosaver.pending());
+        assert_eq!(app.autosaver.state(), SaveState::Saving);
     }
 
     #[test]
