@@ -1,4 +1,4 @@
-//! Where config and scratch state live on disk, and where file dialogs start.
+//! Where config and scratch state live on disk, and where save dialogs start.
 
 use std::path::{Path, PathBuf};
 
@@ -13,7 +13,8 @@ pub struct Paths {
     pub config_dir: PathBuf,
     /// `~/.local/share/<app>`: holds the scratch space.
     pub data_dir: PathBuf,
-    /// `~/Documents`: where the file dialogs start when there is no open file to start beside.
+    /// `~/Documents`: where the save dialogs (Save as, New file) start when there is no open file
+    /// to start beside.
     pub documents_dir: PathBuf,
 }
 

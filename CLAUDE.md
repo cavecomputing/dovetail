@@ -154,7 +154,7 @@ src/
   main.rs                entry point: reads the command line, decides what to open
   brand.rs               every name (see above)
   core/                  plain-editor logic, no UI
-    paths.rs             where config and scratch live, and where file dialogs start
+    paths.rs             where config and scratch live, and where save dialogs start
     settings.rs          settings.toml: load, defaults, save
     save.rs              atomic file writes and the save-state machine (saved/saving/failed)
     scratch.rs           the scratch space: text and cursor, resumed on launch; saving it to a
