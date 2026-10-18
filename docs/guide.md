@@ -155,7 +155,7 @@ Shortcuts are written with Ctrl; on macOS use ⌘ (the app's menu and hints show
 | Ctrl+, | Settings |
 | Ctrl+L | Open or close the assistant pane |
 | Ctrl+Shift+L | Line numbers on or off. This is the Line numbers setting, so every window follows and it is remembered |
-| Esc | Close the menu, the switcher or Settings, or else the find bar, and put the keyboard back in the text (from the assistant's box, say) |
+| Esc | Close the menu, the switcher or Settings, or else the go to line box, the find bar, or Ctrl+D's extra selections, and put the keyboard back in the text (from the assistant's box, say) |
 | Tab | Insert spaces at the cursor, never a tab character (text selected within one line is replaced); with several lines selected, indent each. In a Markdown file, on a list item it indents the whole line instead, nesting the item |
 | Shift+Tab | Unindent the line, or each selected line |
 | Enter | New line, indented like the line the cursor is on (as far as the cursor). On a line of only spaces, the spaces move down too, so the line left behind is empty. In a Markdown file, on a list item or quote it starts the next one: the same bullet, the next number, an empty `[ ]` task box, the same `>`. On an empty item it ends the list instead: an indented item moves out a level, any other loses its marker. In fenced code it's a plain new line |
@@ -165,6 +165,7 @@ Shortcuts are written with Ctrl; on macOS use ⌘ (the app's menu and hints show
 | Alt+↑ and Alt+↓ | Move the line, or every selected line, up or down past the next one (⌥↑ and ⌥↓ on macOS) |
 | Ctrl+Shift+D | Duplicate the line, or every selected line: the copy goes just below, and the cursor moves onto it |
 | Ctrl+Shift+K | Delete the line, or every selected line |
+| Ctrl+D | Select the word at the cursor; press again to also select the next place it appears (matching case and whole words; with part of a word selected, anywhere), going round to the top after the end. Typing, pasting, Backspace, Delete and Enter then change every selected place at once, each press its own Ctrl+Z. Moving the cursor or Esc lets the extra places go |
 | Ctrl+B and Ctrl+I | In a Markdown file, bold (`**`) or italic (`_`, or `*` inside a word): put the markers around the selection, or with nothing selected a pair with the cursor between. Pressed again, they come off |
 | Ctrl+Z | Undo |
 | Ctrl+Shift+Z or Ctrl+Y | Redo |

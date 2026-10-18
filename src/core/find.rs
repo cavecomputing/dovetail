@@ -30,6 +30,23 @@ pub fn find_all(text: &str, query: &str, match_case: bool, whole_word: bool) -> 
     found
 }
 
+/// The word around byte `at` of `text` (letters, digits and `_`, as whole word counts them), or
+/// `None` when no word touches it.
+pub fn word_at(text: &str, at: usize) -> Option<Range<usize>> {
+    let word = |c: char| c.is_alphanumeric() || c == '_';
+    let start = text[..at]
+        .char_indices()
+        .rev()
+        .take_while(|(_, c)| word(*c))
+        .last()
+        .map_or(at, |(start, _)| start);
+    let end = text[at..]
+        .char_indices()
+        .find(|(_, c)| !word(*c))
+        .map_or(text.len(), |(length, _)| at + length);
+    (start < end).then_some(start..end)
+}
+
 /// How many bytes of the start of `text` match `query` (ignoring case unless `match_case`), if
 /// it does.
 fn match_length(text: &str, query: &str, match_case: bool) -> Option<usize> {
@@ -77,6 +94,15 @@ mod tests {
         let found = find_all(text, "CAFÉ", false, false);
         assert_eq!(found, vec![0..5, 6..11]);
         assert_eq!(&text[found[1].clone()], "Café");
+    }
+
+    #[test]
+    fn word_at_finds_the_word_the_caret_touches() {
+        let text = "say héllo_2 now";
+        assert_eq!(word_at(text, 7), Some(4..12), "inside it");
+        assert_eq!(word_at(text, 4), Some(4..12), "at its start");
+        assert_eq!(word_at(text, 12), Some(4..12), "at its end");
+        assert_eq!(word_at("a  b", 2), None, "between spaces");
     }
 
     #[test]
