@@ -28,9 +28,22 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
         }
         file.write_all(bytes)?;
         file.sync_all()?;
-        fs::rename(&temp, &path)?;
-        // Flush the folder entry too, so the rename itself survives a power cut.
-        File::open(&dir)?.sync_all()
+        // On Windows a virus scanner, the search indexer or a sync client can hold the file for a
+        // moment, which refuses the rename, so try again for a little while.
+        let mut renamed = fs::rename(&temp, &path);
+        for _ in 0..10 {
+            if renamed.is_ok() || !cfg!(windows) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+            renamed = fs::rename(&temp, &path);
+        }
+        renamed?;
+        // Flush the folder entry too, so the rename itself survives a power cut. (Windows can't
+        // open a folder as a file, so there the file system flushes the rename in its own time.)
+        #[cfg(unix)]
+        File::open(&dir)?.sync_all()?;
+        Ok(())
     })();
     if result.is_err() {
         let _ = fs::remove_file(&temp);
@@ -41,7 +54,18 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
 /// Checks that `path` could be saved, by making and removing the temp file a save writes first.
 /// Saving needs the folder to be writable, since the temp file is renamed over the target.
 pub fn check_writable(path: &Path) -> io::Result<()> {
-    let (_, _, temp) = save_paths(path)?;
+    let (path, _, temp) = save_paths(path)?;
+    // Windows won't replace a file marked read-only, so it opens read-only instead.
+    if cfg!(windows) && fs::metadata(&path).is_ok_and(|meta| meta.permissions().readonly()) {
+        return Err(ErrorKind::PermissionDenied.into());
+    }
+    // Nor will macOS replace a file locked in Finder (the UF_IMMUTABLE flag, 0x2).
+    #[cfg(target_os = "macos")]
+    if fs::metadata(&path)
+        .is_ok_and(|meta| std::os::macos::fs::MetadataExt::st_flags(&meta) & 0x2 != 0)
+    {
+        return Err(ErrorKind::PermissionDenied.into());
+    }
     File::create(&temp)?;
     fs::remove_file(&temp)
 }
@@ -268,6 +292,69 @@ mod tests {
             assert!(check_writable(&path).is_err());
         }
         fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o700)).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_read_only_file_is_refused_before_any_save() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("notes.txt");
+        fs::write(&path, b"x").unwrap();
+        let mut permissions = fs::metadata(&path).unwrap().permissions();
+        permissions.set_readonly(true);
+        fs::set_permissions(&path, permissions).unwrap();
+        let error = check_writable(&path).unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::PermissionDenied);
+        // Windows refuses the save's rename, which is why the file opens read-only.
+        assert!(atomic_write(&path, b"y").is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"x");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_file_locked_in_finder_is_refused_before_any_save() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("notes.txt");
+        fs::write(&path, b"x").unwrap();
+        // Finder's Locked box sets the uchg flag.
+        let chflags = |flag: &str| {
+            let status = std::process::Command::new("chflags")
+                .arg(flag)
+                .arg(&path)
+                .status();
+            assert!(status.unwrap().success());
+        };
+        chflags("uchg");
+        let checked = check_writable(&path);
+        let saved = atomic_write(&path, b"y");
+        // Unlocked again before asserting, so the temporary folder can always be removed.
+        chflags("nouchg");
+        assert_eq!(checked.unwrap_err().kind(), ErrorKind::PermissionDenied);
+        // macOS refuses the save's rename, which is why the file opens read-only.
+        assert!(saved.is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"x");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_file_held_for_a_moment_is_saved_once_let_go() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("notes.txt");
+        fs::write(&path, b"old").unwrap();
+        // Open without letting others delete or replace it, as a virus scanner might.
+        let held = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(1)
+            .open(&path)
+            .unwrap();
+        let scanner = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(50));
+            drop(held);
+        });
+        atomic_write(&path, b"new").unwrap();
+        scanner.join().unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"new");
     }
 
     #[test]
