@@ -10,14 +10,14 @@ use iced::window::{self, Direction};
 use iced::{Element, Size, Subscription, Task, Theme, event, keyboard};
 
 use crate::core::counts::{Counts, load_tokenizer_in_background, token_count, word_count};
-use crate::core::json::{is_json, json_problem, reformat};
-use crate::core::markdown::is_markdown;
+use crate::core::json::reformat;
 use crate::core::opened::{Doc, OpenedDoc, open_doc};
 use crate::core::paths::Paths;
 use crate::core::recent::existing_recent_files;
 use crate::core::save::{Autosaver, SaveState, failure_reason};
 use crate::core::scratch::{ScratchState, ScratchView};
 use crate::core::settings::{ReadingMode, Settings, Theme as ThemeSetting};
+use crate::core::syntax::Syntax;
 use crate::core::text_file::{DiskStamp, TEXT_EXTENSIONS, changed_on_disk, read_text, save_text};
 use crate::ui::assistant_actions::{Assistant, AssistantAction, CardState};
 use crate::ui::editor::{Decision, Pane};
@@ -54,8 +54,9 @@ pub struct App {
     /// Why the text must not be edited (open in another window, or it can't be saved); `None`
     /// when it can be.
     pub read_only_reason: Option<String>,
-    /// In a .json file, why the text isn't valid JSON (checked after a pause in typing).
-    pub json_problem: Option<String>,
+    /// In a JSON, YAML, TOML or INI file, why the text isn't valid (checked after a pause in
+    /// typing).
+    pub syntax_problem: Option<String>,
     /// Keeps other windows off this document until the process ends.
     pub _doc_lock: Option<File>,
     /// The file on disk as this window last read or wrote it.
@@ -142,8 +143,8 @@ pub enum Message {
     Saved(u64, u64, Result<Option<DiskStamp>, String>),
     TokenizerReady,
     TokensCounted(Option<usize>),
-    /// The JSON check of the document with this number (`App::document`) ended.
-    JsonChecked(u64, Option<String>),
+    /// The syntax check of the document with this number (`App::document`) ended.
+    SyntaxChecked(u64, Option<String>),
     /// Format (`minify` off) or Minify a .json file's text.
     ReformatJson {
         minify: bool,
@@ -310,7 +311,7 @@ impl App {
             settings_open: false,
             scroll_restored: opened.scroll_line.is_some(),
             read_only_reason: opened.read_only_reason,
-            json_problem: None,
+            syntax_problem: None,
             _doc_lock: opened.lock,
             disk_stamp: opened.disk_stamp,
             disk_conflict: false,
@@ -328,7 +329,7 @@ impl App {
             connection: None,
         };
         let tasks = Task::batch([
-            app.check_json(),
+            app.check_syntax(),
             open.map(|_| Message::WindowOpened),
             Task::perform(tokenizer_ready, |_| Message::TokenizerReady),
             iced::system::theme().map(Message::SystemTheme),
@@ -360,9 +361,9 @@ impl App {
         self.assistant.stop();
         self.assistant.conversation = Default::default();
         self.assistant.cards.clear();
-        self.json_problem = None;
+        self.syntax_problem = None;
         let focus = iced::widget::operation::focus(editor::EDITOR_ID);
-        Task::batch([self.count_tokens(), self.check_json(), focus])
+        Task::batch([self.count_tokens(), self.check_syntax(), focus])
     }
 
     fn title(&self, _window: window::Id) -> String {
@@ -477,7 +478,7 @@ impl App {
                 {
                     self.uncounted_edit = None;
                     tasks.push(self.count_tokens());
-                    tasks.push(self.check_json());
+                    tasks.push(self.check_syntax());
                 }
                 // Over a file changed on disk, saves wait for Reload or Keep mine.
                 if !self.disk_conflict && self.autosaver.should_save_now(now) {
@@ -514,10 +515,10 @@ impl App {
             }
             Message::TokenizerReady => return self.count_tokens(),
             Message::TokensCounted(tokens) => self.counts.tokens = tokens,
-            Message::JsonChecked(document, problem) if document == self.document => {
-                self.json_problem = problem;
+            Message::SyntaxChecked(document, problem) if document == self.document => {
+                self.syntax_problem = problem;
             }
-            Message::JsonChecked(..) => {}
+            Message::SyntaxChecked(..) => {}
             Message::ReformatJson { minify } => {
                 self.menu_open = false;
                 if !self.editable() {
@@ -536,7 +537,7 @@ impl App {
                     }
                     // The problem goes where the JSON check puts it, so it isn't said twice.
                     Err(problem) => {
-                        self.json_problem = Some(problem);
+                        self.syntax_problem = Some(problem);
                         let action = if minify { "minify" } else { "format" };
                         self.set_notice(Some(format!("Can't {action} invalid JSON")));
                     }
@@ -620,7 +621,7 @@ impl App {
                 // so only .txt and .md could be picked; with no filter it allows any file.
                 if !cfg!(target_os = "macos") {
                     dialog = dialog
-                        .add_filter("Text, Markdown and JSON", &TEXT_EXTENSIONS)
+                        .add_filter("Text and config files", &TEXT_EXTENSIONS)
                         .add_filter("All files", &["*"]);
                 }
                 let dialog = dialog.pick_file();
@@ -805,16 +806,17 @@ impl App {
         Task::perform(async move { token_count(&text) }, Message::TokensCounted)
     }
 
-    /// In a .json file, checks the text is valid JSON in the background; `JsonChecked` brings
-    /// any problem back.
-    fn check_json(&self) -> Task<Message> {
-        if !self.json() {
+    /// In a JSON, YAML, TOML or INI file, checks the text is valid in the background;
+    /// `SyntaxChecked` brings any problem back.
+    fn check_syntax(&self) -> Task<Message> {
+        let syntax = self.syntax();
+        if matches!(syntax, Syntax::Plain | Syntax::Markdown) {
             return Task::none();
         }
         let text = self.pane.model.text().to_string();
         let document = self.document;
-        Task::perform(async move { json_problem(&text) }, move |problem| {
-            Message::JsonChecked(document, problem)
+        Task::perform(async move { syntax.problem(&text) }, move |problem| {
+            Message::SyntaxChecked(document, problem)
         })
     }
 
@@ -957,8 +959,7 @@ impl App {
             &self.pane,
             &self.settings,
             self.editable(),
-            self.markdown(),
-            self.json(),
+            self.syntax(),
             paint,
         )
     }
@@ -966,13 +967,16 @@ impl App {
     /// Whether the document is a Markdown file (.md or .markdown), which is coloured and has the
     /// Markdown keys. Scratch never is.
     fn markdown(&self) -> bool {
-        matches!(&self.doc, Doc::File { path, .. } if is_markdown(path))
+        self.syntax() == Syntax::Markdown
     }
 
-    /// Whether the document is a JSON file (.json), which is coloured, checked as you type, and
-    /// has Format and Minify in the menu.
-    pub fn json(&self) -> bool {
-        matches!(&self.doc, Doc::File { path, .. } if is_json(path))
+    /// The kind of text the document is, by its file's extension: coloured to match, and for a
+    /// data file (JSON, YAML, TOML, INI) checked as you type. Scratch is always plain.
+    pub fn syntax(&self) -> Syntax {
+        match &self.doc {
+            Doc::File { path, .. } => Syntax::of(path),
+            Doc::Scratch => Syntax::Plain,
+        }
     }
 }
 

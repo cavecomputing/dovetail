@@ -10,6 +10,8 @@ iced = { version = "0.14", features = ["tokio", "advanced", "tiny-skia", "wgpu"]
 keyring = "4"
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "json"] }
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
+# Checks YAML files as they are typed, giving the line and column of the first problem.
+saphyr-parser = "0.2.2"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 tiktoken-rs = "0.12.1"

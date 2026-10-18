@@ -195,7 +195,7 @@ impl App {
         };
         let dialog = rfd::AsyncFileDialog::new()
             .set_title(title)
-            .add_filter("Text, Markdown and JSON", &TEXT_EXTENSIONS)
+            .add_filter("Text and config files", &TEXT_EXTENSIONS)
             .set_file_name(name);
         match folder.filter(|folder| folder.is_dir()) {
             Some(folder) => dialog.set_directory(folder),

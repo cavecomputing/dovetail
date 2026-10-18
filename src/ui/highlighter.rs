@@ -1,25 +1,25 @@
-//! How the editor colours its text: Markdown in .md files, JSON in .json files, XML tags and
-//! {{macros}}, and in review
-//! mode the struck and ghost text of suggestions. iced asks for the colours one line at a time.
+//! How the editor colours its text: Markdown in .md files; JSON, YAML, TOML and INI files; XML
+//! tags and {{macros}}; and in review mode the struck and ghost text of suggestions. iced asks
+//! for the colours one line at a time.
 
 use std::ops::Range;
 
 use iced::advanced::text::highlighter::{self, Highlighter};
 use iced::{Color, Font, Theme};
 
-use crate::core::json::{Json, json_ranges};
+use crate::core::config::{ini_ranges, toml_ranges, yaml_ranges};
+use crate::core::json::json_ranges;
 use crate::core::markdown::{Block, Markdown, markdown_ranges};
 use crate::core::markup::{Markup, markup_ranges};
+use crate::core::syntax::{Syntax, Token};
 use crate::ui::theme::{MONO, Roles, bold};
 
-/// What the highlighter colours: Markdown when `markdown` is on (a .md file), JSON when `json` is
-/// on (a .json file), XML tags and
-/// macros when `markup` is on, and in review mode the struck and ghost text and the room for the
-/// buttons, as (line, byte columns, look).
+/// What the highlighter colours: the file's `syntax` (Markdown, or a data file's keys and values),
+/// XML tags and macros when `markup` is on, and in review mode the struck and ghost text and the
+/// room for the buttons, as (line, byte columns, look).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Colouring {
-    pub markdown: bool,
-    pub json: bool,
+    pub syntax: Syntax,
     pub markup: bool,
     pub review: Vec<(usize, Range<usize>, Highlight)>,
 }
@@ -27,7 +27,8 @@ pub struct Colouring {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Highlight {
     Markdown(Markdown),
-    Json(Json),
+    /// A part of a JSON, YAML, TOML or INI line.
+    Data(Token),
     Markup(Markup),
     /// Text a suggestion would replace: muted (the line through it is drawn as paint).
     Struck,
@@ -50,11 +51,13 @@ pub fn highlight_format(highlight: &Highlight, theme: &Theme) -> highlighter::Fo
             }
             Markdown::Bold | Markdown::Italic => None,
         },
-        Highlight::Json(json) => Some(match json {
-            Json::Key => roles.accent_cool,
-            Json::String => roles.accent_aqua,
-            Json::Number => roles.accent_text,
-            Json::Word => roles.accent_warm,
+        Highlight::Data(token) => Some(match token {
+            Token::Key => roles.accent_cool,
+            Token::String => roles.accent_aqua,
+            Token::Number => roles.accent_text,
+            Token::Literal => roles.accent_warm,
+            Token::Comment | Token::Marker => roles.fg_subtle,
+            Token::Section => roles.accent_text,
         }),
         Highlight::Markup(Markup::Tag) | Highlight::Struck => Some(roles.fg_muted),
         Highlight::Markup(Markup::Macro) => Some(roles.accent_cool),
@@ -62,7 +65,8 @@ pub fn highlight_format(highlight: &Highlight, theme: &Theme) -> highlighter::Fo
         Highlight::Ghost => None,
     };
     let font = match highlight {
-        Highlight::Markdown(Markdown::Heading | Markdown::Bold) => Some(bold()),
+        Highlight::Markdown(Markdown::Heading | Markdown::Bold)
+        | Highlight::Data(Token::Section) => Some(bold()),
         Highlight::Markdown(Markdown::Italic) | Highlight::Ghost => Some(Font {
             style: iced::font::Style::Italic,
             ..MONO
@@ -76,11 +80,26 @@ pub fn highlight_format(highlight: &Highlight, theme: &Theme) -> highlighter::Fo
 /// and says which line an edit changed first; `line` tracks how far it has got.
 pub struct MarkupHighlighter {
     line: usize,
-    /// The Markdown block each line up to `line` starts in (inside a code fence or not), so
-    /// colouring can carry on from any of them.
-    blocks: Vec<Block>,
+    /// What each line up to `line` starts inside, so colouring can carry on from any of them.
+    carried: Vec<Carry>,
     colouring: Colouring,
 }
+
+/// What a line starts inside, from the lines above it: a Markdown code fence, a YAML block
+/// scalar (the indent of the line that opened it), or a TOML multi-line string (its closing
+/// quotes). Only the file's own syntax's part is used.
+#[derive(Debug, Clone, Copy)]
+struct Carry {
+    block: Block,
+    yaml_block: Option<usize>,
+    toml_string: Option<&'static str>,
+}
+
+const START: Carry = Carry {
+    block: Block::Prose,
+    yaml_block: None,
+    toml_string: None,
+};
 
 impl Highlighter for MarkupHighlighter {
     type Settings = Colouring;
@@ -90,7 +109,7 @@ impl Highlighter for MarkupHighlighter {
     fn new(colouring: &Colouring) -> Self {
         MarkupHighlighter {
             line: 0,
-            blocks: vec![Block::Prose],
+            carried: vec![START],
             colouring: colouring.clone(),
         }
     }
@@ -104,27 +123,37 @@ impl Highlighter for MarkupHighlighter {
     /// what it knew about the lines after it is dropped, as the edit may open or close a fence.
     fn change_line(&mut self, line: usize) {
         self.line = self.line.min(line);
-        self.blocks.truncate(self.line + 1);
+        self.carried.truncate(self.line + 1);
     }
 
-    /// Markdown or JSON first, then tags and macros (so a {{macro}} inside a JSON string still
-    /// shows), then suggestions, so suggestion looks win where they overlap.
+    /// The file's syntax first, then tags and macros (so a {{macro}} inside a JSON or YAML string
+    /// still shows), then suggestions, so suggestion looks win where they overlap.
     fn highlight_line(&mut self, text: &str) -> Self::Iterator<'_> {
-        let block = self.blocks[self.line];
-        let (markdown, next) = match self.colouring.markdown {
-            true => markdown_ranges(text, block),
-            false => (Vec::new(), block),
-        };
-        self.blocks.push(next);
-        let mut found: Vec<_> = markdown
-            .into_iter()
-            .map(|(range, markdown)| (range, Highlight::Markdown(markdown)))
-            .collect();
-        if self.colouring.json {
-            for (range, json) in json_ranges(text) {
-                found.push((range, Highlight::Json(json)));
+        let mut carry = self.carried[self.line];
+        let mut found: Vec<_> = match self.colouring.syntax {
+            Syntax::Plain => Vec::new(),
+            Syntax::Markdown => {
+                let (markdown, next) = markdown_ranges(text, carry.block);
+                carry.block = next;
+                markdown
+                    .into_iter()
+                    .map(|(range, markdown)| (range, Highlight::Markdown(markdown)))
+                    .collect()
             }
-        }
+            Syntax::Json => data(json_ranges(text)),
+            Syntax::Yaml => {
+                let (found, next) = yaml_ranges(text, carry.yaml_block);
+                carry.yaml_block = next;
+                data(found)
+            }
+            Syntax::Toml => {
+                let (found, next) = toml_ranges(text, carry.toml_string);
+                carry.toml_string = next;
+                data(found)
+            }
+            Syntax::Ini => data(ini_ranges(text)),
+        };
+        self.carried.push(carry);
         if self.colouring.markup {
             for (range, markup) in markup_ranges(text) {
                 found.push((range, Highlight::Markup(markup)));
@@ -144,14 +173,21 @@ impl Highlighter for MarkupHighlighter {
     }
 }
 
+/// A data file's coloured parts as highlights.
+fn data(found: Vec<(Range<usize>, Token)>) -> Vec<(Range<usize>, Highlight)> {
+    found
+        .into_iter()
+        .map(|(range, token)| (range, Highlight::Data(token)))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn markdown_on() -> Colouring {
         Colouring {
-            markdown: true,
-            json: false,
+            syntax: Syntax::Markdown,
             markup: false,
             review: Vec::new(),
         }
@@ -223,8 +259,7 @@ mod tests {
     fn markdown_then_tags_then_suggestions_and_none_outside_markdown() {
         let line = "# Hi <b>";
         let colouring = Colouring {
-            markdown: true,
-            json: false,
+            syntax: Syntax::Markdown,
             markup: true,
             review: vec![(0, 2..4, Highlight::Ghost)],
         };
@@ -240,8 +275,7 @@ mod tests {
         );
         // Turning Markdown off (another file) starts again from the top, without it.
         highlighter.update(&Colouring {
-            markdown: false,
-            json: false,
+            syntax: Syntax::Plain,
             markup: true,
             review: Vec::new(),
         });
@@ -254,8 +288,7 @@ mod tests {
     #[test]
     fn a_macro_inside_a_json_string_is_still_coloured() {
         let colouring = Colouring {
-            markdown: false,
-            json: true,
+            syntax: Syntax::Json,
             markup: true,
             review: Vec::new(),
         };
@@ -266,8 +299,8 @@ mod tests {
         assert_eq!(
             found,
             vec![
-                (0..10, Highlight::Json(Json::Key)),
-                (12..25, Highlight::Json(Json::String)),
+                (0..10, Highlight::Data(Token::Key)),
+                (12..25, Highlight::Data(Token::String)),
                 (16..24, Highlight::Markup(Markup::Macro)),
             ]
         );

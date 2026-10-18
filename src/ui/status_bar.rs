@@ -10,6 +10,7 @@ use iced::{Background, Border, Color, Element, Fill, Theme};
 use crate::core::opened::Doc;
 use crate::core::paths::display_path;
 use crate::core::save::SaveState;
+use crate::core::syntax::Syntax;
 use crate::ui::app::{App, Message};
 use crate::ui::assistant_actions::AssistantAction;
 use crate::ui::find_bar::{FindAction, LINE_KEYS};
@@ -40,13 +41,13 @@ pub fn view(app: &App) -> Element<'_, Message> {
         ));
     }
     // Warnings in orange, each in words: why the text is read-only, anything a menu action
-    // couldn't do, where a .json file stops being valid JSON, and a settings problem (short here,
-    // the whole reason on hover).
+    // couldn't do, where a data file (JSON, YAML, TOML, INI) stops being valid, and a settings
+    // problem (short here, the whole reason on hover).
     let notice = app.notice.as_ref().map(|(words, _)| words);
     let warnings = [
         app.read_only_reason.as_ref(),
         notice,
-        app.json_problem.as_ref(),
+        app.syntax_problem.as_ref(),
     ];
     for warning in warnings.into_iter().flatten() {
         left = left.push(small(warning.as_str()).color(roles.accent_warm));
@@ -300,7 +301,7 @@ pub fn menu(app: &App) -> Element<'_, Message> {
             "Ctrl+Shift+L",
             Message::ToggleLineNumbers,
         ));
-    if app.json() {
+    if app.syntax() == Syntax::Json {
         items = items
             .push(menu_item(
                 "Format JSON".to_string(),
