@@ -863,6 +863,12 @@ impl App {
             body = body.push(find_bar::view(self));
         }
         let body = body.push(status_bar::view(self));
+        // Settings covers everything under the top strip, so the window controls still work.
+        let settings = match self.settings_open {
+            true => settings_panel::view(self),
+            false => space().into(),
+        };
+        let body = stack![body, settings];
         // Everything that comes and goes keeps its place, left empty while it's hidden: iced keeps
         // a widget's state (focus, selection, scroll offsets) only while the widget tree keeps its
         // shape. So opening Settings or a panel, or hiding the window controls, resets nothing.
@@ -876,7 +882,6 @@ impl App {
         let layers = [
             self.menu_open.then(|| status_bar::menu(self)),
             self.switcher.as_ref().map(switcher::view),
-            self.settings_open.then(|| settings_panel::view(self)),
         ];
         let page = stack![page].extend(layers.map(|layer| layer.unwrap_or_else(|| space().into())));
         let page = container(page).style(|theme: &Theme| theme::fill(Roles::of(theme).bg_surface));

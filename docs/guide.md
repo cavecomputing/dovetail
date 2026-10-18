@@ -268,7 +268,7 @@ can answer but not suggest edits.
 
 ## Settings
 
-Ctrl+, opens Settings over the window. Changes apply at once and are saved to `settings.toml`.
+Ctrl+, opens Settings in place of the text; Esc or its close button goes back. Changes apply at once and are saved to `settings.toml`.
 
 | Section | Settings (default) |
 |---|---|
