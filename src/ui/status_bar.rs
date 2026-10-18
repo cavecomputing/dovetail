@@ -12,7 +12,7 @@ use crate::core::paths::display_path;
 use crate::core::save::SaveState;
 use crate::ui::app::{App, Message};
 use crate::ui::assistant_actions::AssistantAction;
-use crate::ui::find_bar::FindAction;
+use crate::ui::find_bar::{FindAction, LINE_KEYS};
 use crate::ui::theme::{
     self, GLYPH_CLAUDE, GLYPH_MENU, Roles, icon_button, menu_button, raised_box,
 };
@@ -284,6 +284,11 @@ pub fn menu(app: &App) -> Element<'_, Message> {
             "Replace…".to_string(),
             "Ctrl+Shift+F",
             Message::Find(FindAction::OpenReplace),
+        ))
+        .push(menu_item(
+            "Go to line…".to_string(),
+            LINE_KEYS,
+            Message::Find(FindAction::OpenLine),
         ))
         .push(menu_item(
             line_numbers.to_string(),

@@ -510,8 +510,9 @@ impl App {
                 closed |= std::mem::take(&mut self.settings_open);
                 self.menu_open = false;
                 self.switcher = None;
-                // The find bar sits under all of those, so it closes on an Esc of its own.
-                if !closed {
+                // The find bar sits under all of those, so it closes on an Esc of its own, after
+                // the go to line box over it.
+                if !closed && self.find.line.take().is_none() {
                     self.find.open = false;
                 }
                 return iced::widget::operation::focus(editor::EDITOR_ID);
@@ -822,7 +823,7 @@ impl App {
         // Always inside `responsive`, so opening the pane keeps the editor's state.
         let document = responsive(move |size| assistant_view::beside(self, size.width));
         let mut body = column![document];
-        if self.find.open {
+        if self.find.open || self.find.line.is_some() {
             body = body.push(find_bar::view(self));
         }
         let body = body.push(status_bar::view(self));
@@ -941,6 +942,11 @@ fn shortcut(event: iced::Event, status: event::Status, _window: window::Id) -> O
         }
         _ => {}
     }
+    // Go to line is ⌃G on macOS, as in VS Code there, since ⌘G is the next find match.
+    #[cfg(target_os = "macos")]
+    if modifiers.control() && key.as_ref() == keyboard::Key::Character("g") {
+        return Some(Message::Find(FindAction::OpenLine));
+    }
     if !modifiers.command() {
         return None;
     }
@@ -967,6 +973,9 @@ fn shortcut(event: iced::Event, status: event::Status, _window: window::Id) -> O
             Some(Message::Find(FindAction::OpenReplace))
         }
         keyboard::Key::Character("f" | "F") => Some(Message::Find(FindAction::Open)),
+        keyboard::Key::Character("g") if !cfg!(target_os = "macos") => {
+            Some(Message::Find(FindAction::OpenLine))
+        }
         keyboard::Key::Character("=" | "+") => Some(Message::Zoom(1.0)),
         keyboard::Key::Character("-") => Some(Message::Zoom(-1.0)),
         // macOS's own: ⌘M minimizes, and ⌘G and ⇧⌘G step through the find bar's matches.
