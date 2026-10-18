@@ -478,6 +478,8 @@ impl App {
             Message::CursorToMiddle(size) => return self.scroll_cursor_to_middle(size),
             Message::CloseRequested => {
                 self.closing = true;
+                // Closing replaces a pending open; a close that fails doesn't bring it back.
+                self.opening = None;
                 // A reply on its way is cancelled; it never holds the window open.
                 self.assistant.stop();
                 if matches!(self.doc, Doc::Scratch) && self.editable() {
@@ -1246,6 +1248,30 @@ mod tests {
         let _ = app.update(Message::Saved(file, 100, Ok(None)));
         assert!(app.autosaver.pending());
         assert_eq!(app.autosaver.state(), SaveState::Saving);
+    }
+
+    #[test]
+    fn a_pending_open_ends_with_a_close_or_the_shown_document() {
+        let (_dir, _paths, mut app, notes) = scratch_window("a");
+        // Waiting on a save, then closing, which fails: the window stays, and on scratch.
+        let running = app.autosaver.begin(Instant::now());
+        let _ = app.update(Message::OpenPath(notes.clone()));
+        let _ = app.update(Message::CloseRequested);
+        let _ = app.update(Message::Saved(
+            0,
+            running,
+            Err("Save failed: disk full".into()),
+        ));
+        assert!(app.opening.is_none());
+        let later = app.autosaver.begin(Instant::now());
+        let _ = app.update(Message::Saved(0, later, Ok(None)));
+        assert!(matches!(app.doc, Doc::Scratch));
+        // Waiting on a save, then choosing scratch, which the window shows: nothing opens.
+        let running = app.autosaver.begin(Instant::now());
+        let _ = app.update(Message::OpenPath(notes));
+        let _ = app.update(Message::OpenScratch);
+        let _ = app.update(Message::Saved(0, running, Ok(None)));
+        assert!(matches!(app.doc, Doc::Scratch));
     }
 
     #[test]

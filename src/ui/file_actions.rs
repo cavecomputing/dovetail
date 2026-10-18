@@ -36,6 +36,8 @@ impl App {
             _ => false,
         };
         if shown {
+            // Back to what the window shows: an open waiting on a save is called off.
+            self.opening = None;
             return Task::none();
         }
         // Leaving would drop the text the save refused, without the status bar's choice.
