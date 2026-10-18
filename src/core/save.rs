@@ -22,10 +22,11 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
 
     let result = (|| {
         let mut file = File::create(&temp)?;
-        file.write_all(bytes)?;
+        // Before writing, so a private file's text is never readable in the temp file.
         if let Ok(old) = fs::metadata(&path) {
             file.set_permissions(old.permissions())?;
         }
+        file.write_all(bytes)?;
         file.sync_all()?;
         fs::rename(&temp, &path)?;
         // Flush the folder entry too, so the rename itself survives a power cut.

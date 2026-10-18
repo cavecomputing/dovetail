@@ -1,6 +1,8 @@
 //! Everything iced: the windows, their widgets and styling. Logic lives in `core/`.
 
 pub mod app;
+pub mod assistant_actions;
+pub mod assistant_view;
 pub mod commit_dialog;
 pub mod editor;
 pub mod idea_actions;

@@ -10,6 +10,9 @@
 //! - `Content::scroll_line` reports the top line and `Content::scroll_to_line` restores it.
 //! - Paint: `TextEditor::paint` draws idea paint under the glyphs and gutter stripes beside each
 //!   painted paragraph (lines between blank or tag-only lines); `TextEditor::on_caret` reports where the caret is drawn.
+//! - Review mode: paint looks for suggested edits (struck, ghost, a dashed "pending" stripe), and
+//!   each suggestion's Accept and Reject buttons, drawn and clicked inside the widget
+//!   (`TextEditor::on_decide`). The widget uses iced's own theme, for the palette roles.
 use iced::advanced::clipboard::{self, Clipboard};
 use iced::advanced::graphics;
 use iced::advanced::graphics::text::cosmic_text;
@@ -37,8 +40,9 @@ use std::ops;
 use std::ops::DerefMut;
 use std::sync::Arc;
 
-// ours: XML tags, so a line of only tags can end a paragraph.
+// ours: XML tags, so a line of only tags can end a paragraph; the palette for the buttons.
 use crate::core::markup::{Markup, markup_ranges};
+use crate::ui::theme::{Roles, bold};
 
 pub use iced::advanced::text::editor::{
     Action, Cursor, Edit, Line, LineEnding, Position, Selection,
@@ -72,9 +76,10 @@ where
     highlighter_settings: Highlighter::Settings,
     highlighter_format: fn(&Highlighter::Highlight, &Theme) -> highlighter::Format<Renderer::Font>,
     last_status: Option<Status>,
-    // ours: idea paint, and who hears where the caret is.
-    paint: &'a [PaintRun],
+    // ours: idea paint, and who hears where the caret is and which suggestions are decided.
+    paint: Vec<PaintRun>,
     on_caret: Option<Box<dyn Fn(Option<Rectangle>, Rectangle) -> Message + 'a>>,
+    on_decide: Option<Box<dyn Fn(u64, bool) -> Message + 'a>>,
 }
 
 /// ours: one painted range, in the editor's own positions (the column is a byte index).
@@ -95,6 +100,16 @@ pub enum PaintLook {
     Missing(Color),
     /// No fill, a line through the text in this colour: the idea was cut on purpose.
     Cut(Color),
+    /// A suggestion's new text: a fainter fill and a dashed underline.
+    Ghost,
+    /// Text a suggestion would replace: a line through it in this colour, and no gutter stripe.
+    Struck(Color),
+    /// The room after suggestion `id` where its Accept and Reject buttons are drawn. With
+    /// `stripe`, its paragraph gets a dashed "pending" stripe in the gutter.
+    Buttons {
+        id: u64,
+        stripe: bool,
+    },
 }
 
 impl<'a, Message, Theme, Renderer> TextEditor<'a, highlighter::PlainText, Message, Theme, Renderer>
@@ -123,8 +138,9 @@ where
             highlighter_settings: (),
             highlighter_format: |_highlight, _theme| highlighter::Format::default(),
             last_status: None,
-            paint: &[],
+            paint: Vec::new(),
             on_caret: None,
+            on_decide: None,
         }
     }
 
@@ -241,13 +257,21 @@ where
             last_status: self.last_status,
             paint: self.paint,
             on_caret: self.on_caret,
+            on_decide: self.on_decide,
         }
     }
 
     /// ours: draws these painted ranges under the text, and a stripe per idea beside each
     /// paragraph (a run of lines that are neither blank nor only XML tags) that holds some of it, in the left padding.
-    pub fn paint(mut self, paint: &'a [PaintRun]) -> Self {
+    pub fn paint(mut self, paint: Vec<PaintRun>) -> Self {
         self.paint = paint;
+        self
+    }
+
+    /// ours: reports a click on a suggestion's Accept (`true`) or Reject (`false`) button, with
+    /// the suggestion's id (from its `PaintLook::Buttons` run).
+    pub fn on_decide(mut self, on_decide: impl Fn(u64, bool) -> Message + 'a) -> Self {
+        self.on_decide = Some(Box::new(on_decide));
         self
     }
 
@@ -460,8 +484,9 @@ fn horizontal_scroll(editor: &graphics::text::Editor, wrapping: Wrapping) -> f32
     }
 }
 
-// ours: drawing paint and gutter stripes.
+// ours: drawing paint, suggestions and gutter stripes.
 const PAINT_ALPHA: f32 = 0.22;
+const GHOST_ALPHA: f32 = 0.12;
 const PAINT_RADIUS: f32 = 3.0;
 /// The gutter is this wide and ends this far left of the text.
 const GUTTER_WIDTH: f32 = 10.0;
@@ -471,6 +496,55 @@ const STRIPE_STEP: f32 = 6.0;
 const DASH: f32 = 4.0;
 const DASH_GAP: f32 = 3.0;
 const DASH_THICKNESS: f32 = 1.5;
+
+/// ours: the top and height of a row's text box: like a CSS inline background, the text's box,
+/// not the whole (tall) line.
+fn text_box(
+    row: &cosmic_text::LayoutRun<'_>,
+    text_bounds: Rectangle,
+    text_size: f32,
+) -> (f32, f32) {
+    let height = (text_size * 1.25 + 2.0).min(row.line_height);
+    (
+        text_bounds.y + row.line_top + (row.line_height - height) / 2.0,
+        height,
+    )
+}
+
+/// ours: a dashed line from `start`, `length` long, going down or across, as small rectangles.
+fn dashed(start: Point, length: f32, down: bool, thickness: f32) -> Vec<Rectangle> {
+    let mut dashes = Vec::new();
+    let mut along = 0.0;
+    while along < length {
+        let dash = DASH.min(length - along);
+        dashes.push(if down {
+            Rectangle::new(
+                Point::new(start.x, start.y + along),
+                Size::new(thickness, dash),
+            )
+        } else {
+            Rectangle::new(
+                Point::new(start.x + along, start.y),
+                Size::new(dash, thickness),
+            )
+        });
+        along += DASH + DASH_GAP;
+    }
+    dashes
+}
+
+/// ours: a dashed box just inside `rect`.
+fn dashed_outline(rect: Rectangle, thickness: f32) -> Vec<Rectangle> {
+    let right = rect.x + rect.width - thickness;
+    let bottom = rect.y + rect.height - thickness;
+    [
+        dashed(rect.position(), rect.width, false, thickness),
+        dashed(Point::new(rect.x, bottom), rect.width, false, thickness),
+        dashed(rect.position(), rect.height, true, thickness),
+        dashed(Point::new(right, rect.y), rect.height, true, thickness),
+    ]
+    .concat()
+}
 
 /// ours: draws `paint` on the visible rows only, then a stripe per idea beside each visible
 /// paragraph. `gutter_left` is where the editor starts; stripes stay out of the text area.
@@ -500,9 +574,7 @@ fn draw_paint<R: renderer::Renderer>(
     let mut lines: Vec<(usize, f32, f32)> = Vec::new();
 
     for row in buffer.layout_runs() {
-        // Like a CSS inline background: the text's box, not the whole (tall) line.
-        let box_height = (text_size * 1.25 + 2.0).min(row.line_height);
-        let top = text_bounds.y + row.line_top + (row.line_height - box_height) / 2.0;
+        let (top, box_height) = text_box(&row, text_bounds, text_size);
         let mut pieces = Vec::new();
         for run in paint {
             if run.start.line > row.line_i || run.end.line < row.line_i {
@@ -527,7 +599,11 @@ fn draw_paint<R: renderer::Renderer>(
             let fills: Vec<_> = pieces
                 .iter()
                 .filter(|(x, w, run)| {
-                    !matches!(run.look, PaintLook::Cut(_)) && *x <= left && x + w >= right
+                    matches!(
+                        run.look,
+                        PaintLook::Fill | PaintLook::Missing(_) | PaintLook::Ghost
+                    ) && *x <= left
+                        && x + w >= right
                 })
                 .collect();
             let slice = box_height / fills.len().max(1) as f32;
@@ -544,44 +620,35 @@ fn draw_paint<R: renderer::Renderer>(
                     Point::new(left, top + slice * lane as f32),
                     Size::new(right - left, slice),
                 );
-                fill(
-                    rect,
-                    radius,
-                    run.color.scale_alpha(PAINT_ALPHA),
-                    text_bounds,
-                );
+                let alpha = match run.look {
+                    PaintLook::Ghost => GHOST_ALPHA,
+                    _ => PAINT_ALPHA,
+                };
+                fill(rect, radius, run.color.scale_alpha(alpha), text_bounds);
             }
         }
         for (x, width, run) in &pieces {
+            let square = border::Radius::default();
             match run.look {
-                PaintLook::Fill => {}
-                PaintLook::Cut(color) => {
+                PaintLook::Fill | PaintLook::Buttons { .. } => {}
+                PaintLook::Cut(color) | PaintLook::Struck(color) => {
                     let y = text_bounds.y + row.line_y - text_size * 0.3;
                     let line = Rectangle::new(Point::new(*x, y), Size::new(*width, 1.0));
-                    fill(line, border::Radius::default(), color, text_bounds);
+                    fill(line, square, color, text_bounds);
                 }
                 // Dashes along each side of the box, 1px outside it.
                 PaintLook::Missing(color) => {
                     let outline =
                         Rectangle::new(Point::new(*x, top), Size::new(*width, box_height))
                             .expand(1.0 + DASH_THICKNESS);
-                    let mut along = 0.0;
-                    while along < outline.width {
-                        let dash = Size::new(DASH.min(outline.width - along), DASH_THICKNESS);
-                        for y in [outline.y, outline.y + outline.height - DASH_THICKNESS] {
-                            let rect = Rectangle::new(Point::new(outline.x + along, y), dash);
-                            fill(rect, border::Radius::default(), color, text_bounds);
-                        }
-                        along += DASH + DASH_GAP;
+                    for dash in dashed_outline(outline, DASH_THICKNESS) {
+                        fill(dash, square, color, text_bounds);
                     }
-                    let mut down = 0.0;
-                    while down < outline.height {
-                        let dash = Size::new(DASH_THICKNESS, DASH.min(outline.height - down));
-                        for x in [outline.x, outline.x + outline.width - DASH_THICKNESS] {
-                            let rect = Rectangle::new(Point::new(x, outline.y + down), dash);
-                            fill(rect, border::Radius::default(), color, text_bounds);
-                        }
-                        down += DASH + DASH_GAP;
+                }
+                PaintLook::Ghost => {
+                    let bottom = Point::new(*x, top + box_height - DASH_THICKNESS);
+                    for dash in dashed(bottom, *width, false, DASH_THICKNESS) {
+                        fill(dash, square, run.color, text_bounds);
                     }
                 }
             }
@@ -628,38 +695,92 @@ fn draw_paint<R: renderer::Renderer>(
         while last + 1 < buffer.lines.len() && !blank(last + 1) {
             last += 1;
         }
-        let colors = paragraph_colors(paint, first, last);
+        let stripes = paragraph_stripes(paint, first, last);
         // Many ideas squeeze closer together rather than run into the text.
         let room = GUTTER_WIDTH + GUTTER_GAP - 2.0 - STRIPE_WIDTH;
-        let step = STRIPE_STEP.min(room / (colors.len().max(2) - 1) as f32);
+        let step = STRIPE_STEP.min(room / (stripes.len().max(2) - 1) as f32);
         let x = text_bounds.x - GUTTER_GAP - GUTTER_WIDTH;
-        for (n, color) in colors.into_iter().enumerate() {
+        for (n, (color, pending)) in stripes.into_iter().enumerate() {
             let stripe = Rectangle::new(
                 Point::new(x + step * n as f32, lines[i].1),
                 Size::new(STRIPE_WIDTH, lines[j].2 - lines[i].1),
             );
-            fill(stripe, border::Radius::new(2.0), color, gutter);
+            if pending {
+                for dash in dashed_outline(stripe, 1.0) {
+                    fill(dash, border::Radius::default(), color, gutter);
+                }
+            } else {
+                fill(stripe, border::Radius::new(2.0), color, gutter);
+            }
         }
         i = j + 1;
     }
 }
 
-/// ours: the colours of the paint on lines `first..=last`, each once, in paint order.
-fn paragraph_colors(paint: &[PaintRun], first: usize, last: usize) -> Vec<Color> {
-    let mut colors = Vec::new();
-    for run in paint {
-        // Paint that ends at the very start of a line doesn't reach into it.
-        let end_line = if run.end.column == 0 && run.end.line > run.start.line {
-            run.end.line - 1
-        } else {
-            run.end.line
-        };
-        let touches = run.start != run.end && run.start.line <= last && end_line >= first;
-        if touches && !colors.contains(&run.color) {
-            colors.push(run.color);
+/// ours: the gutter stripes of lines `first..=last`: the colour of each idea painted there, once,
+/// in paint order, then a dashed "pending" stripe (`true`) for each colour of suggestion whose
+/// buttons are there.
+fn paragraph_stripes(paint: &[PaintRun], first: usize, last: usize) -> Vec<(Color, bool)> {
+    let mut stripes = Vec::new();
+    for pending in [false, true] {
+        for run in paint {
+            let striped = match run.look {
+                PaintLook::Fill | PaintLook::Missing(_) | PaintLook::Cut(_) => !pending,
+                PaintLook::Buttons { stripe, .. } => stripe && pending,
+                PaintLook::Ghost | PaintLook::Struck(_) => false,
+            };
+            // Paint that ends at the very start of a line doesn't reach into it.
+            let end_line = if run.end.column == 0 && run.end.line > run.start.line {
+                run.end.line - 1
+            } else {
+                run.end.line
+            };
+            let touches = run.start != run.end && run.start.line <= last && end_line >= first;
+            if striped && touches && !stripes.contains(&(run.color, pending)) {
+                stripes.push((run.color, pending));
+            }
         }
     }
-    colors
+    stripes
+}
+
+/// ours: where each suggestion's Accept and Reject buttons are, on the first visible row of the
+/// room left for them (its `PaintLook::Buttons` run).
+fn suggestion_buttons(
+    buffer: &cosmic_text::Buffer,
+    paint: &[PaintRun],
+    text_bounds: Rectangle,
+    scroll_x: f32,
+    text_size: f32,
+) -> Vec<(u64, Rectangle, Rectangle)> {
+    let mut buttons: Vec<(u64, Rectangle, Rectangle)> = Vec::new();
+    let gap = text_size * 0.3;
+    for row in buffer.layout_runs() {
+        let (top, height) = text_box(&row, text_bounds, text_size);
+        for run in paint {
+            let PaintLook::Buttons { id, .. } = run.look else {
+                continue;
+            };
+            if run.start.line > row.line_i
+                || run.end.line < row.line_i
+                || buttons.iter().any(|(found, ..)| *found == id)
+            {
+                continue;
+            }
+            let start = cosmic_text::Cursor::new(run.start.line, run.start.column);
+            let end = cosmic_text::Cursor::new(run.end.line, run.end.column);
+            if let Some((x, width)) = row.highlight(start, end)
+                && width > gap * 3.0
+            {
+                let left = text_bounds.x + x - scroll_x + gap;
+                let size = Size::new((width - gap * 3.0) / 2.0, height);
+                let accept = Rectangle::new(Point::new(left, top), size);
+                let reject = Rectangle::new(Point::new(left + size.width + gap, top), size);
+                buttons.push((id, accept, reject));
+            }
+        }
+    }
+    buttons
 }
 
 impl<Renderer> Clone for Content<Renderer>
@@ -753,12 +874,12 @@ impl<Highlighter: text::Highlighter> operation::Focusable for State<Highlighter>
     }
 }
 
-impl<Highlighter, Message, Theme, Renderer> Widget<Message, Theme, Renderer>
-    for TextEditor<'_, Highlighter, Message, Theme, Renderer>
+// ours: iced's own editor, so its text layout (`buffer()`) can be read, and iced's own theme,
+// so the suggestion buttons can use the palette roles.
+impl<Highlighter, Message, Renderer> Widget<Message, iced::Theme, Renderer>
+    for TextEditor<'_, Highlighter, Message, iced::Theme, Renderer>
 where
     Highlighter: text::Highlighter,
-    Theme: Catalog,
-    // ours: iced's own editor, so its text layout (`buffer()`) can be read.
     Renderer: text::Renderer<Editor = graphics::text::Editor, Font = iced::Font>,
 {
     fn tag(&self) -> widget::tree::Tag {
@@ -895,6 +1016,29 @@ where
 
         let state = tree.state.downcast_mut::<State<Highlighter>>();
         let is_redraw = matches!(event, Event::Window(window::Event::RedrawRequested(_now)),);
+
+        // ours: a click on a suggestion's Accept or Reject button decides it, and goes no further.
+        if let Some(on_decide) = self.on_decide.as_ref()
+            && let Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) = event
+            && let Some(point) = cursor.position()
+        {
+            let internal = self.content.0.borrow();
+            let size = self.text_size.unwrap_or_else(|| renderer.default_size());
+            let buttons = suggestion_buttons(
+                internal.editor.buffer(),
+                &self.paint,
+                layout.bounds().shrink(self.padding),
+                horizontal_scroll(&internal.editor, self.wrapping),
+                size.0,
+            );
+            for (id, accept, reject) in buttons {
+                if accept.contains(point) || reject.contains(point) {
+                    shell.publish(on_decide(id, accept.contains(point)));
+                    shell.capture_event();
+                    return;
+                }
+            }
+        }
 
         // ours: before each frame, tell the app if the caret moved on screen.
         if let Some(on_caret) = self.on_caret.as_ref()
@@ -1147,7 +1291,7 @@ where
         &self,
         tree: &widget::Tree,
         renderer: &mut Renderer,
-        theme: &Theme,
+        theme: &iced::Theme,
         _defaults: &renderer::Style,
         layout: Layout<'_>,
         _cursor: mouse::Cursor,
@@ -1160,7 +1304,7 @@ where
 
         let font = self.font.unwrap_or_else(|| renderer.default_font());
 
-        let theme_name = theme.name();
+        let theme_name = iced::theme::Base::name(theme); // ours: the theme is iced's own
 
         if state
             .last_theme
@@ -1216,7 +1360,7 @@ where
             draw_paint(
                 renderer,
                 internal.editor.buffer(),
-                self.paint,
+                &self.paint,
                 text_bounds,
                 bounds.x,
                 scrolled.x,
@@ -1250,6 +1394,54 @@ where
                 style.value,
                 text_bounds,
             );
+        }
+
+        // ours: each suggestion's Accept and Reject buttons, in the room left for them after it,
+        // in a layer of their own so they sit over the text and stay inside it.
+        let size = self.text_size.unwrap_or_else(|| renderer.default_size());
+        let buttons = suggestion_buttons(
+            internal.editor.buffer(),
+            &self.paint,
+            text_bounds,
+            scrolled.x,
+            size.0,
+        );
+        if !buttons.is_empty() {
+            let roles = Roles::of(theme);
+            renderer.with_layer(text_bounds, |renderer| {
+                for (_, accept, reject) in buttons {
+                    let looks = [
+                        (accept, "Accept", roles.btn_bg, roles.btn_bg, roles.btn_fg),
+                        (reject, "Reject", roles.bg_raised, roles.border, roles.fg),
+                    ];
+                    for (bounds, label, fill, edge, color) in looks {
+                        renderer.fill_quad(
+                            renderer::Quad {
+                                bounds,
+                                border: border::rounded(5).width(1).color(edge),
+                                ..renderer::Quad::default()
+                            },
+                            fill,
+                        );
+                        renderer.fill_text(
+                            Text {
+                                content: label.to_string(),
+                                bounds: bounds.size(),
+                                size: size * 0.73,
+                                line_height: LineHeight::default(),
+                                font: bold(),
+                                align_x: text::Alignment::Center,
+                                align_y: alignment::Vertical::Center,
+                                shaping: text::Shaping::Basic,
+                                wrapping: Wrapping::None,
+                            },
+                            bounds.center(),
+                            color,
+                            bounds,
+                        );
+                    }
+                }
+            });
         }
 
         let translation = text_bounds.position() - Point::ORIGIN - scrolled;
@@ -1304,9 +1496,28 @@ where
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         _viewport: &Rectangle,
-        _renderer: &Renderer,
+        renderer: &Renderer,
     ) -> mouse::Interaction {
         let is_disabled = self.on_edit.is_none();
+
+        // ours: a hand over a suggestion's buttons.
+        if let Some(point) = cursor.position() {
+            let internal = self.content.0.borrow();
+            let size = self.text_size.unwrap_or_else(|| renderer.default_size());
+            let buttons = suggestion_buttons(
+                internal.editor.buffer(),
+                &self.paint,
+                layout.bounds().shrink(self.padding),
+                horizontal_scroll(&internal.editor, self.wrapping),
+                size.0,
+            );
+            if buttons
+                .iter()
+                .any(|(_, accept, reject)| accept.contains(point) || reject.contains(point))
+            {
+                return mouse::Interaction::Pointer;
+            }
+        }
 
         if cursor.is_over(layout.bounds()) {
             if is_disabled {
@@ -1332,17 +1543,16 @@ where
     }
 }
 
-impl<'a, Highlighter, Message, Theme, Renderer>
-    From<TextEditor<'a, Highlighter, Message, Theme, Renderer>>
-    for Element<'a, Message, Theme, Renderer>
+// ours: iced's own editor and theme, as for `Widget`.
+impl<'a, Highlighter, Message, Renderer>
+    From<TextEditor<'a, Highlighter, Message, iced::Theme, Renderer>>
+    for Element<'a, Message, iced::Theme, Renderer>
 where
     Highlighter: text::Highlighter,
     Message: 'a,
-    Theme: Catalog + 'a,
-    // ours: iced's own editor, so its text layout (`buffer()`) can be read.
     Renderer: text::Renderer<Editor = graphics::text::Editor, Font = iced::Font>,
 {
-    fn from(text_editor: TextEditor<'a, Highlighter, Message, Theme, Renderer>) -> Self {
+    fn from(text_editor: TextEditor<'a, Highlighter, Message, iced::Theme, Renderer>) -> Self {
         Self::new(text_editor)
     }
 }
@@ -1503,9 +1713,46 @@ mod tests {
             // Empty paint shows nowhere.
             run((7, 1), (7, 1), red),
         ];
-        assert_eq!(paragraph_colors(&paint, 0, 0), vec![blue]);
-        assert_eq!(paragraph_colors(&paint, 2, 3), vec![red, blue]);
-        assert_eq!(paragraph_colors(&paint, 5, 7), Vec::<Color>::new());
-        assert_eq!(paragraph_colors(&paint, 1, 1), Vec::<Color>::new());
+        assert_eq!(paragraph_stripes(&paint, 0, 0), vec![(blue, false)]);
+        assert_eq!(
+            paragraph_stripes(&paint, 2, 3),
+            vec![(red, false), (blue, false)]
+        );
+        assert_eq!(paragraph_stripes(&paint, 5, 7), vec![]);
+        assert_eq!(paragraph_stripes(&paint, 1, 1), vec![]);
+    }
+
+    #[test]
+    fn a_suggestion_adds_a_pending_stripe_after_the_ideas() {
+        let (red, blue) = (Color::from_rgb(1.0, 0.0, 0.0), Color::BLACK);
+        let looked = |look, color| PaintRun {
+            look,
+            ..run((0, 2), (0, 6), color)
+        };
+        let paint = [
+            looked(PaintLook::Ghost, blue),
+            looked(PaintLook::Struck(blue), blue),
+            looked(
+                PaintLook::Buttons {
+                    id: 1,
+                    stripe: true,
+                },
+                red,
+            ),
+            run((0, 0), (0, 2), red),
+        ];
+        assert_eq!(
+            paragraph_stripes(&paint, 0, 0),
+            vec![(red, false), (red, true)]
+        );
+        // Outside a project there are no stripes for suggestions.
+        let paint = [looked(
+            PaintLook::Buttons {
+                id: 1,
+                stripe: false,
+            },
+            red,
+        )];
+        assert_eq!(paragraph_stripes(&paint, 0, 0), vec![]);
     }
 }

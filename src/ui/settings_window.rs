@@ -3,9 +3,13 @@
 use iced::widget::{button, column, container, row, scrollable, space, text, text_input};
 use iced::{Background, Border, Color, Element, Fill, Theme};
 
+use crate::ai::key::KeyStore;
 use crate::core::paths::display_path;
-use crate::core::settings::{ReadingMode, Settings, Theme as ThemeSetting, WindowControls};
+use crate::core::settings::{
+    DEFAULT_BASE_URL, ReadingMode, RequestFormat, Settings, Theme as ThemeSetting, WindowControls,
+};
 use crate::ui::app::{App, Message};
+use crate::ui::assistant_actions::AssistantAction;
 use crate::ui::status_bar::{self, dot, small};
 use crate::ui::theme::{self, Roles, subtle};
 
@@ -21,8 +25,30 @@ pub enum Change {
     ShowLineCol(bool),
     AutosaveDelay(u64),
     ProjectsFolder(String),
-    ClaudeModel(String),
+    BaseUrl(String),
+    Model(String),
+    RequestFormat(RequestFormat),
     WindowControls(WindowControls),
+}
+
+/// The assistant's API key field. The key is saved as it changes, off the UI thread, since the
+/// keyring may be slow; it never goes through `Change`.
+#[derive(Debug, Default)]
+pub struct KeyField {
+    pub text: String,
+    /// Where keys are kept on this machine; `None` until checked, when Settings opens.
+    pub store: Option<KeyStore>,
+    pub saving: bool,
+    pub error: Option<String>,
+}
+
+/// How the last "test connection" went.
+#[derive(Debug, Clone)]
+pub enum Connection {
+    Testing,
+    /// It answered, with this text (maybe empty).
+    Passed(String),
+    Failed(String),
 }
 
 /// Applies `change`, then keeps the numbers in range (`Settings::clamp` holds the limits).
@@ -40,7 +66,9 @@ pub fn apply(change: Change, settings: &mut Settings) {
             settings.projects_folder = None
         }
         Change::ProjectsFolder(folder) => settings.projects_folder = Some(folder.into()),
-        Change::ClaudeModel(model) => settings.claude_model = model,
+        Change::BaseUrl(url) => settings.base_url = url,
+        Change::Model(model) => settings.model = model,
+        Change::RequestFormat(format) => settings.request_format = format,
         Change::WindowControls(controls) => settings.window_controls = controls,
     }
     settings.clamp();
@@ -179,14 +207,48 @@ pub fn view(app: &App) -> Element<'_, Message> {
         ],
     );
 
-    let claude = section(
-        "claude",
+    let format = settings.request_format;
+    let assistant = section(
+        "assistant",
         vec![
-            setting_row("API key", hint("arrives in phase 5, stored in the keyring")),
+            setting_row(
+                "Base URL",
+                field(DEFAULT_BASE_URL, &settings.base_url, Change::BaseUrl),
+            ),
             setting_row(
                 "Model",
-                field("model id", &settings.claude_model, Change::ClaudeModel),
+                field(
+                    "model name, as the server knows it",
+                    &settings.model,
+                    Change::Model,
+                ),
             ),
+            setting_row(
+                "Request format",
+                choices(vec![
+                    (
+                        "responses",
+                        format == RequestFormat::Responses,
+                        Change::RequestFormat(RequestFormat::Responses),
+                    ),
+                    (
+                        "chat completions",
+                        format == RequestFormat::ChatCompletions,
+                        Change::RequestFormat(RequestFormat::ChatCompletions),
+                    ),
+                ]),
+            ),
+            setting_row("API key", key_input(&app.key_field.text)),
+            setting_row("", key_status(&app.key_field)),
+            setting_row(
+                "Connection",
+                value_button(
+                    "test connection".to_string(),
+                    None,
+                    Message::Assistant(AssistantAction::TestConnection),
+                ),
+            ),
+            connection_result(app.connection.as_ref()),
         ],
     );
 
@@ -219,7 +281,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
         )],
     );
 
-    let sections = column![appearance, editor, saving, claude, window]
+    let sections = column![appearance, editor, saving, assistant, window]
         .spacing(28)
         .max_width(640);
     let page = scrollable(container(sections).center_x(Fill).padding([40, 24])).height(Fill);
@@ -291,7 +353,8 @@ fn choices<'a>(options: Vec<(&'a str, bool, Change)>) -> Element<'a, Message> {
         if index > 0 {
             line = line.push(separator("/"));
         }
-        line = line.push(value_button(label.to_string(), Some(chosen), change));
+        let message = Message::Setting(change);
+        line = line.push(value_button(label.to_string(), Some(chosen), message));
     }
     line.into()
 }
@@ -303,9 +366,9 @@ fn on_off<'a>(on: bool, change: fn(bool) -> Change) -> Element<'a, Message> {
 /// A number with − and + on either side, and its unit after.
 fn stepper<'a>(value: String, unit: &'a str, less: Change, more: Change) -> Element<'a, Message> {
     row![
-        value_button("−".to_string(), None, less),
+        value_button("−".to_string(), None, Message::Setting(less)),
         value_text(value),
-        value_button("+".to_string(), None, more),
+        value_button("+".to_string(), None, Message::Setting(more)),
         hint(unit),
     ]
     .align_y(iced::Center)
@@ -319,27 +382,100 @@ fn field<'a>(placeholder: &str, value: &str, change: fn(String) -> Change) -> El
         .size(13)
         .padding([3, 8])
         .width(320)
-        .style(|theme: &Theme, status| {
-            let roles = Roles::of(theme);
-            let border = match status {
-                text_input::Status::Focused { .. } => roles.accent_text,
-                text_input::Status::Hovered => roles.border,
-                _ => Color::TRANSPARENT,
-            };
-            text_input::Style {
-                background: Background::Color(Color::TRANSPARENT),
-                border: Border::default().rounded(4).width(1).color(border),
-                icon: roles.fg_muted,
-                placeholder: roles.fg_subtle,
-                value: roles.fg,
-                selection: roles.accent_cool.scale_alpha(0.35),
-            }
+        .style(field_style)
+        .into()
+}
+
+/// The API key, shown as dots. Each change is saved (see `KeyField`); empty deletes it.
+fn key_input<'a>(key: &str) -> Element<'a, Message> {
+    text_input("paste a key, if the server needs one", key)
+        .secure(true)
+        .on_input(|typed| Message::Assistant(AssistantAction::KeyTyped(typed)))
+        .size(13)
+        .padding([3, 8])
+        .width(320)
+        .style(field_style)
+        .into()
+}
+
+/// Where the key is kept, in words: the keyring, or settings.toml when there is none.
+fn key_status<'a>(field: &KeyField) -> Element<'a, Message> {
+    if let Some(error) = &field.error {
+        return warning(error.clone());
+    }
+    let words = match (field.store, field.saving, field.text.trim().is_empty()) {
+        (None, _, _) => "checking for a keyring…",
+        (_, true, _) => "saving…",
+        (Some(KeyStore::Keyring), _, false) => "stored in the system keyring",
+        (Some(KeyStore::Keyring), _, true) => "none saved · a key goes in the system keyring",
+        (Some(KeyStore::SettingsFile), _, false) => "no keyring found, stored in settings.toml",
+        (Some(KeyStore::SettingsFile), _, true) => {
+            "none saved · no keyring, a key goes in settings.toml"
+        }
+    };
+    hint(words)
+}
+
+/// The test's outcome under the button: what the model replied, or why it failed.
+fn connection_result<'a>(connection: Option<&Connection>) -> Element<'a, Message> {
+    let line = match connection {
+        None => return space().into(),
+        Some(Connection::Testing) => hint("testing…"),
+        Some(Connection::Passed(reply)) if reply.trim().is_empty() => {
+            ok_line("ok · it answered".to_string())
+        }
+        Some(Connection::Passed(reply)) => {
+            let reply: String = reply.trim().chars().take(60).collect();
+            ok_line(format!("ok · it replied \u{201c}{reply}\u{201d}"))
+        }
+        Some(Connection::Failed(reason)) => warning(reason.clone()),
+    };
+    // Under the controls, wrapping, so a long reason stays readable.
+    container(line)
+        .padding(iced::Padding {
+            left: 216.0,
+            ..iced::Padding::ZERO
         })
         .into()
 }
 
+fn ok_line<'a>(words: String) -> Element<'a, Message> {
+    container(text(words).size(12).style(|theme: &Theme| text::Style {
+        color: Some(Roles::of(theme).accent_aqua),
+    }))
+    .padding([0, 8])
+    .into()
+}
+
+/// A problem in words, in the warm accent (never red).
+fn warning<'a>(words: String) -> Element<'a, Message> {
+    container(text(words).size(12).style(|theme: &Theme| text::Style {
+        color: Some(Roles::of(theme).accent_warm),
+    }))
+    .padding([0, 8])
+    .into()
+}
+
+/// A field's frame shows only on hover, and turns yellow while it has focus.
+fn field_style(theme: &Theme, status: text_input::Status) -> text_input::Style {
+    let roles = Roles::of(theme);
+    let border = match status {
+        text_input::Status::Focused { .. } => roles.accent_text,
+        text_input::Status::Hovered => roles.border,
+        _ => Color::TRANSPARENT,
+    };
+    text_input::Style {
+        background: Background::Color(Color::TRANSPARENT),
+        border: Border::default().rounded(4).width(1).color(border),
+        icon: roles.fg_muted,
+        placeholder: roles.fg_subtle,
+        value: roles.fg,
+        selection: roles.accent_cool.scale_alpha(0.35),
+    }
+}
+
 /// A clickable value. `chosen` colours it as an option: yellow if picked, dim if not.
-fn value_button<'a>(label: String, chosen: Option<bool>, change: Change) -> Element<'a, Message> {
+fn value_button<'a>(label: String, chosen: Option<bool>, message: Message) -> Element<'a, Message> {
     button(text(label).size(13))
         .padding([2, 8])
         .style(move |theme: &Theme, status| {
@@ -360,7 +496,7 @@ fn value_button<'a>(label: String, chosen: Option<bool>, change: Change) -> Elem
                 ..button::Style::default()
             }
         })
-        .on_press(Message::Setting(change))
+        .on_press(message)
         .into()
 }
 

@@ -137,9 +137,9 @@ tested without a window.
 
 ### Folder layout
 
-The code is split by *what it knows about*. The rule that keeps it organised: **`core/` and
-`project/` never import iced**, so all the logic can be tested without opening a window, and `ui/`
-holds only drawing and event wiring.
+The code is split by *what it knows about*. The rule that keeps it organised: **`core/`,
+`project/` and `ai/` never import iced**, so all the logic can be tested without opening a window,
+and `ui/` holds only drawing and event wiring.
 
 ```
 Cargo.toml, Cargo.lock   dependencies (see "Rust in plain terms")
@@ -164,6 +164,8 @@ src/
     text_file.rs         reading and saving .txt files: line endings, outside-change check
     recent.rs            the recently opened files and projects (data folder), fuzzy matching
     text_model.rs        a pane's text, its undo/redo history and paint, in byte offsets
+    review.rs            suggested edits waiting in a pane, and the display text that shows
+                         them inside the document (review mode)
   project/               project mode logic, no UI
     mod.rs               a project: create (Rewrite), open, commit, rename, saving paint, the
                          recent list
@@ -175,9 +177,10 @@ src/
   ui/                    everything iced: windows, widgets, styling
     app.rs               the App state, Message enum, update and view
     theme.rs             Gruvbox palette roles, the font and its icon glyphs, shared styles
-    editor.rs            the editor pane (widget + text model), key bindings, tag/macro colouring
-    text_editor.rs       a copy of iced's text editor widget (draws paint and gutter stripes),
-                         changes marked `ours:`
+    editor.rs            the editor pane (widget + text model), key bindings, tag/macro colouring,
+                         and review mode (suggestions as ghost text, Accept and Reject)
+    text_editor.rs       a copy of iced's text editor widget (draws paint, gutter stripes and
+                         the suggestion buttons), changes marked `ours:`
     status_bar.rs        the bottom bar (save dot, path, counts, Rewrite/Commit) and its menu
     project_view.rs      a project window's two panes and their headers, and their paint
     commit_dialog.rs     the Commit dialog and its Commit check rows
@@ -189,7 +192,18 @@ src/
     switcher.rs          the Ctrl+P quick switcher over recent files and projects
     window_controls.rs   the top strip's window controls and the resize edges
     settings_window.rs   the Settings window and how each change applies
-  claude/                the Claude pane's API client (phase 5)
+    assistant_view.rs    the assistant pane (Ctrl+L, every window): chips, chat, suggestion cards,
+                         composer, and how it sits beside or over the document
+    assistant_actions.rs App's handlers for the assistant: the slide, the agent loop off the UI
+                         thread, cards kept in step with the ghost text, the key, the connection test
+  ai/                    the assistant pane's logic, no UI
+    client.rs            requests to any OpenAI-compatible server (Responses or Chat Completions)
+                         and the streamed reply
+    sse.rs               splitting a stream of server-sent events, the format replies come in
+    tools.rs             the tools the model may call, run against a snapshot; suggested edits
+    agent.rs             a conversation and its agent loop: ask, stream, run tools, repeat
+    context.rs           the document snapshot, the standing instructions, the note per question
+    key.rs               the API key: the system keyring, or settings.toml when there is none
 ```
 
 One file per concern, named for that concern. When a file passes a few hundred lines, or starts

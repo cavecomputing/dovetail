@@ -45,6 +45,9 @@ pub struct Roles {
     pub accent_rose: Color,
     pub accent_warm: Color,
     pub accent_aqua: Color,
+    /// A primary button's fill, and the text on it.
+    pub btn_bg: Color,
+    pub btn_fg: Color,
 }
 
 pub const DARK: Roles = Roles {
@@ -63,6 +66,8 @@ pub const DARK: Roles = Roles {
     accent_rose: color!(0xd3869b),
     accent_warm: color!(0xfe8019),
     accent_aqua: color!(0x8ec07c),
+    btn_bg: color!(0xfabd2f),
+    btn_fg: color!(0x1d2021),
 };
 
 pub const LIGHT: Roles = Roles {
@@ -81,6 +86,8 @@ pub const LIGHT: Roles = Roles {
     accent_rose: color!(0x8f3f71),
     accent_warm: color!(0xaf3a03),
     accent_aqua: color!(0x376b4b),
+    btn_bg: color!(0x79740e),
+    btn_fg: color!(0xfbf1c7),
 };
 
 impl Roles {

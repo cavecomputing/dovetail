@@ -9,6 +9,7 @@
 use std::ops::{Range, RangeInclusive};
 use std::time::{Duration, Instant};
 
+use crate::core::review::Suggestion;
 use crate::project::paint::{self, IdeaId, Span};
 
 /// How many undo steps are kept; the oldest is dropped beyond this.
@@ -189,6 +190,33 @@ impl TextModel {
         self.redo.clear();
         self.push_step(vec![change.clone()], false, Instant::now(), paint_before);
         change
+    }
+
+    /// Accepts `suggestions` (in text order, not overlapping) as one undo step: each puts its
+    /// text in place of its range, and text whose suggestion names an idea takes that idea's
+    /// paint. They are applied from the last back, so each range is still right when its turn
+    /// comes. Returns the changes to replay, in order.
+    pub fn accept(&mut self, suggestions: &[Suggestion]) -> Vec<Change> {
+        let paint_before = self.paint.clone();
+        let mut changes = Vec::new();
+        for suggestion in suggestions.iter().rev() {
+            let change = Change {
+                at: suggestion.range.start,
+                removed: self.text[suggestion.range.clone()].to_string(),
+                inserted: suggestion.text.clone(),
+            };
+            self.apply(&change);
+            if let Some(idea) = suggestion.idea {
+                let end = change.at + change.inserted.len();
+                paint::brush(&mut self.paint, change.at..end, idea);
+            }
+            changes.push(change);
+        }
+        if !changes.is_empty() {
+            self.redo.clear();
+            self.push_step(changes.clone(), false, Instant::now(), paint_before);
+        }
+        changes
     }
 
     /// Shift+Tab: removes up to `tab_spaces` leading spaces from each of `lines`, as one undo
@@ -650,6 +678,43 @@ mod tests {
         type_at(&mut model, 10, "rave", now);
         assert_eq!(model.text(), "calm but brave");
         assert_eq!((model.paint[0].start, model.paint[0].end), (4, 14));
+    }
+
+    #[test]
+    fn accepting_suggestions_is_one_undo_step_and_paints_with_their_idea() {
+        let mut model = TextModel::new("Be quick. Stay calm.".to_string());
+        let suggestion = |range, text: &str, idea| Suggestion {
+            id: 0,
+            range,
+            text: text.to_string(),
+            idea,
+        };
+        let changes = model.accept(&[
+            suggestion(0..9, "Take your time.", Some(4)),
+            suggestion(15..19, "steady", None),
+        ]);
+        assert_eq!(model.text(), "Take your time. Stay steady.");
+        let painted: Vec<(IdeaId, &str)> = model
+            .paint
+            .iter()
+            .map(|span| (span.idea, &model.text()[span.start..span.end]))
+            .collect();
+        assert_eq!(painted, [(4, "Take your time.")]);
+        // The changes replay in order onto the old text.
+        let mut widget = "Be quick. Stay calm.".to_string();
+        for change in &changes {
+            widget.replace_range(
+                change.at..change.at + change.removed.len(),
+                &change.inserted,
+            );
+        }
+        assert_eq!(widget, model.text());
+        model.undo();
+        assert_eq!(model.text(), "Be quick. Stay calm.");
+        assert!(model.paint.is_empty());
+        model.redo();
+        assert_eq!(model.text(), "Take your time. Stay steady.");
+        assert_eq!(model.paint.len(), 1, "redo brings the paint back too");
     }
 
     #[test]

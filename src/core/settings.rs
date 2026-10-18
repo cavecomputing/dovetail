@@ -1,7 +1,8 @@
 //! `settings.toml`: the user's preferences, with defaults for anything missing.
 
-use std::fs;
+use std::fs::{self, OpenOptions, Permissions};
 use std::io::{self, ErrorKind};
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use serde::de::DeserializeOwned;
@@ -52,6 +53,21 @@ pub enum WindowControls {
     Hide,
 }
 
+/// How requests to the assistant's server are shaped. Both are OpenAI's formats, which most
+/// servers copy.
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RequestFormat {
+    /// `POST {base_url}/responses`.
+    #[default]
+    Responses,
+    /// `POST {base_url}/chat/completions`, for servers that only speak that.
+    ChatCompletions,
+}
+
+/// Where the assistant's requests go when the base URL is left blank.
+pub const DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
+
 /// Every setting from spec section 10. A key missing from the file takes its default and an
 /// unknown key is ignored.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -69,7 +85,14 @@ pub struct Settings {
     pub autosave_delay_ms: u64,
     /// Where new projects go. `None` means the default from `Paths::projects_dir`.
     pub projects_folder: Option<PathBuf>,
-    pub claude_model: String,
+    /// The assistant's server: any OpenAI-compatible API. Blank means `DEFAULT_BASE_URL`.
+    pub base_url: String,
+    /// The model name the server knows. Empty until set; the assistant pane asks for one.
+    pub model: String,
+    pub request_format: RequestFormat,
+    /// The API key, kept here only when there is no system keyring (see `ai::key`). The file is
+    /// then readable by its owner only.
+    pub api_key_fallback: Option<String>,
     pub window_controls: WindowControls,
     /// Show line and column in the status bar.
     pub show_line_col: bool,
@@ -86,7 +109,10 @@ impl Default for Settings {
             colour_markup: true,
             autosave_delay_ms: 500,
             projects_folder: None,
-            claude_model: "claude-opus-5-5".to_string(),
+            base_url: DEFAULT_BASE_URL.to_string(),
+            model: String::new(),
+            request_format: RequestFormat::Responses,
+            api_key_fallback: None,
             window_controls: WindowControls::Auto,
             show_line_col: false,
         }
@@ -144,7 +170,20 @@ impl Settings {
                 defaults.projects_folder,
                 &mut bad_keys,
             ),
-            claude_model: key(&table, "claude_model", defaults.claude_model, &mut bad_keys),
+            base_url: key(&table, "base_url", defaults.base_url, &mut bad_keys),
+            model: key(&table, "model", defaults.model, &mut bad_keys),
+            request_format: key(
+                &table,
+                "request_format",
+                defaults.request_format,
+                &mut bad_keys,
+            ),
+            api_key_fallback: key(
+                &table,
+                "api_key_fallback",
+                defaults.api_key_fallback,
+                &mut bad_keys,
+            ),
             window_controls: key(
                 &table,
                 "window_controls",
@@ -186,9 +225,13 @@ impl Settings {
         self.autosave_delay_ms = self.autosave_delay_ms.min(10_000);
     }
 
-    /// Writes the settings file atomically, creating its folder if needed.
+    /// Writes the settings file atomically, creating its folder if needed. When it holds the
+    /// API key, the file is made readable by its owner only before the key goes in.
     pub fn save(&self, path: &Path) -> io::Result<()> {
         let text = toml::to_string_pretty(self).map_err(io::Error::other)?;
+        if self.api_key_fallback.is_some() {
+            owner_only(path)?;
+        }
         atomic_write(path, text.as_bytes())
     }
 
@@ -200,6 +243,20 @@ impl Settings {
         }
         self.save(path).map_err(|error| failure_reason(&error))
     }
+}
+
+/// Creates `path` if needed and sets it to mode 0600 (read and write by its owner only).
+/// `atomic_write` keeps a file's permissions, so the saved settings stay that way.
+fn owner_only(path: &Path) -> io::Result<()> {
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    let file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
+        .open(path)?;
+    file.set_permissions(Permissions::from_mode(0o600))
 }
 
 /// The value of `name` in the file, or `fallback` if it is missing or wrong (then its name is
@@ -236,6 +293,10 @@ mod tests {
         assert_eq!(settings.theme, Theme::Dark);
         assert_eq!(settings.reading_mode, ReadingMode::Comfort { chars: 80 });
         assert_eq!(settings.window_controls, WindowControls::Auto);
+        assert_eq!(settings.base_url, DEFAULT_BASE_URL);
+        assert_eq!(settings.model, "");
+        assert_eq!(settings.request_format, RequestFormat::Responses);
+        assert_eq!(settings.api_key_fallback, None);
     }
 
     #[test]
@@ -351,5 +412,56 @@ mod tests {
         fs::write(&path, "font_size = 20\n").unwrap();
         Settings::default().save_unless_broken(&path).unwrap();
         assert_eq!(Settings::load(&path).0, Settings::default());
+    }
+
+    #[test]
+    fn the_old_claude_model_is_ignored() {
+        // Every save before the assistant wrote the old default, which no server here knows, so
+        // the pane asks for a model instead.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.toml");
+        fs::write(&path, "claude_model = \"claude-opus-5-5\"\n").unwrap();
+        let (settings, warning) = Settings::load(&path);
+        assert!(warning.is_none());
+        assert_eq!(settings.model, "");
+        settings.save(&path).unwrap();
+        assert!(!fs::read_to_string(&path).unwrap().contains("claude_model"));
+    }
+
+    #[test]
+    fn assistant_settings_parse_by_hand() {
+        let text =
+            "base_url = \"http://localhost:11434/v1/\"\nrequest_format = \"chat_completions\"\n";
+        let settings: Settings = toml::from_str(text).unwrap();
+        assert_eq!(settings.base_url, "http://localhost:11434/v1/");
+        assert_eq!(settings.request_format, RequestFormat::ChatCompletions);
+        let (_, warning) = {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("settings.toml");
+            fs::write(&path, "request_format = \"carrier pigeon\"\n").unwrap();
+            Settings::load(&path)
+        };
+        assert!(warning.unwrap().contains("request_format"));
+    }
+
+    #[test]
+    fn a_file_holding_the_key_is_private() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config/settings.toml");
+        let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+
+        Settings::default().save(&path).unwrap();
+        let with_key = Settings {
+            api_key_fallback: Some("sk-test".to_string()),
+            ..Settings::default()
+        };
+        with_key.save(&path).unwrap();
+        assert_eq!(mode(&path), 0o600);
+        assert_eq!(Settings::load(&path).0, with_key);
+
+        // A new file with a key starts private too.
+        let fresh = dir.path().join("other/settings.toml");
+        with_key.save(&fresh).unwrap();
+        assert_eq!(mode(&fresh), 0o600);
     }
 }

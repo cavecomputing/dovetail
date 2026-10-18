@@ -15,8 +15,9 @@ use crate::core::scratch::clear_scratch;
 use crate::core::text_file::save_text;
 use crate::project::{Project, create_project};
 use crate::ui::app::{App, Message};
+use crate::ui::assistant_actions::CardState;
 use crate::ui::commit_dialog::COMMIT_NOTE_ID;
-use crate::ui::editor::{self, Pane};
+use crate::ui::editor::{self, Decision, Pane};
 use crate::ui::project_view::ProjectView;
 
 impl App {
@@ -116,7 +117,12 @@ impl App {
                 if let Some(project) = &mut self.project {
                     project.project = committed;
                     project.commit_check = None;
-                    project.show_version(project.project.latest_version(), &draft);
+                    let number = project.project.latest_version();
+                    project.show_version(number, &draft);
+                    // The assistant's copy of the versions gains the new one.
+                    if let Some(versions) = &mut self.assistant.versions {
+                        versions.push((number, draft.clone()));
+                    }
                 }
                 self.refresh_ideas();
                 // The commit wrote `draft.txt`; anything typed since still needs saving.
@@ -140,6 +146,10 @@ impl App {
     /// on the right, and this window now shows `project`. Scratch is cleared, keeping its text for
     /// undo; a `.txt` is left as it was (with any pending typing saved first).
     fn become_project(&mut self, project: Project, text: &str) {
+        // Suggestions don't follow a Rewrite: the old text becomes the left pane, read-only.
+        self.pane.decide(Decision::RejectAll);
+        self.settle_cards(CardState::Rejected);
+        self.assistant.versions = Some(vec![(project.latest_version(), text.to_string())]);
         let data_dir = &self.paths.data_dir;
         let problem = match &self.doc {
             Doc::Scratch => clear_scratch(data_dir, self.pane.model.text()).err(),

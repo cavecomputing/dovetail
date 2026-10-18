@@ -36,6 +36,7 @@ Matt writes prompts by putting two Typora windows side by side: the old version 
 - `Ctrl+P` opens a quick switcher with fuzzy search over recent files and projects.
 - `Ctrl+0` (or similar) jumps back to scratch from anywhere.
 - `Ctrl+,` opens Settings.
+- `Ctrl+L` opens and closes the assistant pane.
 - Startup has to be near-instant: launch, jot, close. This is a key reason to prefer pure Rust over a webview.
 - Launch from the app menu or a short terminal command.
 - Register as a `.desktop` app with a MIME type for `.dovetail`. Optionally act as a `.txt` handler too.
@@ -59,8 +60,8 @@ Matt writes prompts by putting two Typora windows side by side: the old version 
 
 Left to right:
 
-- **Plain doc:** `☰ menu` · save dot · path (or `Scratch · not saved to a file`) … words · tokens · **pen icon (Rewrite)**
-- **Project:** `☰ menu` · save dot · project path · `v3 → draft` … words · tokens · `−45% vs v3` · Claude toggle · **Commit**
+- **Plain doc:** `☰ menu` · save dot · path (or `Scratch · not saved to a file`) … words · tokens · assistant toggle · **pen icon (Rewrite)**
+- **Project:** `☰ menu` · save dot · project path · `v3 → draft` … words · tokens · `−45% vs v3` · assistant toggle · **Commit**
 
 Rules:
 - The bottom-right corner always holds the **next step**: the pen icon on plain docs, Commit in projects.
@@ -115,7 +116,7 @@ This is what makes the app different. It's the agreed direction, with details to
 
 ## 9. Assistant pane
 
-- A pane that slides in from the right when called. Its toggle is in the status bar.
+- A pane that slides in from the right when called. Its toggle is in the status bar, and `Ctrl+L` opens and closes it.
 - **Available everywhere** (Matt, 2026-10-17): scratch, plain `.txt` files and projects alike. It's a general assistant to chat with about whatever is being worked on, not a project-only feature.
 - **Tool-capable:** it works through function calling rather than a fixed reply format. Tools let it read the document and the selection, search it, count tokens, propose edits and, in a project, read any version, the ideas, the feeling notes and the weights. The app runs each tool call and sends the result back until the model gives its answer.
 - **Context:** in a project, it can always see everything: both versions, every idea, the feeling notes and the weights. In a plain doc, it sees the document. Small chips mark what Matt is focused on (the selection, the current idea or topic).
@@ -132,7 +133,7 @@ A settings window opened from the menu or `Ctrl+,`. Changes apply instantly. Set
 | Appearance | Theme (Gruvbox dark / light / follow system), font, font size, reading mode (Comfort with a character width, or Full width) |
 | Editor | Tab inserts N spaces (**default 4**, never tabs), word wrap (**on** by default), XML and macro colouring |
 | Saving | Autosave timing, projects folder |
-| Claude | Base URL, API key (keyring), model, request format (Responses, default / Chat Completions) |
+| Assistant | Base URL, API key (keyring), model, request format (Responses, default / Chat Completions), test connection |
 | Window | Window controls: Auto / Always show / Always hide |
 
 ## 11. Counting

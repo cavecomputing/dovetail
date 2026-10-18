@@ -5,6 +5,7 @@
 //! - any other path: that text file, created if missing
 //! - `--print-brand`: prints the names from `brand.rs` for `scripts/install.sh`, then exits
 
+mod ai;
 mod brand;
 mod core;
 mod project;
