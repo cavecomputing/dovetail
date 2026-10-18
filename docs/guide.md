@@ -103,11 +103,12 @@ dovetail notes.txt    # opens that file, creating it if it doesn't exist
 scroll position. It is a plain `scratch.txt` in the data folder (on Linux,
 `~/.local/share/dovetail/scratch.txt`), readable without the app.
 
-**One window per document.** Each window is its own process. Opening a file from inside the app
-(Ctrl+O, Ctrl+P or the ☰ menu) starts a new window, which suits tiling window managers, except from
-scratch: there the file takes scratch's place in the same window, once scratch's text is saved
-(Ctrl+0 brings scratch back, in a window of its own). A document is edited in one window at a time:
-a second window on the same file, or on scratch, opens read-only and says why.
+**One document per window.** Each launch is its own window and process, which suits tiling window
+managers. Opening from inside the app (Ctrl+O, Ctrl+P, the ☰ menu, Ctrl+N, or Ctrl+0 for scratch)
+swaps the document in the same window: the one you're leaving is saved first, and if that save
+fails, or the new one can't be opened, the window stays as it was and the status bar says why. A
+document is edited in one window at a time: a second window on the same file, or on scratch, opens
+read-only and says why, and opening one that another window has open is refused.
 
 **The status bar**, left to right: the ☰ menu (New file, Open, Recent, Save as, Find, Line
 numbers, Settings, Scratch), the save dot, and the file's path (or Scratch); on the right, words
@@ -141,9 +142,9 @@ Shortcuts are written with Ctrl; on macOS use ⌘ (the app's menu and hints show
 | Key | What it does |
 |---|---|
 | Ctrl+N | New file: asks where, then opens it, empty, as Ctrl+O would. Choosing an existing file empties it (the dialog asks first); a file open in any window is refused |
-| Ctrl+O | Open a file in a new window, or from scratch in this one |
+| Ctrl+O | Open a file in this window |
 | Ctrl+P | Recent files: type part of a name, ↑ and ↓ to choose, Enter to open |
-| Ctrl+0 | Open scratch in its own window (if another window has it, the status bar says so instead) |
+| Ctrl+0 | Back to scratch in this window (if another window has it, the status bar says so instead) |
 | Ctrl+S | Save now; in scratch, save to a file |
 | Ctrl+Shift+S | Save as |
 | Ctrl+W | Close the window, once the latest save is written |

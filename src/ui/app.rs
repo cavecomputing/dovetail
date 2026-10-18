@@ -2,7 +2,7 @@
 //! One process shows one document in one window; Settings opens over it.
 
 use std::fs::File;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
 use iced::widget::{column, container, responsive, space, stack};
@@ -15,7 +15,7 @@ use crate::core::opened::{Doc, OpenedDoc, open_doc};
 use crate::core::paths::Paths;
 use crate::core::recent::existing_recent_files;
 use crate::core::save::{Autosaver, SaveState, failure_reason};
-use crate::core::scratch::{ScratchState, ScratchView, scratch_open_elsewhere};
+use crate::core::scratch::{ScratchState, ScratchView};
 use crate::core::settings::{ReadingMode, Settings, Theme as ThemeSetting};
 use crate::core::text_file::{DiskStamp, TEXT_EXTENSIONS, changed_on_disk, read_text, save_text};
 use crate::ui::assistant_actions::{Assistant, AssistantAction, CardState};
@@ -56,15 +56,15 @@ pub struct App {
     pub disk_stamp: Option<DiskStamp>,
     /// A save was refused because the file changed on disk; the status bar offers a way out.
     pub disk_conflict: bool,
-    /// A short-lived message for the status bar, such as why a new window didn't open, and when
+    /// A short-lived message for the status bar, such as why a file didn't open, and when
     /// it went up (see `set_notice`).
     pub notice: Option<(String, Instant)>,
     pub autosaver: Autosaver,
     pub saving_since: Option<Instant>,
     pub now: Instant,
     closing: bool,
-    /// A file to open in scratch's place once the save running now ends (see `open_file`).
-    pub opening: Option<PathBuf>,
+    /// A document to open in this one's place once the save running now ends (see `open_here`).
+    pub opening: Option<Doc>,
 
     /// The text's word and token counts. The token count lags behind typing (see `TOKEN_PAUSE`).
     pub counts: Counts,
@@ -292,10 +292,10 @@ impl App {
         (app, tasks)
     }
 
-    /// Makes `opened` this window's document in place of scratch, as if the window had been
-    /// launched on it: its text, cursor, lock (scratch's goes), and a fresh undo history and save
-    /// state. The find bar closes, and the assistant starts a new chat (its pane stays as it was),
-    /// since both were about scratch's text.
+    /// Makes `opened` this window's document in place of the one it showed, as if the window had
+    /// been launched on it: its text, cursor, lock (the old one's goes), and a fresh undo history
+    /// and save state. The find bar closes, and the assistant starts a new chat (its pane stays as
+    /// it was), since both were about the old text.
     pub fn show(&mut self, opened: OpenedDoc) -> Task<Message> {
         self.pane = pane_for(&opened);
         self.counts = Counts {
@@ -443,8 +443,8 @@ impl App {
                     self.closing = false;
                 } else if self.closing {
                     return self.continue_closing();
-                } else if let Some(path) = self.opening.take() {
-                    return self.open_file(path);
+                } else if let Some(doc) = self.opening.take() {
+                    return self.open_here(doc);
                 }
             }
             Message::TokenizerReady => return self.count_tokens(),
@@ -531,17 +531,7 @@ impl App {
                 );
                 return Task::batch([unfocus, self.load_key()]);
             }
-            Message::OpenScratch => {
-                self.menu_open = false;
-                if matches!(self.doc, Doc::Scratch) {
-                    return Task::none();
-                }
-                self.set_notice(if scratch_open_elsewhere(&self.paths.data_dir) {
-                    Some("Scratch is already open in another window".to_string())
-                } else {
-                    open_in_new_window(None).err()
-                });
-            }
+            Message::OpenScratch => return self.open_here(Doc::Scratch),
             Message::OpenSwitcher
             | Message::SwitcherQuery(_)
             | Message::SwitcherMove(_)
@@ -698,19 +688,21 @@ impl App {
         let doc = self.doc.clone();
         let disk_stamp = self.disk_stamp;
         Task::perform(
-            async move {
-                let result = match doc {
-                    Doc::Scratch => ScratchState { text, view }.save(&data_dir).map(|_| None),
-                    Doc::File {
-                        path,
-                        line_ending,
-                        bom,
-                    } => save_text(&path, &text, line_ending, bom, disk_stamp),
-                };
-                result.map_err(|error| failure_reason(&error))
-            },
+            async move { write_doc(&doc, text, view, &data_dir, disk_stamp) },
             move |result| Message::Saved(generation, result),
         )
+    }
+
+    /// Writes the current text now, on this thread, before the window leaves it for another
+    /// document (`open_here`), handled as an autosave's result is. Returns whether it worked.
+    pub fn save_before_leaving(&mut self) -> bool {
+        let generation = self.autosaver.begin(Instant::now());
+        let text = self.pane.model.text().to_string();
+        let view = self.scratch_view();
+        let result = write_doc(&self.doc, text, view, &self.paths.data_dir, self.disk_stamp);
+        let written = result.is_ok();
+        let _ = self.update(Message::Saved(generation, result));
+        written
     }
 
     /// Closes the window once the latest text is safely written. If the save failed, the
@@ -729,7 +721,7 @@ impl App {
         self.read_only_reason.is_none()
     }
 
-    pub fn scratch_view(&self) -> ScratchView {
+    fn scratch_view(&self) -> ScratchView {
         let position = self.pane.content.cursor().position;
         ScratchView {
             cursor_line: position.line,
@@ -830,6 +822,26 @@ impl App {
     }
 }
 
+/// Writes `text` as `doc`'s (with `view`, scratch's cursor, for scratch), as of the file on disk
+/// at `disk_stamp`. Returns the file as written, or the reason it failed.
+fn write_doc(
+    doc: &Doc,
+    text: String,
+    view: ScratchView,
+    data_dir: &Path,
+    disk_stamp: Option<DiskStamp>,
+) -> Result<Option<DiskStamp>, String> {
+    let result = match doc {
+        Doc::Scratch => ScratchState { text, view }.save(data_dir).map(|_| None),
+        Doc::File {
+            path,
+            line_ending,
+            bom,
+        } => save_text(path, &text, *line_ending, *bom, disk_stamp),
+    };
+    result.map_err(|error| failure_reason(&error))
+}
+
 /// The editor for `opened`: its text, cursor and view. Scratch emptied by Save to a file opens
 /// empty, with Ctrl+Z bringing the old text back.
 fn pane_for(opened: &OpenedDoc) -> Pane {
@@ -912,33 +924,6 @@ fn settings_key(message: Message) -> Option<Message> {
     }
 }
 
-/// Starts another copy of the app on `path` (or on scratch), so every file gets its own window
-/// (from scratch, `open_file` opens it in scratch's place instead).
-pub fn open_in_new_window(path: Option<PathBuf>) -> Result<(), String> {
-    let exe = std::env::current_exe().map_err(|error| error.to_string())?;
-    let mut command = std::process::Command::new(binary_path(exe));
-    command.args(path);
-    command
-        .spawn()
-        .map(|_| ())
-        .map_err(|error| format!("Couldn't open a new window: {error}"))
-}
-
-/// The app's binary as it is now, from `current_exe`. Once install.sh or `cargo build` replaces
-/// the binary under a running window, Linux names the old one "<path> (deleted)", and the new one
-/// is at <path>. macOS and Windows keep the path the app was started from, so it is used as it is.
-fn binary_path(current_exe: PathBuf) -> PathBuf {
-    if cfg!(target_os = "linux")
-        && !current_exe.exists()
-        && let Some(path) = current_exe
-            .to_str()
-            .and_then(|path| path.strip_suffix(" (deleted)"))
-    {
-        return PathBuf::from(path);
-    }
-    current_exe
-}
-
 fn modified_time(paths: &Paths) -> Option<SystemTime> {
     std::fs::metadata(paths.settings_file())
         .and_then(|meta| meta.modified())
@@ -948,6 +933,7 @@ fn modified_time(paths: &Paths) -> Option<SystemTime> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::scratch::scratch_open_elsewhere;
     use crate::core::text_file::LineEnding;
     use crate::ui::text_editor::Content;
     use iced::widget::text_editor::Motion;
@@ -1002,6 +988,14 @@ mod tests {
             press(keyboard::Modifiers::COMMAND),
             Some(Message::Assistant(AssistantAction::Toggle))
         ));
+    }
+
+    fn file_doc(path: &Path) -> Doc {
+        Doc::File {
+            path: path.to_path_buf(),
+            line_ending: LineEnding::Lf,
+            bom: false,
+        }
     }
 
     /// A scratch window over folders in a temp dir, with `typed` typed into it, and a file
@@ -1060,14 +1054,7 @@ mod tests {
         assert_eq!(app.pane.model.text(), "keep me");
         assert!(matches!(app.autosaver.state(), SaveState::Failed(_)));
         // The file wasn't claimed, so another window can still edit it.
-        let other = open_doc(
-            Doc::File {
-                path: notes,
-                line_ending: LineEnding::Lf,
-                bom: false,
-            },
-            &paths,
-        );
+        let other = open_doc(file_doc(&notes), &paths);
         assert!(other.read_only_reason.is_none());
     }
 
@@ -1084,6 +1071,46 @@ mod tests {
     }
 
     #[test]
+    fn a_file_window_saves_its_file_and_switches_too() {
+        let (dir, paths, mut app, notes) = scratch_window("in scratch");
+        let _ = app.update(Message::OpenPath(notes.clone()));
+        let _ = app.update(Message::Edit(Action::Edit(Edit::Insert('!'))));
+        let other = dir.path().join("other.txt");
+        let _ = app.update(Message::OpenPath(other.clone()));
+        // Typed inside the autosave pause, and kept with the file's line ending.
+        assert_eq!(std::fs::read_to_string(&notes).unwrap(), "!# notes\r\n");
+        assert!(matches!(&app.doc, Doc::File { path, .. } if *path == other));
+        // notes.md's lock went with it.
+        let again = open_doc(file_doc(&notes), &paths);
+        assert!(again.read_only_reason.is_none());
+        drop(again);
+        // Ctrl+0 brings scratch back here, where it was left.
+        let _ = app.update(Message::OpenScratch);
+        assert!(matches!(app.doc, Doc::Scratch));
+        assert_eq!(app.pane.model.text(), "in scratch");
+        assert_eq!(app.pane.content.cursor().position.column, 10);
+    }
+
+    #[test]
+    fn opening_the_shown_file_or_over_a_disk_conflict_stays_put() {
+        let (dir, _paths, mut app, notes) = scratch_window("");
+        let _ = app.update(Message::OpenPath(notes.clone()));
+        let _ = app.update(Message::Edit(Action::Edit(Edit::Insert('!'))));
+        let _ = app.update(Message::OpenPath(notes.clone()));
+        assert!(app.autosaver.pending(), "its own file: nothing happens");
+        assert!(app.notice.is_none());
+        // Someone else changes the file, so the autosave is refused.
+        std::fs::write(&notes, "theirs").unwrap();
+        assert!(!app.save_before_leaving());
+        assert!(app.disk_conflict);
+        let _ = app.update(Message::OpenPath(dir.path().join("other.txt")));
+        assert!(matches!(&app.doc, Doc::File { path, .. } if *path == notes));
+        assert_eq!(app.pane.model.text(), "!# notes\n");
+        assert_eq!(std::fs::read_to_string(&notes).unwrap(), "theirs");
+        assert!(app.notice.is_some());
+    }
+
+    #[test]
     fn a_file_that_cant_be_opened_leaves_scratch_as_it_was() {
         let (dir, _paths, mut app, _notes) = scratch_window("mine");
         let binary = dir.path().join("binary.txt");
@@ -1093,16 +1120,5 @@ mod tests {
         assert_eq!(app.pane.model.text(), "mine");
         let notice = app.notice.as_ref().map(|(words, _)| words.as_str());
         assert_eq!(notice, Some("Couldn't open: not a UTF-8 text file"));
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn a_reinstalled_binary_is_started_from_its_path() {
-        let dir = tempfile::tempdir().unwrap();
-        let binary = dir.path().join("app");
-        std::fs::write(&binary, "the new build").unwrap();
-        let deleted = PathBuf::from(format!("{} (deleted)", binary.display()));
-        assert_eq!(binary_path(deleted), binary);
-        assert_eq!(binary_path(binary.clone()), binary);
     }
 }

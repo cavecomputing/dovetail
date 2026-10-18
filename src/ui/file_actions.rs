@@ -9,44 +9,54 @@ use iced::Task;
 use crate::core::opened::{Doc, empty_file, open_in_place, save_as};
 use crate::core::recent::same_file;
 use crate::core::save::failure_reason;
-use crate::core::scratch::{ScratchState, clear_scratch};
+use crate::core::scratch::clear_scratch;
 use crate::core::text_file::{LineEnding, TEXT_EXTENSIONS, save_text, suggested_file_name};
-use crate::ui::app::{App, Message, open_in_new_window};
+use crate::ui::app::{App, Message};
 
 impl App {
-    /// Opens the file at `path`: from a file, in a window of its own; from scratch, in this window
-    /// in scratch's place, once scratch's latest text and cursor are on disk. If that save fails,
-    /// or the file can't be opened, the window stays on scratch and the status bar says why.
+    /// Opens the file at `path` in this window (`open_here`).
     pub fn open_file(&mut self, path: PathBuf) -> Task<Message> {
+        self.open_here(Doc::File {
+            path,
+            line_ending: LineEnding::default(),
+            bom: false,
+        })
+    }
+
+    /// Shows `doc` in this window in place of the document it shows now (Ctrl+O, Ctrl+P, Recent,
+    /// Ctrl+N's new file and Ctrl+0), once that one is saved. If the save fails, or `doc` can't
+    /// be opened, the window stays as it is and the status bar says why. The document already
+    /// shown is left as it is.
+    pub fn open_here(&mut self, doc: Doc) -> Task<Message> {
         self.menu_open = false;
         self.switcher = None;
-        if !matches!(self.doc, Doc::Scratch) {
-            self.set_notice(open_in_new_window(Some(path)).err());
+        let shown = match (&self.doc, &doc) {
+            (Doc::Scratch, Doc::Scratch) => true,
+            (Doc::File { path: current, .. }, Doc::File { path, .. }) => same_file(current, path),
+            _ => false,
+        };
+        if shown {
+            return Task::none();
+        }
+        // Leaving would drop the text the save refused, without the status bar's choice.
+        if self.disk_conflict {
+            let words = "The file changed on disk: choose Reload or Keep mine first";
+            self.set_notice(Some(words.to_string()));
             return Task::none();
         }
         // An autosave still running would land after the save below, over newer text, so wait
         // for it: its `Saved` comes back here.
         if self.autosaver.is_saving() {
-            self.opening = Some(path);
+            self.opening = Some(doc);
             return Task::none();
         }
-        // Written now, as the autosave would (a failure shows as one, which keeps the window as
-        // it keeps a closing one). A read-only scratch belongs to another window: nothing to save.
-        if self.editable() {
-            let generation = self.autosaver.begin(Instant::now());
-            let scratch = ScratchState {
-                text: self.pane.model.text().to_string(),
-                view: self.scratch_view(),
-            };
-            let saved = scratch.save(&self.paths.data_dir);
-            let failed = saved.is_err();
-            self.autosaver
-                .finish(generation, saved.map_err(|error| failure_reason(&error)));
-            if failed {
-                return Task::none();
-            }
+        // Scratch keeps its cursor too, so it is written even with no new text. A read-only
+        // window has nothing of its own to save.
+        let unsaved = self.autosaver.pending() || matches!(self.doc, Doc::Scratch);
+        if self.editable() && unsaved && !self.save_before_leaving() {
+            return Task::none();
         }
-        match open_in_place(&path, &self.paths) {
+        match open_in_place(&self.doc, doc, &self.paths) {
             Ok(opened) => self.show(opened),
             Err(reason) => {
                 self.set_notice(Some(reason));

@@ -35,9 +35,9 @@ Matt writes prompts by putting two Typora windows side by side: the old version 
 | Open a project file (`.dovetail`) | Opens that project (`rewrite` branch only). |
 | Open a `.txt`, `.md` or `.markdown` | Opens just that text file. Markdown is coloured (§5), never rendered. The Open, New file and Save as dialogs offer all three. |
 
-- **No tabs.** Each opened file or project gets its own window, which plays well with tiling WMs. The exception is scratch (Matt, 2026-10-18): a file opened from a window showing scratch (`Ctrl+O`, `Ctrl+P`, Recent in the menu, or `Ctrl+N`'s new file) takes scratch's place in that window instead. Scratch's latest text and cursor are written first, and if that fails, or the file can't be opened (open in another window, not UTF-8), the window stays on scratch and the status bar says why. Scratch resumes as ever in the next window that opens it.
+- **No tabs, one window per launch.** Each launch (from the app menu, the terminal or a file manager) is its own window, which plays well with tiling WMs. Opening from inside the app (`Ctrl+O`, `Ctrl+P`, Recent in the menu, `Ctrl+N`'s new file, `Ctrl+0` for scratch) replaces the document in the same window instead (Matt, 2026-10-18: separate windows had become more annoying than useful). The document being left is saved first (scratch with its cursor); if that save fails, or the new document can't be opened (open in another window, not UTF-8), the window stays as it was and the status bar says why. A file whose save was refused because it changed on disk isn't left until Reload or Keep mine is chosen. Opening the document already shown does nothing. Scratch resumes where it was left, here or in the next window that opens it.
 - `Ctrl+P` opens a quick switcher with fuzzy search over recent files (and projects, on the `rewrite` branch).
-- `Ctrl+0` (or similar) jumps back to scratch from anywhere.
+- `Ctrl+0` (or similar) jumps back to scratch from anywhere, in the same window.
 - `Ctrl+,` opens Settings, a panel over the window (Matt, 2026-10-18: not a separate window). See §10.
 - `Ctrl+L` opens and closes the assistant pane.
 - The usual editor keys too (Matt, 2026-10-18): `Ctrl+N` new file (asks where, opens it like `Ctrl+O`), `Ctrl+O` open, `Ctrl+S` save (see §4), `Ctrl+Shift+S` save as, `Ctrl+W` close the window, `Ctrl+F` find, `Ctrl+=` / `Ctrl+-` font size.
