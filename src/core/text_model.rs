@@ -195,10 +195,7 @@ impl TextModel {
         };
         let changes: Vec<Change> = step.changes.iter().rev().map(Change::inverse).collect();
         for change in &changes {
-            self.text.replace_range(
-                change.at..change.at + change.removed.len(),
-                &change.inserted,
-            );
+            self.apply(change);
         }
         step.typing = false;
         self.redo.push(step);
@@ -214,10 +211,7 @@ impl TextModel {
             return Vec::new();
         };
         for change in &step.changes {
-            self.text.replace_range(
-                change.at..change.at + change.removed.len(),
-                &change.inserted,
-            );
+            self.apply(change);
         }
         let changes = step.changes.clone();
         self.undo.push(step);
