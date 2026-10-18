@@ -1,7 +1,7 @@
 //! The text editing widget: the text column, Tab as spaces, Enter and Backspace that know about
-//! indents, undo and redo (its colours come from `highlighter`). A `Pane` pairs the widget's
-//! content with the text model behind it, and shows suggested edits inside the text until each is
-//! accepted or rejected (review mode).
+//! indents, deleting a word, undo and redo (its colours come from `highlighter`). A `Pane` pairs
+//! the widget's content with the text model behind it, and shows suggested edits inside the text
+//! until each is accepted or rejected (review mode).
 
 use std::ops::Range;
 use std::sync::Arc;
@@ -101,11 +101,13 @@ fn style(theme: &Theme, editable: bool) -> text_editor::Style {
 
 /// Tab indents (with spaces, never a tab character), Shift+Tab unindents, Enter (and Shift+Enter)
 /// starts a line indented like the caret's, Backspace in a line's leading spaces goes back to the
-/// last indent stop, Ctrl+Z undoes, Ctrl+Shift+Z and Ctrl+Y redo, and the app's own Ctrl
-/// shortcuts are left for the app. A pane that isn't `editable` keeps only iced's own keys
-/// (moving, selecting, copying). While `reviewing`, Tab accepts the suggestion the caret is on and
-/// Esc rejects it (`App::update` turns a Tab anywhere else back into an indent), and Ctrl+C and
-/// Ctrl+X go through `Message::Clip`, since the widget's text has the suggestions in it.
+/// last indent stop, Ctrl+Backspace and Ctrl+Delete delete a word (⌥⌫ and ⌥⌦ on macOS, where ⌘⌫
+/// and ⌘⌦ delete to the start and end of the line), Ctrl+Z undoes, Ctrl+Shift+Z and Ctrl+Y redo,
+/// and the app's own Ctrl shortcuts are left for the app. A pane that isn't `editable` keeps only
+/// iced's own keys (moving, selecting, copying). While `reviewing`, Tab accepts the suggestion the
+/// caret is on and Esc rejects it (`App::update` turns a Tab anywhere else back into an indent),
+/// and Ctrl+C and Ctrl+X go through `Message::Clip`, since the widget's text has the suggestions
+/// in it.
 fn key_binding(press: KeyPress, editable: bool, reviewing: bool) -> Option<Binding<Message>> {
     // A custom binding is used even when the editor isn't focused, so check first.
     if !matches!(press.status, Status::Focused { .. }) {
@@ -143,6 +145,17 @@ fn key_binding(press: KeyPress, editable: bool, reviewing: bool) -> Option<Bindi
     }
     if !editable {
         return Binding::from_key_press(press);
+    }
+    if let Key::Named(key @ (Named::Backspace | Named::Delete)) = press.key.as_ref()
+        && (press.modifiers.jump() || press.modifiers.macos_command())
+    {
+        let motion = match (key, press.modifiers.macos_command()) {
+            (Named::Backspace, true) => Motion::Home,
+            (Named::Backspace, false) => Motion::WordLeft,
+            (_, true) => Motion::End,
+            (_, false) => Motion::WordRight,
+        };
+        return Some(Binding::Custom(Message::DeleteTo(motion)));
     }
     if press.modifiers.command() {
         return match press.key.as_ref() {
@@ -558,6 +571,22 @@ impl Pane {
             position: cursor.position,
             selection: Some(self.position(line_start + stop, true)),
         });
+        self.perform_or_put_back(Edit::Delete, cursor)
+    }
+
+    /// Ctrl+Backspace and Ctrl+Delete, and ⌘⌫ and ⌘⌦ on macOS: deletes from the caret to where
+    /// `motion` takes it (the start of the word before, the end of the word after, or the start
+    /// or end of the line), or just the selection when there is one. The widget's own motion is
+    /// used, so a word is what Ctrl+← and Ctrl+→ step over. Returns whether the text changed, or
+    /// why it can't.
+    pub fn delete_to(&mut self, motion: Motion) -> Result<bool, String> {
+        let cursor = self.content.cursor();
+        if cursor.selection.is_none() {
+            self.content.perform(Action::Select(motion));
+            if self.content.cursor().selection.is_none() {
+                return Ok(false);
+            }
+        }
         self.perform_or_put_back(Edit::Delete, cursor)
     }
 
@@ -1258,6 +1287,86 @@ mod tests {
         assert_eq!(pane.backspace(4), Err(IN_A_SUGGESTION.to_string()));
         assert_eq!(pane.content.cursor(), cursor);
         assert_eq!(pane.model.text(), "        x");
+    }
+
+    #[test]
+    fn ctrl_backspace_and_ctrl_delete_delete_a_word() {
+        let mut pane = Pane::new("one two  three");
+        pane.content.move_to(cursor_at(0, 14));
+        assert_eq!(pane.delete_to(Motion::WordLeft), Ok(true));
+        assert_eq!(pane.content.text(), "one two  ");
+        assert_eq!(pane.delete_to(Motion::WordLeft), Ok(true));
+        assert_eq!(pane.content.text(), "one ");
+        pane.content.move_to(cursor_at(0, 0));
+        assert_eq!(pane.delete_to(Motion::WordRight), Ok(true));
+        assert_eq!(pane.content.text(), " ");
+        assert_eq!(pane.model.text(), pane.content.text());
+        pane.undo();
+        assert_eq!(pane.content.text(), "one ", "each is one undo step");
+        // Nothing before the start of the text, or after its end.
+        pane.content.move_to(cursor_at(0, 0));
+        assert_eq!(pane.delete_to(Motion::WordLeft), Ok(false));
+        pane.content.move_to(cursor_at(0, 4));
+        assert_eq!(pane.delete_to(Motion::WordRight), Ok(false));
+        assert_eq!(pane.content.text(), "one ");
+        // Words with multi-byte letters, and at the start of a line it joins the one above.
+        let mut pane = Pane::new("naïve\ncafé au");
+        pane.content.move_to(cursor_at(1, 5));
+        assert_eq!(pane.delete_to(Motion::WordLeft), Ok(true));
+        assert_eq!(pane.content.text(), "naïve\n au");
+        assert_eq!(pane.delete_to(Motion::WordLeft), Ok(true));
+        assert_eq!(pane.content.text(), "naïve au");
+    }
+
+    #[test]
+    fn deleting_a_word_over_a_selection_deletes_only_the_selection() {
+        let mut pane = Pane::new("one two three");
+        pane.select(4..6);
+        assert_eq!(pane.delete_to(Motion::WordLeft), Ok(true));
+        assert_eq!(pane.content.text(), "one o three");
+        // ⌘⌫ on macOS: to the start of the line.
+        let mut pane = Pane::new("first\nsecond line");
+        pane.content.move_to(cursor_at(1, 11));
+        assert_eq!(pane.delete_to(Motion::Home), Ok(true));
+        assert_eq!(pane.content.text(), "first\n");
+    }
+
+    #[test]
+    fn deleting_a_word_while_reviewing() {
+        let (mut pane, _, _) = reviewing_pane();
+        // After "Stay", between the suggestions, the word goes and the suggestion after moves.
+        pane.put_caret(14);
+        assert_eq!(pane.delete_to(Motion::WordLeft), Ok(true));
+        assert_eq!(pane.model.text(), "Be quick.  calm.");
+        assert_eq!(pane.suggestions()[1].range, 11..15);
+        // Right after a suggestion, the word before is its new text: refused, caret put back.
+        pane.put_caret(15);
+        let cursor = pane.content.cursor();
+        assert_eq!(
+            pane.delete_to(Motion::WordLeft),
+            Err(IN_A_SUGGESTION.to_string())
+        );
+        assert_eq!(pane.content.cursor(), cursor);
+        assert_eq!(pane.model.text(), "Be quick.  calm.");
+    }
+
+    #[test]
+    fn the_word_keys_delete_by_word_or_line() {
+        let jump = match cfg!(target_os = "macos") {
+            true => Modifiers::ALT,
+            false => Modifiers::CTRL,
+        };
+        let deletes_to = |key, modifiers| match binding_for(key, modifiers) {
+            Some(Binding::Custom(Message::DeleteTo(motion))) => Some(motion),
+            _ => None,
+        };
+        assert_eq!(deletes_to(Named::Backspace, jump), Some(Motion::WordLeft));
+        assert_eq!(deletes_to(Named::Delete, jump), Some(Motion::WordRight));
+        let command_backspace = deletes_to(Named::Backspace, Modifiers::LOGO);
+        match cfg!(target_os = "macos") {
+            true => assert_eq!(command_backspace, Some(Motion::Home)),
+            false => assert_eq!(command_backspace, None),
+        }
     }
 
     #[test]

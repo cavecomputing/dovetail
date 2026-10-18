@@ -149,6 +149,7 @@ Shortcuts are written with Ctrl; on macOS use ⌘ (the app's menu and hints show
 | Shift+Tab | Unindent the line, or each selected line |
 | Enter or Shift+Enter | New line, indented like the line the cursor is on (as far as the cursor). On a line of only spaces, the spaces move down too, so the line left behind is empty |
 | Backspace | In the spaces at the start of a line, delete back to the previous indent, so one press takes back a Tab; anywhere else, one character |
+| Ctrl+Backspace and Ctrl+Delete | Delete the word before or after the cursor (or just the selection). On macOS these are ⌥⌫ and ⌥⌦, and ⌘⌫ and ⌘⌦ delete to the start and end of the line |
 | Ctrl+Z | Undo |
 | Ctrl+Shift+Z or Ctrl+Y | Redo |
 | Ctrl+A, C, X, V | Select all, copy, cut, paste |

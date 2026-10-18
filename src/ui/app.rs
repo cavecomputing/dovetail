@@ -23,7 +23,7 @@ use crate::ui::editor::{Decision, Pane};
 use crate::ui::find_bar::{self, Find, FindAction};
 use crate::ui::settings_panel::{self, Change, Connection, KeyField};
 use crate::ui::switcher::{self, Switcher};
-use crate::ui::text_editor::{Action, Cursor, Edit, Position};
+use crate::ui::text_editor::{Action, Cursor, Edit, Motion, Position};
 use crate::ui::theme::{self, Roles};
 use crate::ui::{assistant_view, editor, key_guard, status_bar, window_controls};
 
@@ -91,6 +91,9 @@ pub enum Message {
     /// Backspace in the editor, which takes back a whole indent in a line's leading spaces
     /// (`Pane::backspace`).
     Backspace,
+    /// Ctrl+Backspace, Ctrl+Delete and their macOS keys: delete from the caret to where the
+    /// motion goes, such as the start of the word (`Pane::delete_to`).
+    DeleteTo(Motion),
     Undo,
     Redo,
     /// Ctrl+X or Ctrl+C while reviewing: copy the selected text, without the suggestions, and
@@ -310,7 +313,11 @@ impl App {
                 }
             }
             // The editing keys `editor::key_binding` binds. A read-only window takes none of them.
-            Message::Indent | Message::Unindent | Message::NewLine | Message::Backspace
+            Message::Indent
+            | Message::Unindent
+            | Message::NewLine
+            | Message::Backspace
+            | Message::DeleteTo(_)
                 if self.editable() =>
             {
                 let tab_spaces = usize::from(self.settings.tab_spaces);
@@ -319,6 +326,7 @@ impl App {
                     Message::Unindent => self.pane.unindent(tab_spaces),
                     Message::NewLine => self.pane.new_line(),
                     Message::Backspace => self.pane.backspace(tab_spaces),
+                    Message::DeleteTo(motion) => self.pane.delete_to(motion),
                     // The arm's pattern lets no other message in.
                     _ => Ok(false),
                 };
@@ -328,7 +336,11 @@ impl App {
                     Err(reason) => self.set_notice(Some(reason)),
                 }
             }
-            Message::Indent | Message::Unindent | Message::NewLine | Message::Backspace => {}
+            Message::Indent
+            | Message::Unindent
+            | Message::NewLine
+            | Message::Backspace
+            | Message::DeleteTo(_) => {}
             Message::Undo | Message::Redo if self.editable() => {
                 let changed = match message {
                     Message::Undo => self.pane.undo(),
