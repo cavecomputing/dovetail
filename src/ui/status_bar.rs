@@ -11,6 +11,7 @@ use crate::core::opened::Doc;
 use crate::core::paths::display_path;
 use crate::core::save::SaveState;
 use crate::ui::app::{App, Message};
+use crate::ui::assistant_actions::AssistantAction;
 use crate::ui::idea_actions::IdeaAction;
 use crate::ui::theme::{
     self, GLYPH_CLAUDE, GLYPH_MENU, GLYPH_PEN, Roles, icon_button, menu_button, raised_box,
@@ -32,6 +33,11 @@ pub fn view(app: &App) -> Element<'_, Message> {
     left = left.push(small(doc_label(&app.doc)));
     if let Some(project) = &app.project {
         left = left.push(small(format!("v{} → draft", project.reference_version)));
+    }
+    match app.pane.suggestions().len() {
+        0 => {}
+        1 => left = left.push(small("1 suggestion")),
+        waiting => left = left.push(small(format!("{waiting} suggestions"))),
     }
     // Warnings in orange, each in words: why the text is read-only, anything a menu action
     // couldn't do, and a settings problem (short here, the whole reason on hover).
@@ -91,10 +97,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 right = right.push(small(words).color(color));
                 right = right.push(space().width(12));
             }
-            right = right.push(hint(
-                glyph_button(GLYPH_CLAUDE, None),
-                "Claude pane arrives in phase 5",
-            ));
+            right = right.push(assistant_toggle(app.assistant.open));
             right = right.push(space().width(8));
             let next = project.project.latest_version() + 1;
             // The Commit check needs the newest version's text, read from git at startup.
@@ -105,6 +108,8 @@ pub fn view(app: &App) -> Element<'_, Message> {
         None => {
             let can_rewrite = app.editable() && !app.busy && !matches!(app.doc, Doc::Project(_));
             let rewrite = can_rewrite.then_some(Message::Rewrite);
+            right = right.push(assistant_toggle(app.assistant.open));
+            right = right.push(space().width(8));
             right = right.push(hint(
                 glyph_button(GLYPH_PEN, rewrite),
                 "Rewrite: start a project from this text",
@@ -192,6 +197,31 @@ fn glyph_button<'a>(glyph: &'a str, on_press: Option<Message>) -> Element<'a, Me
         .style(icon_button)
         .on_press_maybe(on_press)
         .into()
+}
+
+/// The assistant pane's speech-bubble toggle, highlighted while the pane is open.
+fn assistant_toggle<'a>(open: bool) -> Element<'a, Message> {
+    let toggle = button(text(GLYPH_CLAUDE).size(14).center())
+        .width(22)
+        .height(20)
+        .padding(0)
+        .style(move |theme: &Theme, status| {
+            let roles = Roles::of(theme);
+            match open {
+                true => button::Style {
+                    background: Some(Background::Color(roles.border)),
+                    text_color: roles.accent_text,
+                    ..icon_button(theme, status)
+                },
+                false => icon_button(theme, status),
+            }
+        })
+        .on_press(Message::Assistant(AssistantAction::Toggle));
+    let words = match open {
+        true => "Close the assistant (Ctrl+L)",
+        false => "Assistant: chat about this text (Ctrl+L)",
+    };
+    hint(toggle, words)
 }
 
 /// A small framed word button, like the mockup's Commit button.

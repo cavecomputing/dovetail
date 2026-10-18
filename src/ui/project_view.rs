@@ -8,21 +8,25 @@ use iced::{Background, Border, Element, Fill, Padding, Rectangle, Theme};
 
 use crate::core::counts::{Counts, percent_change};
 use crate::core::save::SaveState;
-use crate::core::text_model::{TextModel, position};
+use crate::core::text_model::TextModel;
 use crate::project::Project;
 use crate::project::manifest::Manifest;
-use crate::project::paint::{IdeaId, Span};
+use crate::project::paint::IdeaId;
 use crate::project::weights::{CommitCheck, Status, Weights, commit_check, weights};
 use crate::ui::app::{App, Message};
+use crate::ui::assistant_view::PANE_WIDTH;
 use crate::ui::editor::{self, Pane};
 use crate::ui::idea_panel::IdeaPanel;
 use crate::ui::ideas_view;
-use crate::ui::text_editor::{PaintLook, PaintRun, Position};
+use crate::ui::text_editor::{PaintLook, PaintRun};
 use crate::ui::theme::{GLYPH_LOCK, Roles, bold, fill, muted};
 use crate::ui::weights_view::Measure;
 
 /// How long the text takes to slide left after a Rewrite.
 const SLIDE: Duration = Duration::from_millis(300);
+/// With the assistant pane open, a window at most this wide hides the left pane first, as in the
+/// mockup.
+const HIDE_REFERENCE_BELOW: f32 = 1100.0;
 const PANE_PADDING: Padding = Padding {
     top: 28.0,
     right: 24.0,
@@ -36,7 +40,8 @@ pub struct ProjectView {
     pub project: Project,
     /// Each idea's share of the left pane's text and the draft's, refreshed on every change.
     pub weights: Weights,
-    /// The paint as the two editors draw it, rebuilt with `weights`.
+    /// The paint as the two editors draw it, rebuilt with `weights` (the draft's suggestions are
+    /// added in `view`).
     pub reference_runs: Vec<PaintRun>,
     pub draft_runs: Vec<PaintRun>,
     /// The idea panel, while it is open.
@@ -114,11 +119,12 @@ impl ProjectView {
     }
 
     /// Weighs the ideas again and rebuilds the paint both editors draw, after any change to the
-    /// text, the paint, the ideas or the theme. In the left pane a missing idea is outlined and
-    /// one cut on purpose struck through.
-    pub fn refresh_ideas(&mut self, draft: &TextModel, roles: &Roles) {
+    /// text, the paint, the ideas, the suggestions or the theme. In the left pane a missing idea
+    /// is outlined and one cut on purpose struck through.
+    pub fn refresh_ideas(&mut self, draft_pane: &Pane, roles: &Roles) {
         let manifest = &self.project.manifest;
         let old = &self.reference.model;
+        let draft = &draft_pane.model;
         let version = self.reference_version;
         self.weights = weights(
             manifest,
@@ -129,25 +135,18 @@ impl ProjectView {
             &draft.paint,
         );
         let statuses = &self.weights.ideas;
-        self.reference_runs =
-            paint_runs(
-                manifest,
-                old.text(),
-                &old.paint,
-                roles,
-                |idea| match statuses
-                    .iter()
-                    .find(|row| row.idea == idea)
-                    .map(|row| row.status)
-                {
-                    Some(Status::Missing) => PaintLook::Missing(roles.accent_warm),
-                    Some(Status::Cut) => PaintLook::Cut(roles.fg_subtle),
-                    _ => PaintLook::Fill,
-                },
-            );
-        self.draft_runs = paint_runs(manifest, draft.text(), &draft.paint, roles, |_| {
-            PaintLook::Fill
+        self.reference_runs = paint_runs(manifest, &self.reference, roles, |idea| {
+            match statuses
+                .iter()
+                .find(|row| row.idea == idea)
+                .map(|row| row.status)
+            {
+                Some(Status::Missing) => PaintLook::Missing(roles.accent_warm),
+                Some(Status::Cut) => PaintLook::Cut(roles.fg_subtle),
+                _ => PaintLook::Fill,
+            }
         });
+        self.draft_runs = paint_runs(manifest, draft_pane, roles, |_| PaintLook::Fill);
     }
 
     /// The draft against the left pane, as "−45%"; `None` before there is anything to compare.
@@ -175,33 +174,35 @@ impl ProjectView {
     }
 }
 
-/// `spans` on `text` as the editor draws them, each in the colour of the idea it now belongs to
-/// (an idea merged into another shows as that one), looking as `look` says.
+/// `pane`'s paint as the editor draws it, each span in the colour of the idea it now belongs to,
+/// looking as `look` says.
 fn paint_runs(
     manifest: &Manifest,
-    text: &str,
-    spans: &[Span],
+    pane: &Pane,
     roles: &Roles,
     look: impl Fn(IdeaId) -> PaintLook,
 ) -> Vec<PaintRun> {
-    let at = |offset| {
-        let (line, column) = position(text, offset);
-        Position { line, column }
-    };
-    spans
+    pane.model
+        .paint
         .iter()
         .filter_map(|span| {
-            let idea = manifest
-                .live_ideas()
-                .find(|idea| manifest.lineage(idea.id).contains(&span.idea))?;
+            let idea = live_idea(manifest, span.idea)?;
             Some(PaintRun {
-                start: at(span.start),
-                end: at(span.end),
-                color: roles.idea(idea.colour),
-                look: look(idea.id),
+                start: pane.position(span.start, true),
+                end: pane.position(span.end, false),
+                color: roles.idea(manifest.idea(idea)?.colour),
+                look: look(idea),
             })
         })
         .collect()
+}
+
+/// The idea that `idea`'s paint now belongs to: itself, or the one it was merged into.
+fn live_idea(manifest: &Manifest, idea: IdeaId) -> Option<IdeaId> {
+    let live = manifest
+        .live_ideas()
+        .find(|live| manifest.lineage(live.id).contains(&idea))?;
+    Some(live.id)
 }
 
 /// The two panes side by side with a 1px border between. Right after a Rewrite the draft grows
@@ -246,8 +247,12 @@ fn panes<'a>(app: &'a App, project: &'a ProjectView, width: f32) -> Element<'a, 
 
     let draft = app.counts;
     // A read-only window never saves, so it shows no save state (as the status bar hides its dot).
+    let waiting = app.pane.suggestions().len();
     let save_word = match app.autosaver.state() {
         _ if !app.editable() => "read-only".to_string(),
+        SaveState::Failed(_) => "save failed".to_string(),
+        _ if waiting == 1 => "1 suggestion waiting".to_string(),
+        _ if waiting > 1 => format!("{waiting} suggestions waiting"),
         SaveState::Saved => match app.saved_at {
             Some(at) if app.now.saturating_duration_since(at).as_secs() >= 60 => format!(
                 "autosaved {} min ago",
@@ -257,7 +262,6 @@ fn panes<'a>(app: &'a App, project: &'a ProjectView, width: f32) -> Element<'a, 
             None => "autosaved".to_string(),
         },
         SaveState::Saving => "saving…".to_string(),
-        SaveState::Failed(_) => "save failed".to_string(),
     };
     let mut draft_row = vec![
         text("Draft")
@@ -277,27 +281,35 @@ fn panes<'a>(app: &'a App, project: &'a ProjectView, width: f32) -> Element<'a, 
     let reference_pane = column![
         reference_header,
         editor::view(
-            &project.reference.content,
+            &project.reference,
             &app.settings,
             false,
             editor::REFERENCE_ID,
             Message::ReferenceEdit,
             PANE_PADDING,
-            &project.reference_runs,
+            project.reference_runs.clone(),
         )
     ];
+    let manifest = &project.project.manifest;
+    let idea_color = |idea| Some(roles.idea(manifest.idea(live_idea(manifest, idea)?)?.colour));
+    let mut draft_runs = project.draft_runs.clone();
+    draft_runs.extend(app.pane.suggestion_runs(roles, idea_color, true));
     let draft_pane = column![
         draft_header,
         editor::view(
-            &app.pane.content,
+            &app.pane,
             &app.settings,
             app.editable(),
             editor::EDITOR_ID,
             Message::Edit,
             PANE_PADDING,
-            &project.draft_runs,
+            draft_runs,
         )
     ];
+    let draft_pane = container(draft_pane).width(Fill).clip(true);
+    if app.assistant.open && width + PANE_WIDTH <= HIDE_REFERENCE_BELOW {
+        return draft_pane.height(Fill).into();
+    }
     // The draft's share of the width grows from nothing to half as the slide plays. The left pane
     // gets a whole number of pixels, so the 1px border lands on one pixel column, not two.
     let reference_share = 1.0 / (1.0 + project.slide_progress(app.now));
@@ -306,7 +318,7 @@ fn panes<'a>(app: &'a App, project: &'a ProjectView, width: f32) -> Element<'a, 
         container(reference_pane).width(reference_width).clip(true),
         container(space().width(1).height(Fill))
             .style(|theme: &Theme| fill(Roles::of(theme).border)),
-        container(draft_pane).width(Fill).clip(true),
+        draft_pane,
     ]
     .height(Fill)
     .into()

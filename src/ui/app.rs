@@ -5,7 +5,7 @@ use std::fs::File;
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime};
 
-use iced::widget::{column, container, stack};
+use iced::widget::{column, container, responsive, stack};
 use iced::window::{self, Direction};
 use iced::{Element, Size, Subscription, Task, Theme, event, keyboard};
 
@@ -18,16 +18,18 @@ use crate::core::scratch::{ScratchState, ScratchView, scratch_open_elsewhere};
 use crate::core::settings::{ReadingMode, Settings, Theme as ThemeSetting};
 use crate::core::text_file::{DiskStamp, changed_on_disk, read_text, save_text};
 use crate::project::{DRAFT_FILE, Project, RecentItem, open_project, recent_items, save_draft};
-use crate::ui::editor::Pane;
+use crate::ui::assistant_actions::{Assistant, AssistantAction, CardState};
+use crate::ui::editor::{Decision, Pane};
 use crate::ui::idea_actions::IdeaAction;
 use crate::ui::project_actions::load_version;
 use crate::ui::project_view::{self, ProjectView};
-use crate::ui::settings_window::{self, Change};
+use crate::ui::settings_window::{self, Change, Connection, KeyField};
 use crate::ui::switcher::{self, Switcher};
 use crate::ui::text_editor::{Action, Cursor, Position};
 use crate::ui::theme::{self, Roles};
 use crate::ui::{
-    commit_dialog, editor, idea_panel, ideas_view, status_bar, weights_view, window_controls,
+    assistant_view, commit_dialog, editor, idea_panel, ideas_view, status_bar, weights_view,
+    window_controls,
 };
 
 pub struct App {
@@ -78,6 +80,12 @@ pub struct App {
     /// The recent files and projects, for the menu.
     pub recent: Vec<RecentItem>,
     pub menu_open: bool,
+
+    /// The assistant pane and its conversation, kept while the window is open.
+    pub assistant: Assistant,
+    /// The Settings window's API key field, and how its last connection test went.
+    pub key_field: KeyField,
+    pub connection: Option<Connection>,
 }
 
 #[derive(Debug, Clone)]
@@ -90,6 +98,8 @@ pub enum Message {
     Redo,
     /// Ctrl+X or Ctrl+C in the editor with this id: keep the selection's paint for a paste.
     Clip(&'static str),
+    /// Accept or reject suggested edits (their buttons in the text, Tab or Esc).
+    Decide(Decision),
     Tick(Instant),
     Saved(u64, Result<Option<DiskStamp>, String>),
     TokenizerReady,
@@ -130,6 +140,7 @@ pub enum Message {
     SystemTheme(iced::theme::Mode),
 
     Idea(IdeaAction),
+    Assistant(AssistantAction),
 }
 
 /// Runs the app on `doc` until its window closes.
@@ -243,6 +254,9 @@ impl App {
             now: Instant::now(),
             closing: false,
             menu_open: false,
+            assistant: Assistant::default(),
+            key_field: KeyField::default(),
+            connection: None,
         };
         app.refresh_ideas();
         let tasks = Task::batch([
@@ -301,8 +315,15 @@ impl App {
                     Some(project) if id == editor::REFERENCE_ID => &project.reference,
                     _ => &self.pane,
                 };
-                let clip = source.selection().map(|range| source.model.clipped(range));
+                let clip = source.copied();
+                // While reviewing, the widget's text has the suggestions in it, so the clipboard
+                // gets the text from here instead.
+                let copy = match (&clip, source.reviewing()) {
+                    (Some((text, _)), true) => iced::clipboard::write(text.clone()),
+                    _ => Task::none(),
+                };
                 self.pane.model.clip = clip;
+                return copy;
             }
             Message::Unindent => {
                 let tab_spaces = usize::from(self.settings.tab_spaces);
@@ -323,6 +344,7 @@ impl App {
                 }
             }
             Message::Undo | Message::Redo => {}
+            Message::Decide(decision) => self.decide(decision),
             Message::Tick(now) => {
                 self.now = now;
                 if let Some(project) = &mut self.project
@@ -330,6 +352,7 @@ impl App {
                 {
                     project.slide_started = None;
                 }
+                self.assistant.finish_slide(now);
                 // Not while git is busy: a commit writes `draft.txt` itself.
                 if self.autosaver.should_save_now(now) && !self.busy {
                     return self.save(now);
@@ -375,6 +398,8 @@ impl App {
             Message::CursorToMiddle(size) => return self.scroll_cursor_to_middle(size),
             Message::CloseRequested(window) if window == self.main_window => {
                 self.closing = true;
+                // A reply on its way is cancelled; it never holds the window open.
+                self.assistant.stop();
                 if matches!(self.doc, Doc::Scratch) && self.editable() {
                     let _ = self.scratch_view().save(&self.paths.data_dir);
                 }
@@ -433,7 +458,7 @@ impl App {
                     None => {
                         let (window, open) = window::open(window_settings(Size::new(760.0, 780.0)));
                         self.settings_window = Some(window);
-                        open.map(Message::WindowOpened)
+                        Task::batch([open.map(Message::WindowOpened), self.load_key()])
                     }
                 };
             }
@@ -492,11 +517,9 @@ impl App {
                     self.last_comfort_chars = chars;
                 }
                 settings_window::apply(change, &mut self.settings);
-                self.settings_error = self
-                    .settings
-                    .save_unless_broken(&self.paths.settings_file())
-                    .err();
-                self.settings_modified = modified_time(&self.paths);
+                // A test result is about the settings it ran with.
+                self.connection = None;
+                self.save_settings();
                 self.settings_changed();
             }
             Message::PollSettings => {
@@ -516,6 +539,7 @@ impl App {
                 self.settings_changed();
             }
             Message::Idea(action) => return self.update_ideas(action),
+            Message::Assistant(action) => return self.update_assistant(action),
         }
         Task::none()
     }
@@ -525,13 +549,44 @@ impl App {
         self.autosaver.edited(now);
         self.saving_since.get_or_insert(now);
         self.counts = Counts::of(self.pane.model.text());
+        // Undo, redo and a reload can drop a suggestion the change touched.
+        self.settle_cards(CardState::Gone(
+            "an edit to the text under it dropped it".to_string(),
+        ));
         self.refresh_ideas();
+    }
+
+    /// Accepts or rejects suggestions (from their buttons, Tab or Esc, a card, or New chat), and
+    /// marks their cards.
+    pub fn decide(&mut self, decision: Decision) {
+        if !self.editable() {
+            return;
+        }
+        let changed = self.pane.decide(decision);
+        self.settle_cards(match decision {
+            Decision::Accept(_) | Decision::AcceptAll => CardState::Accepted,
+            Decision::Reject(_) | Decision::RejectAll => CardState::Rejected,
+        });
+        if changed {
+            self.text_changed();
+        } else {
+            self.refresh_ideas();
+        }
+    }
+
+    /// Writes the settings file, unless the user's copy has a mistake (the status bar says so).
+    pub fn save_settings(&mut self) {
+        self.settings_error = self
+            .settings
+            .save_unless_broken(&self.paths.settings_file())
+            .err();
+        self.settings_modified = modified_time(&self.paths);
     }
 
     /// Weighs the ideas and rebuilds the paint the editors draw (a project only).
     pub fn refresh_ideas(&mut self) {
         if let Some(project) = &mut self.project {
-            project.refresh_ideas(&self.pane.model, Roles::of(&self.theme));
+            project.refresh_ideas(&self.pane, Roles::of(&self.theme));
         }
     }
 
@@ -647,12 +702,12 @@ impl App {
         if self.autosaver.state() != SaveState::Saved {
             subscriptions.push(iced::time::every(Duration::from_millis(50)).map(Message::Tick));
         }
-        // While the Rewrite slide plays: about 60 frames a second.
-        if self
+        // While the Rewrite slide or the assistant pane's slide plays: about 60 frames a second.
+        let project_sliding = self
             .project
             .as_ref()
-            .is_some_and(|p| p.slide_started.is_some())
-        {
+            .is_some_and(|p| p.slide_started.is_some());
+        if project_sliding || self.assistant.slide_started.is_some() {
             subscriptions.push(iced::time::every(Duration::from_millis(16)).map(Message::Tick));
         }
         Subscription::batch(subscriptions)
@@ -663,19 +718,9 @@ impl App {
         let body = if Some(window) == self.settings_window {
             settings_window::view(self)
         } else {
-            let editor = match &self.project {
-                Some(project) => project_view::view(self, project),
-                None => editor::view(
-                    &self.pane.content,
-                    &self.settings,
-                    self.editable(),
-                    editor::EDITOR_ID,
-                    Message::Edit,
-                    editor::PADDING,
-                    &[],
-                ),
-            };
-            column![editor, status_bar::view(self)].into()
+            // Always inside `responsive`, so opening the pane keeps the editor's state.
+            let document = responsive(move |size| assistant_view::beside(self, size.width));
+            column![document, status_bar::view(self)].into()
         };
         let mut page = if show_controls {
             column![window_controls::strip(window), body].into()
@@ -715,6 +760,25 @@ impl App {
     }
 }
 
+impl App {
+    /// The document: the editor, or a project's two panes and its idea strip.
+    pub fn document_view(&self) -> Element<'_, Message> {
+        match &self.project {
+            Some(project) => project_view::view(self, project),
+            None => editor::view(
+                &self.pane,
+                &self.settings,
+                self.editable(),
+                editor::EDITOR_ID,
+                Message::Edit,
+                editor::PADDING,
+                self.pane
+                    .suggestion_runs(Roles::of(&self.theme), |_| None, false),
+            ),
+        }
+    }
+}
+
 /// App-wide keys. Up and Down move through the switcher's list, and Enter commits from anywhere
 /// in the Commit dialog (each ignored while its panel is closed).
 fn shortcut(event: iced::Event, status: event::Status, _window: window::Id) -> Option<Message> {
@@ -744,6 +808,7 @@ fn shortcut(event: iced::Event, status: event::Status, _window: window::Id) -> O
         keyboard::Key::Character("p") => Some(Message::OpenSwitcher),
         keyboard::Key::Character("i") => Some(Message::Idea(IdeaAction::FromSelection)),
         keyboard::Key::Character("e") => Some(Message::Idea(IdeaAction::Erase(None))),
+        keyboard::Key::Character("l") => Some(Message::Assistant(AssistantAction::Toggle)),
         keyboard::Key::Character("w" | "W") if modifiers.shift() => {
             Some(Message::Idea(IdeaAction::ToggleWeights))
         }
