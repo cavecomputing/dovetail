@@ -12,7 +12,7 @@ pub mod idea_panel;
 pub mod ideas_view;
 pub mod project_actions;
 pub mod project_view;
-pub mod settings_window;
+pub mod settings_panel;
 pub mod status_bar;
 pub mod switcher;
 pub mod text_editor;

@@ -163,6 +163,17 @@ pub fn raised_box(theme: &Theme) -> container::Style {
     }
 }
 
+/// A dialog's card over the dimmed document: the Commit dialog, the weights view, Settings.
+pub fn dialog_box(theme: &Theme) -> container::Style {
+    let roles = Roles::of(theme);
+    container::Style {
+        background: Some(Background::Color(roles.bg_surface)),
+        text_color: Some(roles.fg),
+        border: Border::default().rounded(6).width(1).color(roles.border),
+        ..container::Style::default()
+    }
+}
+
 /// A plain coloured background, for the window and the status bar.
 pub fn fill(color: Color) -> container::Style {
     container::Style {

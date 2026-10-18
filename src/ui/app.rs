@@ -1,11 +1,11 @@
 //! The App: its state, the Message enum, `update` (the only place state changes) and `view`.
-//! One process shows one document; the Settings window is a second window in the same process.
+//! One process shows one document in one window; Settings opens over it.
 
 use std::fs::File;
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime};
 
-use iced::widget::{column, container, responsive, stack};
+use iced::widget::{column, container, responsive, space, stack};
 use iced::window::{self, Direction};
 use iced::{Element, Size, Subscription, Task, Theme, event, keyboard};
 
@@ -24,7 +24,7 @@ use crate::ui::find_bar::{self, Find, FindAction};
 use crate::ui::idea_actions::IdeaAction;
 use crate::ui::project_actions::load_version;
 use crate::ui::project_view::{self, ProjectView};
-use crate::ui::settings_window::{self, Change, Connection, KeyField};
+use crate::ui::settings_panel::{self, Change, Connection, KeyField};
 use crate::ui::switcher::{self, Switcher};
 use crate::ui::text_editor::{Action, Cursor, Position};
 use crate::ui::theme::{self, Roles};
@@ -43,7 +43,6 @@ pub struct App {
     pub theme: Theme,
 
     main_window: window::Id,
-    settings_window: Option<window::Id>,
 
     pub doc: Doc,
     /// The text being edited: the whole window, or a project's draft (the right pane).
@@ -54,6 +53,8 @@ pub struct App {
     pub commit_note: Option<String>,
     /// The Ctrl+P switcher, while it is open.
     pub switcher: Option<Switcher>,
+    /// Whether the Settings panel is open over the document.
+    pub settings_open: bool,
     /// True while git is creating or committing a project, so it isn't started twice.
     pub busy: bool,
     /// Whether the view opens at a saved top line, rather than around the cursor.
@@ -86,7 +87,7 @@ pub struct App {
 
     /// The assistant pane and its conversation, kept while the window is open.
     pub assistant: Assistant,
-    /// The Settings window's API key field, and how its last connection test went.
+    /// The Settings panel's API key field, and how its last connection test went.
     pub key_field: KeyField,
     pub connection: Option<Connection>,
 }
@@ -107,14 +108,14 @@ pub enum Message {
     Saved(u64, Result<Option<DiskStamp>, String>),
     TokenizerReady,
 
-    WindowOpened(window::Id),
+    WindowOpened,
     CursorToMiddle(Size),
-    CloseRequested(window::Id),
-    WindowClosed(window::Id),
-    Drag(window::Id),
-    Resize(window::Id, Direction),
-    Minimize(window::Id),
-    ToggleMaximize(window::Id),
+    CloseRequested,
+    WindowClosed,
+    Drag,
+    Resize(Direction),
+    Minimize,
+    ToggleMaximize,
 
     ToggleMenu,
     CloseMenu,
@@ -171,9 +172,9 @@ pub fn run(doc: Doc) -> iced::Result {
         .run()
 }
 
-fn window_settings(size: Size) -> window::Settings {
+fn window_settings() -> window::Settings {
     window::Settings {
-        size,
+        size: Size::new(960.0, 720.0),
         min_size: Some(Size::new(360.0, 240.0)),
         decorations: false,
         exit_on_close_request: false,
@@ -189,8 +190,6 @@ fn window_settings(size: Size) -> window::Settings {
 
 /// The app icon at 64x64, as raw RGBA bytes (made from assets/icon/icon.svg, see its README).
 const APP_ICON_RGBA: &[u8] = include_bytes!("../../assets/icon/icon-64.rgba");
-
-const DOC_WINDOW_SIZE: Size = Size::new(960.0, 720.0);
 
 impl App {
     fn new(doc: Doc) -> (App, Task<Message>) {
@@ -227,7 +226,7 @@ impl App {
             }
         }
 
-        let (main_window, open) = window::open(window_settings(DOC_WINDOW_SIZE));
+        let (main_window, open) = window::open(window_settings());
         let (tokenizer_sender, tokenizer_ready) = iced::futures::channel::oneshot::channel();
         load_tokenizer_in_background(move || {
             let _ = tokenizer_sender.send(());
@@ -251,12 +250,12 @@ impl App {
             settings,
             settings_error,
             main_window,
-            settings_window: None,
             doc: opened.doc,
             pane,
             project,
             commit_note: None,
             switcher: None,
+            settings_open: false,
             busy: false,
             scroll_restored: opened.scroll_line.is_some(),
             read_only_reason,
@@ -276,7 +275,7 @@ impl App {
         };
         app.refresh_ideas();
         let tasks = Task::batch([
-            open.map(Message::WindowOpened),
+            open.map(|_| Message::WindowOpened),
             Task::perform(tokenizer_ready, |_| Message::TokenizerReady),
             iced::system::theme().map(Message::SystemTheme),
             load_reference,
@@ -284,12 +283,8 @@ impl App {
         (app, tasks)
     }
 
-    fn title(&self, window: window::Id) -> String {
-        if Some(window) == self.settings_window {
-            "Settings".to_string()
-        } else {
-            status_bar::title(&self.doc)
-        }
+    fn title(&self, _window: window::Id) -> String {
+        status_bar::title(&self.doc)
     }
 
     fn theme(&self, _window: window::Id) -> Theme {
@@ -403,16 +398,16 @@ impl App {
                 self.refresh_ideas();
             }
 
-            Message::WindowOpened(window) if window == self.main_window => {
+            Message::WindowOpened => {
                 let focus = iced::widget::operation::focus(editor::EDITOR_ID);
                 if self.scroll_restored {
                     return focus;
                 }
-                return Task::batch([focus, window::size(window).map(Message::CursorToMiddle)]);
+                let size = window::size(self.main_window).map(Message::CursorToMiddle);
+                return Task::batch([focus, size]);
             }
-            Message::WindowOpened(_) => {}
             Message::CursorToMiddle(size) => return self.scroll_cursor_to_middle(size),
-            Message::CloseRequested(window) if window == self.main_window => {
+            Message::CloseRequested => {
                 self.closing = true;
                 // A reply on its way is cancelled; it never holds the window open.
                 self.assistant.stop();
@@ -421,24 +416,23 @@ impl App {
                 }
                 return self.continue_closing();
             }
-            Message::CloseRequested(window) => return window::close(window),
-            Message::WindowClosed(window) if window == self.main_window => return iced::exit(),
-            Message::WindowClosed(_) => self.settings_window = None,
-            Message::Drag(window) => return window::drag(window),
-            Message::Resize(window, direction) => return window::drag_resize(window, direction),
-            Message::Minimize(window) => return window::minimize(window, true),
-            Message::ToggleMaximize(window) => return window::toggle_maximize(window),
+            Message::WindowClosed => return iced::exit(),
+            Message::Drag => return window::drag(self.main_window),
+            Message::Resize(direction) => return window::drag_resize(self.main_window, direction),
+            Message::Minimize => return window::minimize(self.main_window, true),
+            Message::ToggleMaximize => return window::toggle_maximize(self.main_window),
 
             Message::ToggleMenu => {
                 self.menu_open = !self.menu_open;
                 self.recent = recent_items(&self.paths.data_dir);
             }
-            // Esc, or a click outside: closes the menu, the switcher, the Commit dialog, the idea
-            // panel and the weights view. With none of them open, Esc puts the brush down.
+            // Esc, or a click outside: closes the menu, the switcher, the Commit dialog, Settings,
+            // the idea panel and the weights view. With none of them open, Esc puts the brush down.
             Message::CloseMenu => {
                 let mut closed = self.menu_open || self.switcher.is_some();
                 closed |= self.commit_note.is_some();
                 closed |= std::mem::take(&mut self.find.open);
+                closed |= std::mem::take(&mut self.settings_open);
                 self.menu_open = false;
                 self.switcher = None;
                 self.commit_note = None;
@@ -481,14 +475,14 @@ impl App {
             }
             Message::OpenSettings => {
                 self.menu_open = false;
-                return match self.settings_window {
-                    Some(window) => window::gain_focus(window),
-                    None => {
-                        let (window, open) = window::open(window_settings(Size::new(760.0, 780.0)));
-                        self.settings_window = Some(window);
-                        Task::batch([open.map(Message::WindowOpened), self.load_key()])
-                    }
-                };
+                if std::mem::replace(&mut self.settings_open, true) {
+                    return Task::none();
+                }
+                // Nothing behind the panel keeps the keyboard, so typing reaches only its fields.
+                let unfocus = iced::advanced::widget::operate(
+                    iced::advanced::widget::operation::focusable::unfocus(),
+                );
+                return Task::batch([unfocus, self.load_key()]);
             }
             Message::OpenScratch => {
                 self.menu_open = false;
@@ -544,7 +538,7 @@ impl App {
                 if let Change::ReadingMode(ReadingMode::Comfort { chars }) = change {
                     self.last_comfort_chars = chars;
                 }
-                settings_window::apply(change, &mut self.settings);
+                settings_panel::apply(change, &mut self.settings);
                 // A test result is about the settings it ran with.
                 self.connection = None;
                 self.save_settings();
@@ -718,10 +712,14 @@ impl App {
     }
 
     fn subscription(&self) -> Subscription<Message> {
+        let keys = event::listen_with(shortcut);
         let mut subscriptions = vec![
-            window::close_requests().map(Message::CloseRequested),
-            window::close_events().map(Message::WindowClosed),
-            event::listen_with(shortcut),
+            window::close_requests().map(|_| Message::CloseRequested),
+            window::close_events().map(|_| Message::WindowClosed),
+            match self.settings_open {
+                true => keys.filter_map(settings_key),
+                false => keys,
+            },
             iced::time::every(Duration::from_secs(1)).map(|_| Message::PollSettings),
             iced::system::theme_changes().map(Message::SystemTheme),
         ];
@@ -749,54 +747,53 @@ impl App {
         Subscription::batch(subscriptions)
     }
 
-    fn view(&self, window: window::Id) -> Element<'_, Message> {
+    fn view(&self, _window: window::Id) -> Element<'_, Message> {
         let show_controls = window_controls::visible(self.settings.window_controls);
-        let body = if Some(window) == self.settings_window {
-            settings_window::view(self)
-        } else {
-            // Always inside `responsive`, so opening the pane keeps the editor's state.
-            let document = responsive(move |size| assistant_view::beside(self, size.width));
-            let mut body = column![document];
-            if self.find.open {
-                body = body.push(find_bar::view(self));
-            }
-            body.push(status_bar::view(self)).into()
+        // Always inside `responsive`, so opening the pane keeps the editor's state.
+        let document = responsive(move |size| assistant_view::beside(self, size.width));
+        let mut body = column![document];
+        if self.find.open {
+            body = body.push(find_bar::view(self));
+        }
+        let body = body.push(status_bar::view(self));
+        // Everything that comes and goes keeps its place, left empty while it's hidden: iced keeps
+        // a widget's state (focus, selection, scroll offsets) only while the widget tree keeps its
+        // shape. So opening Settings or a panel, or hiding the window controls, resets nothing.
+        let strip = match show_controls {
+            true => window_controls::strip(),
+            false => space().into(),
         };
-        let mut page = if show_controls {
-            column![window_controls::strip(window), body].into()
-        } else {
-            body
-        };
-        if window == self.main_window {
-            if self.menu_open {
-                page = stack![page, status_bar::menu(self)].into();
+        let page = column![strip, body];
+
+        // Each overlay has its own layer over the page.
+        let (mut card, mut panel, mut weights, mut commit) = (None, None, None, None);
+        if let Some(project) = &self.project {
+            let covered = project.idea_panel.is_some() || project.weights_open;
+            if !covered && self.commit_note.is_none() {
+                card = ideas_view::note_card(self, project);
             }
-            if let Some(project) = &self.project {
-                let card = ideas_view::note_card(self, project);
-                let covered = project.idea_panel.is_some() || project.weights_open;
-                if let Some(card) = card.filter(|_| !covered && self.commit_note.is_none()) {
-                    page = stack![page, card].into();
-                }
-                if let Some(panel) = &project.idea_panel {
-                    page = stack![page, idea_panel::panel(self, project, panel)].into();
-                }
-                if project.weights_open {
-                    page = stack![page, weights_view::view(self, project)].into();
-                }
+            if let Some(idea_panel) = &project.idea_panel {
+                panel = Some(idea_panel::panel(self, project, idea_panel));
             }
-            if let (Some(project), Some(note)) = (&self.project, &self.commit_note) {
-                page = stack![page, commit_dialog::commit_dialog(self, project, note)].into();
+            if project.weights_open {
+                weights = Some(weights_view::view(self, project));
             }
-            if let Some(switcher) = &self.switcher {
-                page = stack![page, switcher::view(switcher)].into();
+            if let Some(note) = &self.commit_note {
+                commit = Some(commit_dialog::commit_dialog(self, project, note));
             }
         }
+        let layers = [
+            self.menu_open.then(|| status_bar::menu(self)),
+            card,
+            panel,
+            weights,
+            commit,
+            self.switcher.as_ref().map(switcher::view),
+            self.settings_open.then(|| settings_panel::view(self)),
+        ];
+        let page = stack![page].extend(layers.map(|layer| layer.unwrap_or_else(|| space().into())));
         let page = container(page).style(|theme: &Theme| theme::fill(Roles::of(theme).bg_surface));
-        if show_controls {
-            window_controls::with_resize_edges(page.into(), window)
-        } else {
-            page.into()
-        }
+        window_controls::with_resize_edges(page.into(), show_controls)
     }
 }
 
@@ -827,7 +824,7 @@ impl App {
 /// App-wide keys. Up and Down move through the switcher's list, and Enter commits from anywhere
 /// in the Commit dialog or steps through the find bar's matches (each ignored while its panel is
 /// closed).
-fn shortcut(event: iced::Event, status: event::Status, window: window::Id) -> Option<Message> {
+fn shortcut(event: iced::Event, status: event::Status, _window: window::Id) -> Option<Message> {
     let iced::Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) = event else {
         return None;
     };
@@ -859,7 +856,7 @@ fn shortcut(event: iced::Event, status: event::Status, window: window::Id) -> Op
         keyboard::Key::Character("w" | "W") if modifiers.shift() => {
             Some(Message::Idea(IdeaAction::ToggleWeights))
         }
-        keyboard::Key::Character("w" | "W") => Some(Message::CloseRequested(window)),
+        keyboard::Key::Character("w" | "W") => Some(Message::CloseRequested),
         keyboard::Key::Character("s" | "S") if modifiers.shift() => Some(Message::SaveAs),
         keyboard::Key::Character("s" | "S") => Some(Message::Save),
         keyboard::Key::Character("o") => Some(Message::OpenDialog),
@@ -867,6 +864,15 @@ fn shortcut(event: iced::Event, status: event::Status, window: window::Id) -> Op
         keyboard::Key::Character("f") => Some(Message::Find(FindAction::Open)),
         keyboard::Key::Character("=" | "+") => Some(Message::Zoom(1.0)),
         keyboard::Key::Character("-") => Some(Message::Zoom(-1.0)),
+        _ => None,
+    }
+}
+
+/// The keys that still work while Settings is open: Esc closes it, Ctrl+W the window, and the
+/// zoom keys change a setting the panel shows. The rest would act on the document behind it.
+fn settings_key(message: Message) -> Option<Message> {
+    match message {
+        Message::CloseMenu | Message::CloseRequested | Message::Zoom(_) => Some(message),
         _ => None,
     }
 }

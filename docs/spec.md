@@ -35,7 +35,7 @@ Matt writes prompts by putting two Typora windows side by side: the old version 
 - **No tabs.** Each opened file or project gets its own window, which plays well with tiling WMs.
 - `Ctrl+P` opens a quick switcher with fuzzy search over recent files and projects.
 - `Ctrl+0` (or similar) jumps back to scratch from anywhere.
-- `Ctrl+,` opens Settings.
+- `Ctrl+,` opens Settings, a panel over the window (Matt, 2026-10-18: not a separate window). See §10.
 - `Ctrl+L` opens and closes the assistant pane.
 - The usual editor keys too (Matt, 2026-10-18): `Ctrl+N` new file (asks where, opens in its own window), `Ctrl+O` open, `Ctrl+S` save (see §4), `Ctrl+Shift+S` save as, `Ctrl+W` close the window, `Ctrl+F` find, `Ctrl+=` / `Ctrl+-` font size.
 - **Find** (`Ctrl+F`): a bar just above the status bar. Matches ignore case and are lit up in the text, the current one outlined; Enter and Shift+Enter step through them, Esc closes the bar and leaves the match selected. In a project it searches the draft.
@@ -130,7 +130,7 @@ This is what makes the app different. It's the agreed direction, with details to
 
 ## 10. Settings
 
-A settings window opened from the menu or `Ctrl+,`. Changes apply instantly. Settings are stored in `~/.config/<app>/settings.toml`, so they can be edited by hand.
+A settings panel that opens over the app, from the menu or `Ctrl+,`, in whichever window it was asked for (scratch, a `.txt` or a project), with the document dimmed behind it (Matt, 2026-10-18: not a separate window). It scrolls when taller than the window; Esc, its close glyph or a click on the dimmed document closes it. While it's open, typing goes only to its fields and the document's shortcuts are off. Changes apply instantly, and other open windows pick them up too. Settings are stored in `~/.config/<app>/settings.toml`, so they can be edited by hand.
 
 | Section | Settings |
 |---|---|
