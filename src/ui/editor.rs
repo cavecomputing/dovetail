@@ -9,9 +9,9 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use iced::keyboard::{Key, Modifiers, key::Named};
-use iced::widget::container;
 use iced::widget::text::Wrapping;
 use iced::widget::text_editor::Motion;
+use iced::widget::{container, stack};
 use iced::{Background, Border, Element, Fill, Padding, Theme};
 
 use crate::core::find::{find_all, word_at};
@@ -22,6 +22,7 @@ use crate::core::text_file::newlines_only;
 use crate::core::text_model::{Change, TextModel, offset, position, positions, selected_lines};
 use crate::ui::app::Message;
 use crate::ui::highlighter::{Colouring, Highlight, MarkupHighlighter, highlight_format};
+use crate::ui::scroll_bar::scroll_bar;
 use crate::ui::text_editor::{
     self, Action, Binding, Content, Cursor, Edit, KeyPress, PaintLook, PaintRun, Position, Status,
     TextEditor,
@@ -100,7 +101,16 @@ pub fn view<'a>(
         }
         ReadingMode::FullWidth => container(editor),
     };
-    container(column).width(Fill).height(Fill).into()
+    // The scroll bar sits at the right edge, over the editor's right padding (or beside a
+    // comfort-width column), and shows only when the text is taller than the view.
+    let bar = scroll_bar(pane.content.scroll_rows(), |lines| {
+        Message::Edit(Action::Scroll { lines })
+    });
+    stack![
+        container(column).width(Fill).height(Fill),
+        container(bar).align_right(Fill).height(Fill),
+    ]
+    .into()
 }
 
 fn style(theme: &Theme, editable: bool) -> text_editor::Style {

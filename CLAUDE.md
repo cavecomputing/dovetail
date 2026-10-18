@@ -238,6 +238,7 @@ src/
                          edits
     text_editor.rs       a copy of iced's text editor widget (draws find matches, suggested edits
                          and their buttons), changes marked `ours:`
+    scroll_bar.rs        the editor's scroll bar, drawn like Settings' (the editor scrolls itself)
     key_guard.rs         keeps Ctrl+digit and Ctrl+punctuation (and ⌘ plus a letter on macOS) from
                          typing into text boxes; widgets still get the key for their shortcuts
     status_bar.rs        the bottom bar (save dot, path, counts, assistant toggle) and its menu

@@ -7,7 +7,8 @@
 //! - The renderer must use iced's `graphics::text::Editor`, so the layout (`buffer()`) is reachable.
 //! - Horizontal scroll: with wrapping off, text, caret, selection and clicks follow the scroll
 //!   cosmic-text already keeps on the cursor (upstream ignores it, so long lines were cut off).
-//! - `Content::scroll_line` reports the top line and `Content::scroll_to_line` restores it.
+//! - `Content::scroll_line` reports the top line and `Content::scroll_to_line` restores it;
+//!   `Content::scroll_rows` says where the view sits, for the scroll bar.
 //! - `Content::move_to` with no selection drops the one the editor had (upstream keeps it).
 //! - `Content::cursor` reports a double or triple click's selection as the whole words or lines
 //!   shown selected (upstream reports only the points clicked and dragged to).
@@ -554,6 +555,31 @@ where
     pub fn scroll_to_line(&mut self, line: usize) {
         self.0.get_mut().scroll_to = Some(line);
     }
+
+    /// Where the view sits, for the scroll bar: its top row, the rows it shows and the rows in
+    /// the whole text. cosmic-text lays out only lines it has shown, so one it hasn't counts as
+    /// one row, however far it would wrap.
+    pub fn scroll_rows(&self) -> ScrollRows {
+        let internal = self.0.borrow();
+        let buffer = internal.editor.buffer();
+        let row_height = buffer.metrics().line_height;
+        let rows = |line: &cosmic_text::BufferLine| line.layout_opt().map_or(1, Vec::len);
+        let scroll = buffer.scroll();
+        let above: usize = buffer.lines.iter().take(scroll.line).map(rows).sum();
+        ScrollRows {
+            top: above as f32 + scroll.vertical / row_height,
+            shown: buffer.size().1.unwrap_or(0.0) / row_height,
+            total: buffer.lines.iter().map(rows).sum::<usize>() as f32,
+        }
+    }
+}
+
+/// ours: where the view sits in the text, in rows (`Content::scroll_rows`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ScrollRows {
+    pub top: f32,
+    pub shown: f32,
+    pub total: f32,
 }
 
 /// ours: how far long lines are scrolled sideways. cosmic-text keeps this on the cursor, but iced
