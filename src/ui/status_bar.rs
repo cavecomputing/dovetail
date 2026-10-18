@@ -183,7 +183,7 @@ fn assistant_toggle<'a>(open: bool) -> Element<'a, Message> {
         true => "Close the assistant (Ctrl+L)",
         false => "Assistant: chat about this text (Ctrl+L)",
     };
-    hint(toggle, words)
+    hint(toggle, keys(words))
 }
 
 /// A small framed word button, such as "Reload from disk".
@@ -213,13 +213,28 @@ fn word_button<'a>(label: String, on_press: Option<Message>) -> Element<'a, Mess
 }
 
 /// Wraps `content` so `words` show above it on hover.
-pub fn hint<'a>(content: impl Into<Element<'a, Message>>, words: &'a str) -> Element<'a, Message> {
+pub fn hint<'a>(
+    content: impl Into<Element<'a, Message>>,
+    words: impl text::IntoFragment<'a>,
+) -> Element<'a, Message> {
     tooltip(
         content,
         container(small(words)).padding([3, 8]).style(raised_box),
         tooltip::Position::Top,
     )
     .into()
+}
+
+/// A shortcut as this OS writes it: "Ctrl+Shift+S" on Linux and Windows is "⇧⌘S" on macOS.
+pub fn keys(shortcut: &str) -> String {
+    if !cfg!(target_os = "macos") {
+        return shortcut.to_string();
+    }
+    shortcut
+        .replace("Ctrl+Shift+", "⇧⌘")
+        .replace("Ctrl+", "⌘")
+        .replace("Shift+", "⇧")
+        .replace("Enter", "↩")
 }
 
 /// The menu panel, raised above the status bar's left end. Clicking anywhere else closes it.
@@ -293,17 +308,13 @@ pub fn menu(app: &App) -> Element<'_, Message> {
 }
 
 /// A menu row: its label, and a shortcut on the right.
-pub fn menu_item<'a>(
-    label: String,
-    shortcut: impl text::IntoFragment<'a>,
-    message: Message,
-) -> Element<'a, Message> {
+pub fn menu_item<'a>(label: String, shortcut: &str, message: Message) -> Element<'a, Message> {
     button(
         row![
             container(text(label).size(13).wrapping(Wrapping::None))
                 .width(Fill)
                 .clip(true),
-            text(shortcut)
+            text(keys(shortcut))
                 .size(11)
                 .wrapping(Wrapping::None)
                 .style(|theme: &Theme| text::Style {
@@ -341,4 +352,18 @@ pub fn file_name(path: &Path) -> String {
         .unwrap_or(path.as_os_str())
         .to_string_lossy()
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shortcuts_are_written_as_this_os_writes_them() {
+        let written = [keys("Ctrl+Shift+S"), keys("Previous (Shift+Enter)")];
+        match cfg!(target_os = "macos") {
+            true => assert_eq!(written, ["⇧⌘S", "Previous (⇧↩)"]),
+            false => assert_eq!(written, ["Ctrl+Shift+S", "Previous (Shift+Enter)"]),
+        }
+    }
 }
