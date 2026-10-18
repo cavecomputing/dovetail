@@ -1,0 +1,103 @@
+# Maintainer: cavecomputing
+#
+# Builds the latest main from GitHub: cd here, then `makepkg -si`. Installed files, the .desktop
+# entry included, take their names from the binary (`--print-brand`), as scripts/install.sh does.
+
+pkgname=dovetail-git
+_pkgname=dovetail
+pkgver=0.1.0.r0.g0000000
+pkgrel=1
+pkgdesc='A fast, quiet plain-text editor and scratchpad, with an assistant that suggests edits'
+arch=('x86_64' 'aarch64')
+url='https://github.com/cavecomputing/text'
+# No licence has been chosen for the app yet; the bundled JetBrains Mono font is OFL-1.1.
+license=('LicenseRef-unlicensed' 'OFL-1.1')
+# winit, wgpu and the keyring load these at run time (dlopen), so they don't show as linked.
+depends=(
+  'dbus'
+  'gcc-libs'
+  'glibc'
+  'hicolor-icon-theme'
+  'libx11'
+  'libxcb'
+  'libxcursor'
+  'libxi'
+  'libxkbcommon'
+  'libxkbcommon-x11'
+  'vulkan-icd-loader'
+  'wayland'
+)
+makedepends=('cargo' 'git')
+optdepends=(
+  'xdg-desktop-portal-gtk: Open and Save dialogs on Hyprland, Sway and other tiling setups'
+  'zenity: Open and Save dialogs without a portal'
+  'gnome-keyring: keep the assistant API key in the system keyring (or kwallet)'
+)
+# makepkg's lto adds -flto to CFLAGS, which makes the C half of the TLS library (aws-lc-sys) GCC
+# LTO objects that Rust's linker can't read ("undefined symbol: aws_lc_...").
+options=('!lto')
+provides=("$_pkgname")
+conflicts=("$_pkgname")
+source=("$_pkgname::git+$url.git")
+sha256sums=('SKIP')
+
+pkgver() {
+  cd "$_pkgname"
+  # No release tags yet: Cargo.toml's version, then commits so far and the commit, as
+  # 0.1.0.r152.g4844c06.
+  printf '%s.r%s.g%s' \
+    "$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)" \
+    "$(git rev-list --count HEAD)" \
+    "$(git rev-parse --short=7 HEAD)"
+}
+
+prepare() {
+  cd "$_pkgname"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(rustc --print host-tuple)"
+}
+
+build() {
+  cd "$_pkgname"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo build --frozen --release
+}
+
+check() {
+  cd "$_pkgname"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo test --frozen
+}
+
+package() {
+  cd "$_pkgname"
+  eval "$(target/release/"$_pkgname" --print-brand)"
+
+  install -Dm755 "target/release/$_pkgname" "$pkgdir/usr/bin/$BIN_NAME"
+
+  local icons="$pkgdir/usr/share/icons/hicolor"
+  install -Dm644 assets/icon/icon.svg "$icons/scalable/apps/$APP_ID.svg"
+  local size
+  for size in 16 24 32; do
+    install -Dm644 assets/icon/icon-small.svg "$icons/${size}x${size}/apps/$APP_ID.svg"
+  done
+  install -Dm644 assets/icon/icon-symbolic.svg "$icons/symbolic/apps/$APP_ID-symbolic.svg"
+
+  install -Dm644 /dev/stdin "$pkgdir/usr/share/applications/$APP_ID.desktop" <<DESKTOP
+[Desktop Entry]
+Type=Application
+Name=$APP_NAME
+Comment=Plain-text editor and scratchpad
+Exec=$BIN_NAME %f
+Icon=$APP_ID
+Terminal=false
+Categories=Utility;TextEditor;
+MimeType=text/plain;text/markdown;
+StartupWMClass=$APP_ID
+DESKTOP
+
+  install -Dm644 README.md docs/guide.md -t "$pkgdir/usr/share/doc/$pkgname/"
+  install -Dm644 assets/fonts/OFL.txt -t "$pkgdir/usr/share/licenses/$pkgname/"
+}

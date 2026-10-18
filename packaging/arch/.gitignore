@@ -1,0 +1,6 @@
+# makepkg output
+/src/
+/pkg/
+/dovetail/
+*.pkg.tar.*
+*.log

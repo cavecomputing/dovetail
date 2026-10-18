@@ -141,6 +141,10 @@ name from `brand.rs` through `<bin> --print-brand`:
 
 - **Linux**: `scripts/install.sh` copies the binary to `~/.local/bin` and installs the app icon and
   the `.desktop` file (for plain text and Markdown).
+- **Arch**: `packaging/arch/PKGBUILD` builds a `dovetail-git` pacman package from GitHub's `main`
+  (`cd packaging/arch && makepkg -si`), installing the same files under `/usr`. Its package name
+  has to be written out (makepkg needs it literally); the installed names still come from
+  `--print-brand`.
 - **macOS**: `scripts/install-macos.sh` makes an app bundle in `~/Applications` (signed ad hoc, so
   no Apple account is needed) and a terminal command in `~/.local/bin`. The bundle can't be a
   file's "Open With" app yet (winit can't receive the Apple Event macOS opens files with), so open
@@ -196,6 +200,7 @@ assets/fonts/            the bundled JetBrains Mono NL Nerd Font (no ligatures) 
 assets/icon/             the app icon: SVGs for Linux, icon.icns for macOS, icon.ico for Windows,
                          and a 64px raw RGBA copy for the window (see its README)
 docs/                    spec.md (the design), design-tokens.json (the Gruvbox palette)
+packaging/arch/          PKGBUILD for a pacman package (dovetail-git) built from GitHub
 scripts/                 per-OS installers: install.sh (Linux: binary, icon, .desktop file),
                          install-macos.sh (an app bundle in ~/Applications), install-windows.ps1
                          (Start Menu and Open with entries)
