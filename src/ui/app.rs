@@ -1275,6 +1275,28 @@ mod tests {
     }
 
     #[test]
+    fn leaving_a_file_whose_last_save_failed_saves_it_again() {
+        let (_dir, _paths, mut app, notes) = scratch_window("");
+        let _ = app.update(Message::OpenPath(notes.clone()));
+        let _ = app.update(Message::Edit(Action::Edit(Edit::Insert('!'))));
+        // Two saves of the same text end out of order: the one that failed comes back last,
+        // so nothing is pending but the last save failed (and the file on disk lacks the "!").
+        let document = app.document;
+        let first = app.autosaver.begin(Instant::now());
+        let second = app.autosaver.begin(Instant::now());
+        let _ = app.update(Message::Saved(document, first, Ok(None)));
+        let _ = app.update(Message::Saved(
+            document,
+            second,
+            Err("Save failed: disk full".into()),
+        ));
+        assert!(!app.autosaver.pending() && !app.autosaver.close_allowed());
+        let _ = app.update(Message::OpenScratch);
+        assert!(matches!(app.doc, Doc::Scratch));
+        assert_eq!(std::fs::read_to_string(&notes).unwrap(), "!# notes\r\n");
+    }
+
+    #[test]
     fn a_file_that_cant_be_opened_leaves_scratch_as_it_was() {
         let (dir, _paths, mut app, _notes) = scratch_window("mine");
         let binary = dir.path().join("binary.txt");
