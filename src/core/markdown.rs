@@ -1,6 +1,7 @@
-//! Markdown in a .md or .markdown file: which parts of each line to colour, and what Enter types
-//! in a list. Nothing is rendered; the text stays exactly as typed. Lines are read one at a time,
-//! each starting in the `Block` the line above left it in: prose, or inside a fenced code block.
+//! Markdown in a .md or .markdown file: which parts of each line to colour, and what Enter and
+//! Tab do in a list. Nothing is rendered; the text stays exactly as typed. Lines are read one at a
+//! time, each starting in the `Block` the line above left it in: prose, or inside a fenced code
+//! block.
 
 use std::ops::Range;
 use std::path::Path;
@@ -202,6 +203,12 @@ pub fn list_enter(text: &str, caret: usize) -> Option<ListEnter> {
     Some(ListEnter::Delete(
         line_start + peeled.start..line_start + peeled.end,
     ))
+}
+
+/// Whether the line byte `at` of `text` is on is a list item (a quote's items aren't counted),
+/// outside fenced code.
+pub fn is_list_item(text: &str, at: usize) -> bool {
+    prose_line(text, at).is_some_and(|(_, line)| list_marker(line, 0).is_some() && !is_rule(line))
 }
 
 /// The line byte `at` of `text` is on, and where it starts, unless it is inside fenced code.
@@ -656,5 +663,17 @@ mod tests {
         ] {
             assert_eq!(enter_at(text), None, "{text:?}");
         }
+    }
+
+    #[test]
+    fn list_items_are_lines_with_a_marker_outside_fenced_code() {
+        let text = "- a\n  1. b é\n> - c\n* * *\ntext\n```\n- d\n```\n- [ ] e";
+        let line_starts = std::iter::once(0).chain(text.match_indices('\n').map(|(at, _)| at + 1));
+        let items: Vec<bool> = line_starts.map(|at| is_list_item(text, at)).collect();
+        assert_eq!(
+            items,
+            [true, true, false, false, false, false, false, false, true]
+        );
+        assert!(!is_list_item("", 0));
     }
 }

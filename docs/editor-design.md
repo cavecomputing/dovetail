@@ -119,7 +119,9 @@ the caret at the end of the last change. Undo of a step applies its changes in r
   `core::markdown::list_enter` (no iced; it reads the caret's line, and scans the fences from the
   top to know whether the line is code) what to do: type a newline and the next item's prefix,
   delete the empty item's marker, or unindent it with `Pane::unindent`. Each goes through the
-  same paths as above, so it is one undo step and review mode checks it.
+  same paths as above, so it is one undo step and review mode checks it. Tab there on a list
+  item (`core::markdown::is_list_item`) takes `reindent`'s line path even with nothing selected,
+  so the whole line is indented and the caret moves with its text.
 - Alt+↑ and Alt+↓ go to `Message::MoveLines`, a model change: `TextModel::move_lines` swaps the
   lines with the one above or below as one `Change` and one undo step, and `Pane::move_lines`
   replays it and puts the caret and selection back on the same text, a line up or down.

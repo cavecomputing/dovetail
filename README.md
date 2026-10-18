@@ -112,7 +112,7 @@ enough guide for other models.
 as dialogs offer them alongside `.txt`: type `notes.md` as the name to make one. They are coloured
 as you type: headings, list markers and task boxes, quotes, code, bold, italic, struck text and
 links. Nothing is rendered: the text stays exactly as typed, markers and all. Enter continues a
-list or a quote (see [Keys](#keys)). Scratch and `.txt` files stay plain.
+list or a quote, and Tab nests a list item (see [Keys](#keys)). Scratch and `.txt` files stay plain.
 
 Files must be UTF-8, which almost every editor writes today. Any other file opens empty and
 read-only, and the status bar says why; the file itself is never touched. A file keeps its line
@@ -145,7 +145,7 @@ Shortcuts are written with Ctrl; on macOS use ⌘ (the app's menu and hints show
 | Ctrl+, | Settings |
 | Ctrl+L | Open or close the assistant pane |
 | Esc | Close the menu, the switcher or Settings, or else the find bar, and put the keyboard back in the text (from the assistant's box, say) |
-| Tab | Insert spaces at the cursor, never a tab character (text selected within one line is replaced); with several lines selected, indent each |
+| Tab | Insert spaces at the cursor, never a tab character (text selected within one line is replaced); with several lines selected, indent each. In a Markdown file, on a list item it indents the whole line instead, nesting the item |
 | Shift+Tab | Unindent the line, or each selected line |
 | Enter | New line, indented like the line the cursor is on (as far as the cursor). On a line of only spaces, the spaces move down too, so the line left behind is empty. In a Markdown file, on a list item or quote it starts the next one: the same bullet, the next number, an empty `[ ]` task box, the same `>`. On an empty item it ends the list instead: an indented item moves out a level, any other loses its marker. In fenced code it's a plain new line |
 | Shift+Enter | New line, indented like Enter's, but never a new list item |

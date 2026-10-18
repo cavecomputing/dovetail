@@ -1,6 +1,6 @@
 //! The text editing widget: the text column, Tab as spaces, Enter and Backspace that know about
-//! indents (and Enter about Markdown lists), deleting a word, moving lines, undo and redo (its
-//! colours come from `highlighter`). A `Pane` pairs the widget's content with the text model
+//! indents (and Enter and Tab about Markdown lists), deleting a word, moving lines, undo and redo
+//! (its colours come from `highlighter`). A `Pane` pairs the widget's content with the text model
 //! behind it, and shows suggested edits inside the text until each is accepted or rejected
 //! (review mode).
 
@@ -14,7 +14,7 @@ use iced::widget::text::Wrapping;
 use iced::widget::text_editor::Motion;
 use iced::{Background, Border, Element, Fill, Padding, Theme};
 
-use crate::core::markdown::{ListEnter, list_enter};
+use crate::core::markdown::{ListEnter, is_list_item, list_enter};
 use crate::core::review::{DisplayMap, Review, Shown, Suggestion, clashes};
 use crate::core::settings::{ReadingMode, Settings};
 use crate::core::text_file::newlines_only;
@@ -102,15 +102,15 @@ fn style(theme: &Theme, editable: bool) -> text_editor::Style {
 }
 
 /// Tab indents (with spaces, never a tab character), Shift+Tab unindents, Enter (and Shift+Enter)
-/// starts a line indented like the caret's (in Markdown, `App::update` has Enter without Shift
-/// continue a list), Backspace in a line's leading spaces goes back to the last indent stop,
-/// Ctrl+Backspace and Ctrl+Delete delete a word (⌥⌫ and ⌥⌦ on macOS, where ⌘⌫ and ⌘⌦ delete to
-/// the start and end of the line), Alt+↑ and Alt+↓ move lines, Ctrl+Z undoes, Ctrl+Shift+Z and
-/// Ctrl+Y redo, and the app's own Ctrl shortcuts are left for the app. A pane that isn't
-/// `editable` keeps only iced's own keys (moving, selecting, copying). While `reviewing`, Tab
+/// starts a line indented like the caret's (in Markdown, `App::update` has Tab nest a list item and
+/// Enter without Shift continue a list), Backspace in a line's leading spaces goes back to the last
+/// indent stop, Ctrl+Backspace and Ctrl+Delete delete a word (⌥⌫ and ⌥⌦ on macOS, where ⌘⌫ and ⌘⌦
+/// delete to the start and end of the line), Alt+↑ and Alt+↓ move lines, Ctrl+Z undoes,
+/// Ctrl+Shift+Z and Ctrl+Y redo, and the app's own Ctrl shortcuts are left for the app. A pane that
+/// isn't `editable` keeps only iced's own keys (moving, selecting, copying). While `reviewing`, Tab
 /// accepts the suggestion the caret is on and Esc rejects it (`App::update` turns a Tab anywhere
-/// else back into an indent), and Ctrl+C and Ctrl+X go through `Message::Clip`, since the
-/// widget's text has the suggestions in it.
+/// else back into an indent), and Ctrl+C and Ctrl+X go through `Message::Clip`, since the widget's
+/// text has the suggestions in it.
 fn key_binding(press: KeyPress, editable: bool, reviewing: bool) -> Option<Binding<Message>> {
     // A custom binding is used even when the editor isn't focused, so check first.
     if !matches!(press.status, Status::Focused { .. }) {
@@ -528,17 +528,18 @@ impl Pane {
     }
 
     /// Tab: adds one indent (`tab_spaces` spaces) to the start of each line the selection is on.
-    /// With nothing selected, or a selection within one line, it types the spaces instead.
+    /// With nothing selected, or a selection within one line, it types the spaces instead, except
+    /// on a list item in a Markdown file (`markdown`), which it nests by indenting its whole line.
     /// Returns whether the text changed, or why it can't.
-    pub fn indent(&mut self, tab_spaces: usize) -> Result<bool, String> {
-        self.reindent(tab_spaces, true)
+    pub fn indent(&mut self, tab_spaces: usize, markdown: bool) -> Result<bool, String> {
+        self.reindent(tab_spaces, true, markdown)
     }
 
     /// Shift+Tab: removes up to one indent (`tab_spaces` spaces) from the start of the caret's
     /// line, or of each line the selection is on. Returns whether the text changed, or why it
     /// can't.
     pub fn unindent(&mut self, tab_spaces: usize) -> Result<bool, String> {
-        self.reindent(tab_spaces, false)
+        self.reindent(tab_spaces, false, false)
     }
 
     /// Enter (and Shift+Enter): a new line in place of any selection, indented like the caret's
@@ -684,13 +685,15 @@ impl Pane {
     /// keeps the caret and selection on the same text. A last line the selection only reaches
     /// the start of is left alone, as nothing on it is selected, and lines with a suggestion on
     /// them are refused.
-    fn reindent(&mut self, tab_spaces: usize, add: bool) -> Result<bool, String> {
+    fn reindent(&mut self, tab_spaces: usize, add: bool, markdown: bool) -> Result<bool, String> {
         let cursor = self.content.cursor();
         let caret = self.to_text(cursor.position);
         let anchor = cursor.selection.map_or(caret, |at| self.to_text(at));
         let (start, end) = (caret.min(anchor), caret.max(anchor));
         let text = self.model.text();
-        if add && !text[start..end].contains('\n') {
+        let one_line = !text[start..end].contains('\n');
+        let nest = add && markdown && one_line && is_list_item(text, start);
+        if add && one_line && !nest {
             let spaces = Arc::new(" ".repeat(tab_spaces));
             return self.perform(Action::Edit(Edit::Paste(spaces)));
         }
@@ -706,10 +709,10 @@ impl Pane {
             return Ok(false);
         }
         // Each change is at the start of a line: what is after it moves with it, and the start
-        // of the line stays put.
+        // of the line stays put, except on a nested list item, which moves as a whole.
         let moved = |mut at: usize| {
             for change in &changes {
-                if at > change.at {
+                if at > change.at || nest {
                     let removed_end = change.at + change.removed.len();
                     at = at.max(removed_end) - change.removed.len() + change.inserted.len();
                 }
@@ -1182,12 +1185,12 @@ mod tests {
     fn tab_indents_each_selected_line_as_one_step() {
         let mut pane = Pane::new("alpha\nbeta\ngamma\n");
         select_two_lines(&mut pane);
-        assert_eq!(pane.indent(4), Ok(true));
+        assert_eq!(pane.indent(4, false), Ok(true));
         assert_eq!(pane.content.text(), "    alpha\n    beta\ngamma\n");
         assert_eq!(pane.model.text(), pane.content.text());
         // The same lines stay selected, indents included.
         assert_eq!(pane.selection(), Some(0..19));
-        assert_eq!(pane.indent(4), Ok(true), "again, a level deeper");
+        assert_eq!(pane.indent(4, false), Ok(true), "again, a level deeper");
         assert_eq!(pane.content.text(), "        alpha\n        beta\ngamma\n");
         pane.undo();
         assert_eq!(pane.content.text(), "    alpha\n    beta\ngamma\n");
@@ -1197,7 +1200,7 @@ mod tests {
             position: Position { line: 1, column: 6 },
             selection: Some(Position { line: 0, column: 5 }),
         });
-        assert_eq!(pane.indent(2), Ok(true));
+        assert_eq!(pane.indent(2, false), Ok(true));
         assert_eq!(pane.content.text(), "      alpha\n      beta\ngamma\n");
         assert_eq!(pane.copied().as_deref(), Some("lpha\n      be"));
     }
@@ -1206,14 +1209,14 @@ mod tests {
     fn tab_within_one_line_types_spaces() {
         let mut pane = Pane::new("one two");
         pane.content.move_to(cursor_at(0, 3));
-        assert_eq!(pane.indent(4), Ok(true));
+        assert_eq!(pane.indent(4, false), Ok(true));
         assert_eq!(pane.content.text(), "one     two");
         // A selection within one line is replaced, as typing would.
         pane.content.move_to(Cursor {
             position: Position { line: 0, column: 3 },
             selection: Some(Position { line: 0, column: 0 }),
         });
-        assert_eq!(pane.indent(2), Ok(true));
+        assert_eq!(pane.indent(2, false), Ok(true));
         assert_eq!(pane.content.text(), "       two");
         pane.undo();
         assert_eq!(pane.content.text(), "one     two", "one undo step");
@@ -1651,5 +1654,56 @@ mod tests {
         pane.put_caret(4);
         assert_eq!(pane.markdown_new_line(4), Err(IN_A_SUGGESTION.to_string()));
         assert_eq!(pane.model.text(), "  - \nx");
+    }
+
+    #[test]
+    fn markdown_tab_on_a_list_item_nests_it() {
+        let mut pane = Pane::new("- one\n- café");
+        pane.content.move_to(cursor_at(1, 7));
+        assert_eq!(pane.indent(4, true), Ok(true));
+        assert_eq!(pane.content.text(), "- one\n    - café");
+        assert_eq!(pane.content.cursor(), cursor_at(1, 11));
+        // From the start of the line too, the caret stays on the same text.
+        pane.content.move_to(cursor_at(0, 0));
+        assert_eq!(pane.indent(2, true), Ok(true));
+        assert_eq!(pane.content.text(), "  - one\n    - café");
+        assert_eq!(pane.content.cursor(), cursor_at(0, 2));
+        // So does a selection within the line.
+        pane.select(14..19);
+        assert_eq!(pane.indent(4, true), Ok(true));
+        assert_eq!(pane.content.text(), "  - one\n        - café");
+        assert_eq!(pane.copied().as_deref(), Some("café"));
+        assert_eq!(pane.model.text(), pane.content.text());
+        pane.undo();
+        assert_eq!(pane.content.text(), "  - one\n    - café", "one undo step");
+    }
+
+    #[test]
+    fn markdown_tab_elsewhere_types_spaces() {
+        // Not a list item, in fenced code, or not Markdown: the spaces go at the caret.
+        for (text, markdown) in [("one", true), ("```\n- x", true), ("- x", false)] {
+            let mut pane = Pane::new(text);
+            pane.content.move_to(Cursor {
+                position: pane.position(text.len(), true),
+                selection: None,
+            });
+            assert_eq!(pane.indent(2, markdown), Ok(true));
+            assert_eq!(pane.content.text(), format!("{text}  "));
+        }
+    }
+
+    #[test]
+    fn markdown_tab_on_a_list_item_while_reviewing() {
+        let mut pane = Pane::new("- one two\n- three");
+        pane.suggest(6..9, "2").unwrap();
+        // The item with the suggestion on it can't be nested.
+        pane.put_caret(3);
+        assert_eq!(pane.indent(4, true), Err(IN_A_SUGGESTION.to_string()));
+        // The other can, and the suggestion stays where it is.
+        pane.put_caret(14);
+        assert_eq!(pane.indent(4, true), Ok(true));
+        assert_eq!(pane.model.text(), "- one two\n    - three");
+        assert_eq!(pane.suggestions()[0].range, 6..9);
+        assert_eq!(pane.caret(), 18);
     }
 }
