@@ -10,7 +10,7 @@
 
 use std::fs::{self, File, TryLockError};
 use std::io::{self, ErrorKind};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -108,14 +108,25 @@ pub fn take_cleared(data_dir: &Path) -> Option<String> {
 
 /// True when another running process has the scratch space open.
 pub fn scratch_open_elsewhere(data_dir: &Path) -> bool {
-    locked_elsewhere(&data_dir.join(LOCK_FILE))
+    locked_elsewhere(&scratch_lock_path(data_dir))
+}
+
+/// The lock that keeps scratch to one window; anything else that would write scratch's text
+/// file claims it too.
+pub fn scratch_lock_path(data_dir: &Path) -> PathBuf {
+    data_dir.join(LOCK_FILE)
+}
+
+/// Where scratch's text is kept.
+pub fn scratch_text_path(data_dir: &Path) -> PathBuf {
+    data_dir.join(TEXT_FILE)
 }
 
 /// Claims the scratch space for this process, so a second window can't write over it. Keep the
 /// returned `File` open while the window lives; the claim ends with the process.
 /// `Err(TryLockError::WouldBlock)` means another window already has it.
 pub fn claim_scratch(data_dir: &Path) -> Result<File, TryLockError> {
-    claim_lock(&data_dir.join(LOCK_FILE))
+    claim_lock(&scratch_lock_path(data_dir))
 }
 
 #[cfg(test)]

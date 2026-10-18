@@ -29,8 +29,8 @@ use crate::ui::switcher::{self, Switcher};
 use crate::ui::text_editor::{Action, Cursor, Position};
 use crate::ui::theme::{self, Roles};
 use crate::ui::{
-    assistant_view, commit_dialog, editor, idea_panel, ideas_view, status_bar, weights_view,
-    window_controls,
+    assistant_view, commit_dialog, editor, idea_panel, ideas_view, key_guard, status_bar,
+    weights_view, window_controls,
 };
 
 pub struct App {
@@ -124,6 +124,7 @@ pub enum Message {
         shift: bool,
     },
     NewFile,
+    NewFilePicked(PathBuf),
     OpenDialog,
     Save,
     SaveAs,
@@ -360,6 +361,9 @@ impl App {
                 }
             }
             Message::Undo | Message::Redo => {}
+            // Esc in the editor rejects the suggestion at the caret, except while the find bar
+            // is open: then that Esc only closes the bar (`CloseMenu`).
+            Message::Decide(Decision::Reject(None)) if self.find.open => {}
             Message::Decide(decision) => self.decide(decision),
             Message::Tick(now) => {
                 self.now = now;
@@ -434,11 +438,11 @@ impl App {
                 self.recent = recent_items(&self.paths.data_dir);
             }
             // Esc, or a click outside: closes the menu, the switcher, the Commit dialog, the idea
-            // panel and the weights view. With none of them open, Esc puts the brush down.
+            // panel and the weights view. With none of them open, Esc closes the find bar, and
+            // after that puts the brush down.
             Message::CloseMenu => {
                 let mut closed = self.menu_open || self.switcher.is_some();
                 closed |= self.commit_note.is_some();
-                closed |= std::mem::take(&mut self.find.open);
                 self.menu_open = false;
                 self.switcher = None;
                 self.commit_note = None;
@@ -446,6 +450,10 @@ impl App {
                     closed |= project.idea_panel.take().is_some();
                     closed |= std::mem::take(&mut project.weights_open);
                     project.commit_check = None;
+                }
+                // The find bar sits under all of those, so it closes on an Esc of its own.
+                if !closed {
+                    closed = std::mem::take(&mut self.find.open);
                 }
                 if !closed {
                     self.pane.model.brush = None;
@@ -460,6 +468,7 @@ impl App {
                 return self.update_project(Message::Commit);
             }
             Message::NewFile => return self.new_file(),
+            Message::NewFilePicked(path) => return self.start_new_file(path),
             Message::Save => return self.save_now(),
             Message::SaveAs => return self.pick_save_path(),
             Message::SaveAsPicked(path) => return self.save_as(path),
@@ -469,10 +478,9 @@ impl App {
                     .add_filter("Text and projects", &["txt", brand::PROJECT_EXT])
                     .add_filter("All files", &["*"])
                     .pick_file();
-                return Task::perform(dialog, |picked| match picked {
-                    Some(file) => Message::OpenPath(file.path().to_path_buf()),
-                    None => Message::CloseMenu,
-                });
+                // Cancelling leaves everything as it was.
+                return Task::perform(dialog, |picked| picked)
+                    .and_then(|file| Task::done(Message::OpenPath(file.path().to_path_buf())));
             }
             Message::OpenPath(path) => {
                 self.menu_open = false;
@@ -792,6 +800,7 @@ impl App {
             }
         }
         let page = container(page).style(|theme: &Theme| theme::fill(Roles::of(theme).bg_surface));
+        let page = key_guard::guard(page);
         if show_controls {
             window_controls::with_resize_edges(page.into(), window)
         } else {
