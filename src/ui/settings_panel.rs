@@ -161,7 +161,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
                     Change::TabSpaces(settings.tab_spaces.saturating_sub(1)),
                     Change::TabSpaces(settings.tab_spaces.saturating_add(1)),
                 ),
-                comment("spaces, never tabs"),
+                comment("spaces, never tabs; YAML follows the file, 2 if new"),
             ),
             setting_row(
                 "word_wrap",

@@ -1,8 +1,10 @@
 //! What typing does in code, in shell scripts and JSON files: brackets and quotes that close
-//! themselves, and Enter that indents a block and lines up the line that ends one.
+//! themselves, and Enter that indents a block and lines up the line that ends one (in YAML too,
+//! where a `key:` opens one).
 
 use std::ops::Range;
 
+use crate::core::config::comment_start;
 use crate::core::shell::shell_ranges;
 use crate::core::syntax::{Syntax, Token};
 
@@ -88,6 +90,7 @@ fn code(line: &str, syntax: Syntax) -> &str {
             .iter()
             .find(|(_, token)| *token == Token::Comment)
             .map_or(line.len(), |(range, _)| range.start),
+        Syntax::Yaml => comment_start(line, true).unwrap_or(line.len()),
         _ => line.len(),
     };
     line[..end].trim_end()
@@ -98,9 +101,17 @@ fn words(code: &str) -> impl DoubleEndedIterator<Item = &str> {
     code.split([' ', '\t', ';']).filter(|word| !word.is_empty())
 }
 
-/// Whether a line ending in `code` opens a block, whose lines go in one step: a bracket, or in a
-/// script `then`, `do`, `else`, `case … in`, or a case's pattern (`start)`).
+/// Whether a line ending in `code` opens a block, whose lines go in one step: a bracket, in a
+/// script `then`, `do`, `else`, `case … in`, or a case's pattern (`start)`), and in YAML a key
+/// with no value yet (`key:`), a block (`key: |`), or a bare list dash.
 fn opens_block(code: &str, syntax: Syntax) -> bool {
+    if syntax == Syntax::Yaml {
+        let code = code.trim_start();
+        return code.ends_with(':')
+            || code == "-"
+            || code.ends_with(['|', '>']) && code.contains(':')
+            || code.ends_with(['-', '+']) && code[..code.len() - 1].ends_with(['|', '>']);
+    }
     if code.ends_with(['{', '[', '(']) {
         return true;
     }
@@ -175,13 +186,21 @@ pub fn enter(
         }
     }
     let line = format!("{}{words}", " ".repeat(base));
+    // A YAML list item that is a mapping (`- name: x`): what follows goes under `name`.
+    let mut inner = base;
+    if syntax == Syntax::Yaml
+        && let Some(item) = words.strip_prefix("- ")
+        && (item.contains(": ") || item.trim_end().ends_with(':'))
+    {
+        inner += 2 + (item.len() - item.trim_start().len());
+    }
     let code = code(before, syntax);
     let new_indent = if opens_block(code, syntax) {
-        base + tab_spaces
+        inner + tab_spaces
     } else if ends_branch(code, syntax) {
         base.saturating_sub(tab_spaces)
     } else {
-        base
+        inner
     };
     let mut with = format!("{line}\n{}", " ".repeat(new_indent));
     let caret = line_start + with.len();
@@ -301,6 +320,29 @@ mod tests {
             press_enter("\"list\": [|", Syntax::Json).unwrap(),
             "\"list\": [\n    |"
         );
+    }
+
+    #[test]
+    fn yaml_enter_nests_after_a_key_and_lines_up_a_list_items_keys() {
+        // The caret is `^` here, as YAML's blocks use `|`.
+        let enter2 = |text: &str| {
+            let at = text.find('^').unwrap();
+            let plain = text.replace('^', "");
+            let (range, with, caret) = enter(&plain, at..at, 2, Syntax::Yaml).unwrap();
+            let mut result = plain.clone();
+            result.replace_range(range, &with);
+            result.insert(caret, '^');
+            result
+        };
+        assert_eq!(enter2("services:^"), "services:\n  ^");
+        assert_eq!(enter2("  web: # the site^"), "  web: # the site\n    ^");
+        assert_eq!(enter2("  script: |-^"), "  script: |-\n    ^");
+        assert_eq!(enter2("  image: nginx^"), "  image: nginx\n  ^");
+        assert_eq!(enter2("  - name: web^"), "  - name: web\n    ^");
+        assert_eq!(enter2("  - env:^"), "  - env:\n      ^");
+        assert_eq!(enter2("  - plain item^"), "  - plain item\n  ^");
+        assert_eq!(enter2("  - 80:80^"), "  - 80:80\n  ^", "a port, not a key");
+        assert_eq!(enter2("url: \"http://x\"^"), "url: \"http://x\"\n^");
     }
 
     #[test]

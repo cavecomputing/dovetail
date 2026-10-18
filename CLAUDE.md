@@ -219,7 +219,8 @@ src/
     opened.rs            what a launch opens (scratch or a file): the text, the cursor, the lock,
                          and whether it's editable
     lock.rs              OS file locks so two windows never edit the same document
-    config.rs            YAML, TOML and INI: which parts of a line to colour, and the checks
+    config.rs            YAML, TOML and INI: which parts of a line to colour, the checks, and
+                         YAML's indent step
     counts.rs            word and token counts (tokenizer loads in the background)
     find.rs              every match of a find query, ignoring case
     markup.rs            where XML tags and {{macros}} are, for colouring them
@@ -235,8 +236,8 @@ src/
     text_file.rs         reading and saving text files: line endings, outside-change check
     recent.rs            the recently opened files (data folder), fuzzy matching
     text_model.rs        a pane's text and its undo/redo history, in byte offsets
-    typing.rs            typing in shell scripts and JSON: pairs that close themselves, and Enter
-                         that indents a block and lines up the line that ends one
+    typing.rs            typing in shell scripts, JSON and YAML: pairs that close themselves, and
+                         Enter that indents a block and lines up the line that ends one
     review.rs            suggested edits waiting in a pane, and the display text that shows
                          them inside the document (review mode)
   ui/                    everything iced: windows, widgets, styling
