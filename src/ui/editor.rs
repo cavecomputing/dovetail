@@ -449,10 +449,18 @@ impl Pane {
             return Err(IN_A_SUGGESTION.to_string());
         };
         let at = piece.text.start + change.at - piece.display.start;
+        // Typed right before a pure insert's ghost text (`at` is where the insert sits too), the
+        // insert moves along so the typing lands at the caret. Not at the end of the display,
+        // which is after the last suggestion's buttons.
+        let ahead = change.at == piece.display.end && change.at < display.text.len();
         let mut text = self.model.text().to_string();
         text.replace_range(at..at + change.removed.len(), &change.inserted);
         let recorded = self.model.record(text, at, Instant::now());
-        Ok(self.replay(recorded.as_slice()))
+        if let Some(change) = &recorded {
+            self.review.shift(change, ahead);
+        }
+        self.show_review();
+        Ok(recorded.is_some())
     }
 
     /// The selected text as a byte range of the model's text, or `None` when nothing is
@@ -560,7 +568,7 @@ impl Pane {
     fn replay(&mut self, changes: &[Change]) -> bool {
         if self.reviewing() {
             for change in changes {
-                self.review.shift(change);
+                self.review.shift(change, false);
             }
             self.show_review();
             return !changes.is_empty();
@@ -840,6 +848,26 @@ mod tests {
             Err(IN_A_SUGGESTION.to_string())
         );
         assert_eq!(pane.model.text(), "Be quick. Stay calm.");
+    }
+
+    #[test]
+    fn typing_right_before_an_insert_goes_before_its_ghost_text() {
+        let (z, room) = (GHOST_START, BUTTON_ROOM);
+        let mut pane = Pane::new("ab cd");
+        pane.suggest(2..2, "XY").unwrap();
+        pane.content.move_to(cursor_at(0, 2));
+        assert_eq!(pane.perform(Action::Edit(Edit::Insert('!'))), Ok(true));
+        assert_eq!(pane.content.text(), format!("ab!{z}XY{room} cd"));
+        assert_eq!(pane.content.cursor(), cursor_at(0, 3));
+        assert!(pane.decide(Decision::AcceptAll));
+        assert_eq!(pane.model.text(), "ab!XY cd");
+        // After an insert's buttons at the end of the text, typing still goes after it.
+        let mut pane = Pane::new("Hi.");
+        pane.suggest(3..3, " Bye.").unwrap();
+        pane.put_caret(3);
+        assert_eq!(pane.perform(Action::Edit(Edit::Insert('!'))), Ok(true));
+        assert_eq!(pane.content.text(), format!("Hi.{z} Bye.{room}!"));
+        assert_eq!(pane.suggestions()[0].range, 3..3);
     }
 
     #[test]
