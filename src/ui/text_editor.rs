@@ -8,6 +8,7 @@
 //! - Horizontal scroll: with wrapping off, text, caret, selection and clicks follow the scroll
 //!   cosmic-text already keeps on the cursor (upstream ignores it, so long lines were cut off).
 //! - `Content::scroll_line` reports the top line and `Content::scroll_to_line` restores it.
+//! - `Content::move_to` with no selection drops the one the editor had (upstream keeps it).
 //! - Paint: `TextEditor::paint` draws runs under the glyphs: find matches, and in review mode the
 //!   looks of suggested edits (struck, ghost) and each suggestion's Accept and Reject buttons,
 //!   drawn and clicked inside the widget (`TextEditor::on_decide`). The widget uses iced's own
@@ -43,7 +44,7 @@ use std::sync::Arc;
 use crate::ui::theme::{Roles, bold};
 
 pub use iced::advanced::text::editor::{
-    Action, Cursor, Edit, Line, LineEnding, Position, Selection,
+    Action, Cursor, Edit, Line, LineEnding, Motion, Position, Selection,
 };
 // ours: iced's own types, so key bindings and styles work unchanged.
 pub use iced::widget::text_editor::{Binding, Catalog, KeyPress, Status, Style, StyleFn};
@@ -380,6 +381,11 @@ where
     pub fn move_to(&mut self, cursor: Cursor) {
         let internal = self.0.get_mut();
 
+        // ours: iced keeps the old selection when `cursor` has none. Moving left ends it, so a
+        // cursor read with `cursor()` can always be put back as it was.
+        if cursor.selection.is_none() {
+            internal.editor.perform(Action::Move(Motion::Left));
+        }
         internal.editor.move_to(cursor);
     }
 
@@ -1503,7 +1509,6 @@ impl<Message> Update<Message> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use iced::advanced::text::editor::Motion;
 
     fn caret(line: usize, column: usize) -> Cursor {
         Cursor {
@@ -1529,5 +1534,17 @@ mod tests {
         content.move_to(caret(1, 0));
         content.perform(Action::Edit(Edit::Backspace));
         assert_eq!(changed_from(&content), Some(0));
+    }
+
+    #[test]
+    fn moving_to_a_caret_drops_the_selection() {
+        let mut content: Content = Content::with_text("one two");
+        content.perform(Action::Select(Motion::End));
+        assert_eq!(
+            content.cursor().selection,
+            Some(Position { line: 0, column: 0 })
+        );
+        content.move_to(caret(0, 4));
+        assert_eq!(content.cursor(), caret(0, 4));
     }
 }
