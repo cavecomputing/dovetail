@@ -34,6 +34,7 @@ fn main() -> iced::Result {
             // An absolute path, so a window opened from here still finds it.
             path: std::path::absolute(&path).unwrap_or(path),
             line_ending: Default::default(),
+            bom: false,
         },
         None => Doc::Scratch,
     };

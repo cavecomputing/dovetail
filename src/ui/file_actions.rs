@@ -65,10 +65,11 @@ impl App {
     /// editing it, undo history and all. Scratch is emptied, keeping its text for the next scratch
     /// window's Ctrl+Z; a .txt keeps its last save.
     pub fn save_as(&mut self, path: PathBuf) -> Task<Message> {
-        let line_ending = match &self.doc {
+        let (line_ending, bom) = match &self.doc {
             Doc::File {
                 path: current,
                 line_ending,
+                bom,
             } => {
                 // Its own file: save, even with nothing new, so a file moved or deleted
                 // outside the app is written again.
@@ -79,23 +80,20 @@ impl App {
                         false => Task::none(),
                     };
                 }
-                *line_ending
+                (*line_ending, *bom)
             }
-            _ => LineEnding::default(),
+            _ => (LineEnding::default(), false),
         };
         let data_dir = &self.paths.data_dir;
         let text = self.pane.model.text();
         // Typing not autosaved yet still goes to the file it was typed in.
-        if let Doc::File {
-            path: current,
-            line_ending,
-        } = &self.doc
+        if let Doc::File { path: current, .. } = &self.doc
             && self.editable()
             && self.autosaver.pending()
         {
-            let _ = save_text(current, text, *line_ending, self.disk_stamp);
+            let _ = save_text(current, text, line_ending, bom, self.disk_stamp);
         }
-        match save_as(data_dir, &path, text, line_ending) {
+        match save_as(data_dir, &path, text, line_ending, bom) {
             Err(reason) => self.notice = Some(reason),
             Ok((lock, stamp)) => {
                 self.notice = match self.doc {
@@ -105,7 +103,11 @@ impl App {
                     _ => None,
                 };
                 self._doc_lock = lock;
-                self.doc = Doc::File { path, line_ending };
+                self.doc = Doc::File {
+                    path,
+                    line_ending,
+                    bom,
+                };
                 self.disk_stamp = stamp;
                 self.disk_conflict = false;
                 self.read_only_reason = None;

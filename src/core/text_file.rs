@@ -42,7 +42,12 @@ impl LineEnding {
 pub struct TextFile {
     pub text: String,
     pub line_ending: LineEnding,
+    /// Whether the file starts with a byte order mark, which is kept out of `text`.
+    pub bom: bool,
 }
+
+/// The byte order mark some Windows programs (Notepad, PowerShell) start a UTF-8 file with.
+const BOM: char = '\u{feff}';
 
 /// Reads a UTF-8 text file. A file that isn't UTF-8 is refused with a readable error, rather than
 /// opened with replacement characters that the next autosave would write back.
@@ -50,10 +55,16 @@ pub fn read_text(path: &Path) -> io::Result<TextFile> {
     let bytes = fs::read(path)?;
     let text = String::from_utf8(bytes)
         .map_err(|_| io::Error::new(ErrorKind::InvalidData, "not a UTF-8 text file"))?;
-    let line_ending = LineEnding::detect(&text);
+    // Left in the text, the mark would be an invisible character that typing at the very start
+    // moves into the first word.
+    let (text, bom) = match text.strip_prefix(BOM) {
+        Some(rest) => (rest, true),
+        None => (text.as_str(), false),
+    };
     Ok(TextFile {
-        text: newlines_only(&text),
-        line_ending,
+        text: newlines_only(text),
+        line_ending: LineEnding::detect(text),
+        bom,
     })
 }
 
@@ -82,19 +93,25 @@ impl DiskStamp {
     }
 }
 
-/// Saves editor text to `path` with `line_ending`, unless the file changed on disk since this
-/// window last read or wrote it (`expected`): then nothing is written and the error says so.
-/// A file deleted outside the app is simply written again. Returns the new stamp.
+/// Saves editor text to `path` with `line_ending` (and a byte order mark first if `bom`), unless
+/// the file changed on disk since this window last read or wrote it (`expected`): then nothing is
+/// written and the error says so. A file deleted outside the app is simply written again.
+/// Returns the new stamp.
 pub fn save_text(
     path: &Path,
     text: &str,
     line_ending: LineEnding,
+    bom: bool,
     expected: Option<DiskStamp>,
 ) -> io::Result<Option<DiskStamp>> {
     if changed_on_disk(path, expected) {
         return Err(io::Error::other("changed on disk outside this window"));
     }
-    atomic_write(path, line_ending.apply(text).as_bytes())?;
+    let mut disk_text = line_ending.apply(text);
+    if bom {
+        disk_text.insert(0, BOM);
+    }
+    atomic_write(path, disk_text.as_bytes())?;
     Ok(DiskStamp::of(path))
 }
 
@@ -167,6 +184,24 @@ mod tests {
     }
 
     #[test]
+    fn a_byte_order_mark_stays_out_of_the_text_and_is_saved_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("notepad.txt");
+        fs::write(&path, "\u{feff}first\r\nsecond\r\n").unwrap();
+        let file = read_text(&path).unwrap();
+        assert_eq!(file.text, "first\nsecond\n");
+        assert!(file.bom);
+        assert_eq!(file.line_ending, LineEnding::CrLf);
+        let stamp = DiskStamp::of(&path);
+        save_text(&path, "X", file.line_ending, file.bom, stamp).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"\xef\xbb\xbfX");
+        // A mark anywhere else is the writer's own text.
+        fs::write(&path, "a\u{feff}b").unwrap();
+        let file = read_text(&path).unwrap();
+        assert_eq!((file.text.as_str(), file.bom), ("a\u{feff}b", false));
+    }
+
+    #[test]
     fn lone_carriage_returns_become_newlines() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("mac.txt");
@@ -190,12 +225,12 @@ mod tests {
         let path = dir.path().join("notes.txt");
         fs::write(&path, "original").unwrap();
         let stamp = DiskStamp::of(&path);
-        let stamp = save_text(&path, "mine", LineEnding::Lf, stamp).unwrap();
+        let stamp = save_text(&path, "mine", LineEnding::Lf, false, stamp).unwrap();
         assert_eq!(fs::read_to_string(&path).unwrap(), "mine");
         // Someone else writes the file; a different length changes the stamp.
         fs::write(&path, "someone else's text").unwrap();
         assert!(changed_on_disk(&path, stamp));
-        let error = save_text(&path, "mine again", LineEnding::Lf, stamp).unwrap_err();
+        let error = save_text(&path, "mine again", LineEnding::Lf, false, stamp).unwrap_err();
         assert_eq!(error.to_string(), "changed on disk outside this window");
         assert_eq!(fs::read_to_string(&path).unwrap(), "someone else's text");
     }
@@ -207,7 +242,7 @@ mod tests {
         fs::write(&path, "x").unwrap();
         let stamp = DiskStamp::of(&path);
         fs::remove_file(&path).unwrap();
-        save_text(&path, "back", LineEnding::Lf, stamp).unwrap();
+        save_text(&path, "back", LineEnding::Lf, false, stamp).unwrap();
         assert_eq!(fs::read_to_string(&path).unwrap(), "back");
     }
 
