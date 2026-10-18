@@ -115,7 +115,8 @@ fn style(theme: &Theme, editable: bool) -> text_editor::Style {
 /// starts a line indented like the caret's (in Markdown, `App::update` has Tab nest a list item and
 /// Enter without Shift continue a list), Backspace in a line's leading spaces goes back to the last
 /// indent stop, Ctrl+Backspace and Ctrl+Delete delete a word (⌥⌫ and ⌥⌦ on macOS, where ⌘⌫ and ⌘⌦
-/// delete to the start and end of the line), Alt+↑ and Alt+↓ move lines, Ctrl+B and Ctrl+I toggle
+/// delete to the start and end of the line), Alt+↑ and Alt+↓ move lines, Ctrl+Shift+D and
+/// Ctrl+Shift+K duplicate and delete them, Ctrl+B and Ctrl+I toggle
 /// bold and italic markers (`App::update` drops them outside Markdown), Ctrl+Z undoes, Ctrl+Shift+Z
 /// and Ctrl+Y redo, and the app's own Ctrl shortcuts are left for the app. A pane that isn't
 /// `editable` keeps only iced's own keys (moving, selecting, copying). While `reviewing`, Tab
@@ -194,6 +195,12 @@ fn key_binding(press: KeyPress, editable: bool, reviewing: bool) -> Option<Bindi
             Key::Character("y" | "Y") => Some(Binding::Custom(Message::Redo)),
             Key::Character("b" | "B") => Some(Binding::Custom(Message::ToggleMarker(BOLD))),
             Key::Character("i" | "I") => Some(Binding::Custom(Message::ToggleMarker(ITALIC))),
+            Key::Character("d" | "D") if press.modifiers.shift() => {
+                Some(Binding::Custom(Message::DuplicateLines))
+            }
+            Key::Character("k" | "K") if press.modifiers.shift() => {
+                Some(Binding::Custom(Message::DeleteLines))
+            }
             _ => Binding::from_key_press(press),
         };
     }
@@ -723,18 +730,75 @@ impl Pane {
         if !self.replay(&changes) {
             return Ok(false);
         }
-        // The lines keep their text, so the caret and selection keep their columns.
+        let down = if up { -1 } else { 1 };
+        self.put_moved(caret, cursor.selection.map(|_| anchor), down);
+        Ok(true)
+    }
+
+    /// Ctrl+Shift+D: puts a copy of the caret's line, or of every line the selection is on, just
+    /// below it, as one undo step, with the caret and selection moving onto the copy. Lines with a
+    /// suggestion on them are refused. Returns whether the text changed, or why it can't.
+    pub fn duplicate_lines(&mut self) -> Result<bool, String> {
+        let cursor = self.content.cursor();
+        let caret = self.to_text(cursor.position);
+        let anchor = cursor.selection.map_or(caret, |at| self.to_text(at));
+        let text = self.model.text();
+        let (first, last) = selected_lines(text, caret, anchor);
+        if self.suggestion_on(first, last) {
+            return Err(IN_A_SUGGESTION.to_string());
+        }
+        let (caret, anchor) = (position(text, caret), position(text, anchor));
+        let changes = self.model.duplicate_lines(first..=last);
+        self.replay(&changes);
+        let down = (last - first + 1) as isize;
+        self.put_moved(caret, cursor.selection.map(|_| anchor), down);
+        Ok(true)
+    }
+
+    /// Ctrl+Shift+K: deletes the caret's line, or every line the selection is on, as one undo
+    /// step. The caret goes to the line that takes their place, at the same column where it can.
+    /// Lines with a suggestion on them are refused. Returns whether the text changed, or why it
+    /// can't.
+    pub fn delete_lines(&mut self) -> Result<bool, String> {
+        let cursor = self.content.cursor();
+        let caret = self.to_text(cursor.position);
+        let anchor = cursor.selection.map_or(caret, |at| self.to_text(at));
+        let text = self.model.text();
+        let (first, last) = selected_lines(text, caret, anchor);
+        if self.suggestion_on(first, last) {
+            return Err(IN_A_SUGGESTION.to_string());
+        }
+        let (_, column) = position(text, caret);
+        let changes = self.model.delete_lines(first..=last);
+        if !self.replay(&changes) {
+            return Ok(false);
+        }
+        let text = self.model.text();
+        // After the last line goes, the line above comes up to take its place.
+        let line = first.min(text.matches('\n').count());
+        let start = offset(text, line, 0);
+        let length = text[start..].find('\n').unwrap_or(text.len() - start);
+        let mut at = start + column.min(length);
+        while !text.is_char_boundary(at) {
+            at -= 1;
+        }
+        self.put_caret(at);
+        Ok(true)
+    }
+
+    /// Puts the caret at (line, column) `caret` and any selection's other end at `anchor`, each
+    /// `down` lines further on: where they are now on lines that moved, which kept their text.
+    fn put_moved(&mut self, caret: (usize, usize), anchor: Option<(usize, usize)>, down: isize) {
         let moved = |(line, column): (usize, usize)| {
-            let line = if up { line - 1 } else { line + 1 };
+            let line = line.saturating_add_signed(down);
             self.position(offset(self.model.text(), line, column), true)
         };
         let position = moved(caret);
-        let selection = cursor.selection.map(|_| moved(anchor));
+        let selection = anchor.map(moved);
         self.content.move_to(Cursor {
             position,
             selection,
         });
-        Ok(true)
     }
 
     /// Whether a suggestion is on any of the model's lines `first` to `last`, which then can't be
@@ -1955,5 +2019,34 @@ mod tests {
         assert_eq!(pane.caret(), 4);
         pane.go_to_line(9);
         assert_eq!(pane.caret(), 13);
+    }
+
+    #[test]
+    fn duplicating_lines_moves_the_selection_onto_the_copy() {
+        let mut pane = Pane::new("one\ntwo\nthree");
+        pane.content.move_to(Cursor {
+            position: Position { line: 1, column: 2 },
+            selection: Some(Position { line: 0, column: 1 }),
+        });
+        assert_eq!(pane.duplicate_lines(), Ok(true));
+        assert_eq!(pane.content.text(), "one\ntwo\none\ntwo\nthree");
+        assert_eq!(pane.selection(), Some(9..14), "\"ne\\ntw\" in the copy");
+        assert!(pane.undo());
+        assert_eq!(pane.content.text(), "one\ntwo\nthree");
+    }
+
+    #[test]
+    fn deleting_lines_keeps_the_caret_column_where_it_can() {
+        let mut pane = Pane::new("first line\nsecond line\nend");
+        pane.content.move_to(cursor_at(0, 7));
+        assert_eq!(pane.delete_lines(), Ok(true));
+        assert_eq!(pane.content.text(), "second line\nend");
+        assert_eq!(pane.caret(), 7);
+        pane.content.move_to(cursor_at(1, 2));
+        pane.delete_lines().unwrap();
+        assert_eq!(pane.content.text(), "second line");
+        assert_eq!(pane.caret(), 2, "the line above came up, so the caret is on it");
+        pane.suggest(0..6, "first").unwrap();
+        assert_eq!(pane.delete_lines(), Err(IN_A_SUGGESTION.to_string()));
     }
 }
