@@ -102,7 +102,8 @@ pub enum Message {
 
     ToggleMenu,
     CloseMenu,
-    /// Enter outside the editor: steps through the find bar's matches (back with Shift).
+    /// Enter outside the editor, or ⌘G on macOS: steps through the find bar's matches (back with
+    /// Shift).
     EnterKey {
         shift: bool,
     },
@@ -697,15 +698,23 @@ fn shortcut(event: iced::Event, status: event::Status, _window: window::Id) -> O
         keyboard::Key::Character("f") => Some(Message::Find(FindAction::Open)),
         keyboard::Key::Character("=" | "+") => Some(Message::Zoom(1.0)),
         keyboard::Key::Character("-") => Some(Message::Zoom(-1.0)),
+        // macOS's own: ⌘M minimizes, and ⌘G and ⇧⌘G step through the find bar's matches.
+        keyboard::Key::Character("m") if cfg!(target_os = "macos") => Some(Message::Minimize),
+        keyboard::Key::Character("g") if cfg!(target_os = "macos") => Some(Message::EnterKey {
+            shift: modifiers.shift(),
+        }),
         _ => None,
     }
 }
 
-/// The keys that still work while Settings is open: Esc closes it, Ctrl+W the window, and the
-/// zoom keys change a setting the panel shows. The rest would act on the document behind it.
+/// The keys that still work while Settings is open: Esc closes it, Ctrl+W closes the window and
+/// ⌘M (macOS) minimizes it, and the zoom keys change a setting the panel shows. The rest would act
+/// on the document behind it.
 fn settings_key(message: Message) -> Option<Message> {
     match message {
-        Message::CloseMenu | Message::CloseRequested | Message::Zoom(_) => Some(message),
+        Message::CloseMenu | Message::CloseRequested | Message::Minimize | Message::Zoom(_) => {
+            Some(message)
+        }
         _ => None,
     }
 }
