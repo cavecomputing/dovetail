@@ -7,7 +7,7 @@ use std::path::Path;
 use crate::core::config::{ini_problem, toml_problem, yaml_problem};
 use crate::core::json::json_problem;
 use crate::core::markdown::is_markdown;
-use crate::core::shell::is_shell_script;
+use crate::core::shell::{is_shell_script, shell_problem};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Syntax {
@@ -45,11 +45,12 @@ impl Syntax {
     /// Markdown have nothing to check.
     pub fn problem(self, text: &str) -> Option<String> {
         match self {
-            Syntax::Plain | Syntax::Markdown | Syntax::Shell => None,
+            Syntax::Plain | Syntax::Markdown => None,
             Syntax::Json => json_problem(text),
             Syntax::Yaml => yaml_problem(text),
             Syntax::Toml => toml_problem(text),
             Syntax::Ini => ini_problem(text),
+            Syntax::Shell => shell_problem(text),
         }
     }
 }

@@ -148,7 +148,10 @@ your comments and layout.
 `sh`, `bash` or `dash`, such as `#!/usr/bin/env bash`) are coloured too: keywords like `if`,
 `then`, `for`, `do`, `case` and `local` orange, `$variables` and `${…}` blue (also inside `"…"`
 strings), strings green, assignments (`NAME=`) and function names blue, and comments grey. A
-here-document (`cat <<EOF`) is coloured as text down to its closing word.
+here-document (`cat <<EOF`) is coloured as text down to its closing word. A moment after you
+stop typing, the script is checked with `bash -n` (which reads it without running anything), and
+the status bar shows the first error, such as ``Shell syntax error at line 4: syntax error near
+unexpected token `fi'``. On Windows scripts aren't checked, since `bash` there usually starts WSL.
 
 Files must be UTF-8, which almost every editor writes today. Any other file opens empty and
 read-only, and the status bar says why; the file itself is never touched. A file keeps its line

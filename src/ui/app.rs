@@ -822,8 +822,8 @@ impl App {
         Task::perform(async move { token_count(&text) }, Message::TokensCounted)
     }
 
-    /// In a JSON, YAML, TOML or INI file, checks the text is valid in the background;
-    /// `SyntaxChecked` brings any problem back.
+    /// In a JSON, YAML, TOML or INI file or a shell script, checks the text is valid in the
+    /// background; `SyntaxChecked` brings any problem back.
     fn check_syntax(&self) -> Task<Message> {
         let syntax = self.syntax();
         if matches!(syntax, Syntax::Plain | Syntax::Markdown) {
