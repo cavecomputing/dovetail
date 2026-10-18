@@ -42,7 +42,7 @@ scripts look for the build in the repository's own `target/` folder, so unset `C
 
 - **Linux**: the binary goes to `~/.local/bin/dovetail`, the icon under
   `~/.local/share/icons/hicolor/`, and a `.desktop` entry in `~/.local/share/applications/`, so app
-  launchers find Dovetail and file managers offer it for text and Markdown files.
+  launchers find Dovetail and file managers offer it for text, Markdown and config files.
 - **macOS**: you get `~/Applications/Dovetail.app` (signed ad hoc, so no Apple developer account is
   needed) and a `dovetail` command in `~/.local/bin`. The app can't be a file's "Open With" app
   yet, so open files from the terminal or from inside the app.
@@ -111,9 +111,10 @@ fails, or the new one can't be opened, the window stays as it was and the status
 document is edited in one window at a time: a second window on the same file, or on scratch, opens
 read-only and says why, and opening one that another window has open is refused.
 
-**The status bar**, left to right: the ☰ menu (New file, Open, Recent, Save as, Find, Line
-numbers, Settings, Scratch), the save dot, and the file's path (or Scratch); on the right, words
-and tokens, then the assistant button. Tokens are counted with OpenAI's o200k tokenizer (hover to
+**The status bar**, left to right: the ☰ menu (New file, Open, Open recent, Save as, Find,
+Replace, Go to line, Line numbers, the recent files, Settings, Scratch), the save dot, any problem
+in orange (a failed save, a file that isn't valid JSON, say), and the file's path (or Scratch); on
+the right, words and tokens, the line and column if switched on, then the assistant button. Tokens are counted with OpenAI's o200k tokenizer (hover to
 see it), a close enough guide for other models.
 
 **Markdown** files (`.md` and `.markdown`) open like `.txt` files, and the Open, New file and Save
@@ -176,7 +177,7 @@ Shortcuts are written with Ctrl; on macOS use ⌘ (the app's menu and hints show
 | Ctrl+, | Settings |
 | Ctrl+L | Open or close the assistant pane |
 | Ctrl+Shift+L | Line numbers on or off. This is the Line numbers setting, so every window follows and it is remembered |
-| Esc | Close the menu, the switcher or Settings, or else the go to line box, the find bar, or Ctrl+D's extra selections, and put the keyboard back in the text (from the assistant's box, say) |
+| Esc | Close the menu, the switcher, the command palette or Settings, or else the go to line box, the find bar, or Ctrl+D's extra selections, and put the keyboard back in the text (from the assistant's box, say) |
 | Tab | Insert spaces at the cursor, never a tab character (text selected within one line is replaced); with several lines selected, indent each. In a Markdown file, on a list item it indents the whole line instead, nesting the item |
 | Shift+Tab | Unindent the line, or each selected line |
 | Enter | New line, indented like the line the cursor is on (as far as the cursor). On a line of only spaces, the spaces move down too, so the line left behind is empty. In a Markdown file, on a list item or quote it starts the next one: the same bullet, the next number, an empty `[ ]` task box, the same `>`. On an empty item it ends the list instead: an indented item moves out a level, any other loses its marker. In fenced code it's a plain new line |
@@ -270,7 +271,7 @@ The fields:
 - **API key**: only if the server needs one. It is kept in the system's password store: a keyring
   such as gnome-keyring or KeePassXC on Linux, the Keychain on macOS, Credential Manager on Windows.
   On Linux with no keyring running, it goes in `settings.toml` instead, readable only by you. The
-  line under the field says which. Clearing the field deletes the key.
+  comment after the field says which. Clearing the field deletes the key.
 
 **What it does.** Ask about the text in the box at the bottom of the pane. The assistant can read
 the document and the selection, search the text, count words and tokens, and suggest edits. It never
@@ -294,13 +295,15 @@ Ctrl+, opens Settings in place of the text; Esc goes back. It is laid out like
 choices dimmed (click one to pick it, or − and + to change a number), with a comment after.
 Changes apply at once and are saved to `settings.toml`, whose path the status bar shows meanwhile.
 
-| Section | Settings (default) |
+| Section | Settings, by key (default) |
 |---|---|
-| Appearance | Theme: dark (default), light or system. Font size (14). Reading mode: full width (default) or comfort, which caps lines at 80 characters (adjustable) |
-| Editor | Tab inserts 4 spaces (adjustable). Word wrap (on). Line numbers left of the text (off; Ctrl+Shift+L). Colour for XML tags and `{{macros}}` (on). Line and column in the status bar (off) |
-| Saving | Pause in typing before an autosave (500 ms) |
-| Assistant | Base URL (`https://api.openai.com/v1`). Model (none: the pane asks for one). Request format (responses). API key (none). Test connection |
-| Window | Window controls, the minimise, maximise and close buttons: auto (default) hides them under a tiling window manager (Hyprland, Sway, i3, niri, river) and shows them elsewhere; or show, or hide. Not on macOS, which keeps its own |
+| appearance | `theme`: dark (default), light or system. `font_size` (14). `reading_mode`: full width (default) or comfort, which caps lines at 80 characters (adjustable) |
+| editor | `tab_spaces`: Tab inserts 4 spaces. `word_wrap` (on). `line_numbers` left of the text (off; Ctrl+Shift+L). `colour_markup`: colour for XML tags and `{{macros}}` (on). `show_line_col`: line and column in the status bar (off) |
+| saving | `autosave_delay_ms`: pause in typing before an autosave (500) |
+| assistant | `base_url` (`https://api.openai.com/v1`). `model` (none: the pane asks for one). `request_format` (responses). `api_key` (none; kept in the system keyring when there is one, see above). Test connection |
+| window | `window_controls`, the minimise, maximise and close buttons: auto (default) hides them under a tiling window manager (Hyprland, Sway, i3, niri, river) and shows them elsewhere; or show, or hide. Not on macOS, which keeps its own |
+
+The sections are only how the panel groups the settings; `settings.toml` itself doesn't use them.
 
 `settings.toml` can be edited by hand too, and open windows pick up the change within a second. To
 get a file listing every key, change any setting in the panel once. A missing key takes its default

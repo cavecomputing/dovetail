@@ -7,8 +7,13 @@
 </p>
 
 Dovetail is a plain-text editor for writing notes, drafts and prompts. Open it and you're straight
-into a scratchpad that remembers exactly where you left off. Open a file and it gets its own
-window. Everything saves itself as you type, so there's no "save changes?" prompt, ever.
+into a scratchpad that remembers exactly where you left off. Each launch gets its own window, and
+opening another file from inside one swaps it in, once the one you're leaving is saved. Everything
+saves itself as you type, so there's no "save changes?" prompt, ever.
+
+Markdown, JSON, YAML, TOML and INI files are coloured as you type (the text stays exactly as you
+wrote it), and the data and config files are checked too: the status bar says where one stops
+being valid. JSON files can be formatted or minified from the command palette.
 
 There's also an optional assistant pane. Ask it about your text and it suggests edits right in the
 document, with the old words struck through and the new ones beside them, for you to accept or
@@ -71,7 +76,7 @@ Linux comes first. macOS and Windows work too, but get less use.
 
 3. Enter the **Model** name and, if your service needs one, an **API key**.
 4. Press **Test connection**.
-5. Close Settings and press `Ctrl+L` to open the assistant pane.
+5. Press `Esc` to close Settings, then `Ctrl+L` to open the assistant pane.
 
 The model has to support tools (sometimes called function calling), because that's how it reads
 your text and suggests edits. Test connection will tell you if it doesn't.
@@ -82,7 +87,8 @@ your text and suggests edits. Test connection will tell you if it doesn't.
 |---|---|
 | Ctrl+N | New file |
 | Ctrl+O | Open a file |
-| Ctrl+P | Recent files |
+| Ctrl+P | Scratch and the recent files |
+| Ctrl+Shift+P | The open file's tools (Format and Minify JSON) |
 | Ctrl+F | Find |
 | Ctrl+Shift+F | Find and replace |
 | Ctrl+S | Save now (in the scratchpad, save it to a file) |

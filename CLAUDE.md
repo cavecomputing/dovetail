@@ -230,7 +230,7 @@ src/
                          by extension; the shared colour tokens; the validity check for each
     json.rs              which parts of a .json line to colour, whether the text is valid JSON,
                          and Format and Minify (whitespace only, so key order and digits are kept)
-    text_file.rs         reading and saving .txt and .md files: line endings, outside-change check
+    text_file.rs         reading and saving text files: line endings, outside-change check
     recent.rs            the recently opened files (data folder), fuzzy matching
     text_model.rs        a pane's text and its undo/redo history, in byte offsets
     review.rs            suggested edits waiting in a pane, and the display text that shows
@@ -240,8 +240,8 @@ src/
     theme.rs             Gruvbox palette roles, the font and its icon glyphs, shared styles
     editor.rs            the editor pane (widget + text model), key bindings, and review mode
                          (suggestions as ghost text, Accept and Reject)
-    highlighter.rs       how the editor colours its text: Markdown, tags and macros, suggested
-                         edits
+    highlighter.rs       how the editor colours its text: Markdown, JSON and config files, tags
+                         and macros, suggested edits
     text_editor.rs       a copy of iced's text editor widget (draws find matches, suggested edits
                          and their buttons), changes marked `ours:`
     scroll_bar.rs        the editor's scroll bar, drawn like Settings' (the editor scrolls itself)
