@@ -220,20 +220,13 @@ impl DisplayMap {
         self.pieces.last().map_or(0, |piece| piece.text.end)
     }
 
-    /// The suggestion at or after display offset `offset` (the caret), or else the last one.
+    /// The suggestion display offset `offset` (the caret) is on: in or touching its struck text,
+    /// ghost text or buttons. `None` in plain text away from every suggestion.
     pub fn suggestion_at(&self, offset: usize) -> Option<u64> {
-        let mut found = None;
-        for piece in self
-            .pieces
-            .iter()
-            .filter(|piece| piece.suggestion.is_some())
-        {
-            found = piece.suggestion;
-            if piece.display.end >= offset {
-                break;
-            }
-        }
-        found
+        self.pieces.iter().find_map(|piece| {
+            let touches = piece.display.start <= offset && offset <= piece.display.end;
+            piece.suggestion.filter(|_| touches)
+        })
     }
 }
 
@@ -347,13 +340,16 @@ mod tests {
         let review = review_of(text, &[(10..14, "C"), (0..4, "A")]);
         let map = DisplayMap::new(text, review.suggestions());
         let ids: Vec<u64> = review.suggestions().iter().map(|s| s.id).collect();
-        assert_eq!(map.suggestion_at(0), Some(ids[0]));
-        assert_eq!(map.suggestion_at(map.to_display(6, false)), Some(ids[1]));
+        // On the struck text, inside the ghost text, and right after the buttons.
+        assert_eq!(map.suggestion_at(2), Some(ids[0]));
         assert_eq!(
-            map.suggestion_at(map.text.len()),
-            Some(ids[1]),
-            "past the last"
+            map.suggestion_at(map.to_display(4, false) + Z.len()),
+            Some(ids[0])
         );
+        assert_eq!(map.suggestion_at(map.to_display(4, true)), Some(ids[0]));
+        assert_eq!(map.suggestion_at(map.text.len()), Some(ids[1]));
+        // In "bbbb", away from both.
+        assert_eq!(map.suggestion_at(map.to_display(7, false)), None);
         assert_eq!(DisplayMap::new(text, &[]).suggestion_at(0), None);
     }
 

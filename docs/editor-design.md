@@ -257,7 +257,8 @@ It works in any editable pane: scratch, a `.txt` and a project's draft.
   redo and `replace` move the suggestions with the text (`Review::shift`; one a change touches is
   dropped). The widget is brought up to date by finding the one changed range between the old and
   new display strings and pasting over it, so the view keeps its place. Tab accepts the suggestion
-  at or after the caret, Esc rejects it (Esc also does what it always does).
+  the caret is on (in or touching its struck text, ghost text or buttons), Esc rejects it (Esc
+  also does what it always does); with the caret anywhere else Tab indents and Esc decides nothing.
 - **Accept** is `TextModel::accept`: one undo step (Accept all too), and the new text takes the
   suggestion's idea's paint. **Reject** drops it. Paint runs and selections go through
   `Pane::position` and `Pane::selection`, which map through the display string.

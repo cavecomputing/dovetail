@@ -99,8 +99,9 @@ fn style(theme: &Theme, editable: bool) -> text_editor::Style {
 /// Tab indents (with spaces, never a tab character), Shift+Tab unindents, Ctrl+Z undoes,
 /// Ctrl+Shift+Z and Ctrl+Y redo, and the app's own Ctrl shortcuts are left for the app. A pane
 /// that isn't `editable` keeps only iced's own keys (moving, selecting, copying). While
-/// `reviewing`, Tab accepts the suggestion at the caret and Esc rejects it, and Ctrl+C and Ctrl+X
-/// go through `Message::Clip`, since the widget's text has the suggestions in it.
+/// `reviewing`, Tab accepts the suggestion the caret is on and Esc rejects it (`App::update` turns
+/// a Tab anywhere else back into an indent), and Ctrl+C and Ctrl+X go through `Message::Clip`,
+/// since the widget's text has the suggestions in it.
 fn key_binding(press: KeyPress, editable: bool, reviewing: bool) -> Option<Binding<Message>> {
     // A custom binding is used even when the editor isn't focused, so check first.
     if !matches!(press.status, Status::Focused { .. }) {
@@ -164,8 +165,8 @@ fn key_binding(press: KeyPress, editable: bool, reviewing: bool) -> Option<Bindi
     }
 }
 
-/// What to do with suggested edits: accept or reject one (by id; `None` is the one at or after
-/// the caret), or all of them.
+/// What to do with suggested edits: accept or reject one (by id; `None` is the one the caret is
+/// on, if any), or all of them.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Decision {
     Accept(Option<u64>),
@@ -223,11 +224,8 @@ impl Pane {
     /// the caret after it; rejecting leaves the caret where it was. Returns whether the text
     /// changed.
     pub fn decide(&mut self, decision: Decision) -> bool {
-        let caret = self.content.cursor().position;
-        let at_caret = self.display.as_ref().and_then(|display| {
-            display.suggestion_at(offset(&display.text, caret.line, caret.column))
-        });
-        let caret = self.to_text(caret);
+        let at_caret = self.suggestion_at_caret();
+        let caret = self.caret();
         let chosen: Vec<Suggestion> = match decision {
             Decision::Accept(id) | Decision::Reject(id) => id
                 .or(at_caret)
@@ -250,6 +248,14 @@ impl Pane {
     /// Where the caret is, as a byte offset of the model's text.
     pub fn caret(&self) -> usize {
         self.to_text(self.content.cursor().position)
+    }
+
+    /// The suggestion the caret is on (in or touching its struck text, ghost text or buttons),
+    /// if any.
+    pub fn suggestion_at_caret(&self) -> Option<u64> {
+        let caret = self.content.cursor().position;
+        let display = self.display.as_ref()?;
+        display.suggestion_at(offset(&display.text, caret.line, caret.column))
     }
 
     /// Where widget position `at` is in the model's text. Inside a suggestion's ghost text or
@@ -874,17 +880,24 @@ mod tests {
     }
 
     #[test]
-    fn tab_and_esc_decide_the_suggestion_at_the_caret() {
-        let (mut pane, _, _) = reviewing_pane();
-        // The caret in " Stay": the next suggestion is "calm" -> "steady".
-        let stay = pane.position(11, false);
-        pane.content.move_to(Cursor {
-            position: stay,
-            selection: None,
-        });
+    fn tab_and_esc_decide_only_the_suggestion_the_caret_is_on() {
+        let (mut pane, first, second) = reviewing_pane();
+        // In " Stay", away from both suggestions, Tab and Esc decide nothing (Tab indents).
+        pane.put_caret(11);
+        assert_eq!(pane.suggestion_at_caret(), None);
+        assert!(!pane.decide(Decision::Accept(None)));
+        assert!(!pane.decide(Decision::Reject(None)));
+        assert_eq!(pane.suggestions().len(), 2);
+        // On "calm", Tab accepts that one.
+        pane.put_caret(16);
+        assert_eq!(pane.suggestion_at_caret(), Some(second));
         assert!(pane.decide(Decision::Accept(None)));
         assert_eq!(pane.model.text(), "Be quick. Stay steady.");
-        assert!(!pane.decide(Decision::Reject(None)), "the last one left");
+        // On "quick", Esc rejects the other.
+        pane.put_caret(4);
+        assert_eq!(pane.suggestion_at_caret(), Some(first));
+        assert!(!pane.decide(Decision::Reject(None)));
+        assert!(!pane.reviewing());
         assert_eq!(pane.content.text(), "Be quick. Stay steady.");
     }
 
