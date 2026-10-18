@@ -117,8 +117,9 @@ in orange (a failed save, a file that isn't valid JSON, say), and the file's pat
 the right, words and tokens, the line and column if switched on, then the assistant button. Tokens are counted with OpenAI's o200k tokenizer (hover to
 see it), a close enough guide for other models.
 
-**Markdown** files (`.md` and `.markdown`) open like `.txt` files, and the Open, New file and Save
-as dialogs offer them alongside `.txt`: type `notes.md` as the name to make one. They are coloured
+**Markdown** files (`.md` and `.markdown`) open like `.txt` files, and the Open dialog offers them
+alongside `.txt`: type `notes.md` as the name in New file or Save as to make one. Those two save
+a name exactly as you type it, whatever its extension (`test.sh` stays `test.sh`). They are coloured
 as you type: headings, list markers and task boxes, quotes, code, bold, italic, struck text and
 links. Nothing is rendered: the text stays exactly as typed, markers and all. Enter continues a
 list or a quote, Tab nests a list item, and Ctrl+B and Ctrl+I put in bold and italic markers (see
