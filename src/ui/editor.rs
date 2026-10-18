@@ -1,13 +1,13 @@
 //! The text editing widget: the text column, Tab as spaces, Enter and Backspace that know about
-//! indents, deleting a word, undo and redo (its colours come from `highlighter`). A `Pane` pairs
-//! the widget's content with the text model behind it, and shows suggested edits inside the text
-//! until each is accepted or rejected (review mode).
+//! indents, deleting a word, moving lines, undo and redo (its colours come from `highlighter`). A
+//! `Pane` pairs the widget's content with the text model behind it, and shows suggested edits
+//! inside the text until each is accepted or rejected (review mode).
 
 use std::ops::Range;
 use std::sync::Arc;
 use std::time::Instant;
 
-use iced::keyboard::{Key, key::Named};
+use iced::keyboard::{Key, Modifiers, key::Named};
 use iced::widget::container;
 use iced::widget::text::Wrapping;
 use iced::widget::text_editor::Motion;
@@ -16,7 +16,7 @@ use iced::{Background, Border, Element, Fill, Padding, Theme};
 use crate::core::review::{DisplayMap, Review, Shown, Suggestion, clashes};
 use crate::core::settings::{ReadingMode, Settings};
 use crate::core::text_file::newlines_only;
-use crate::core::text_model::{Change, TextModel, offset, position, positions};
+use crate::core::text_model::{Change, TextModel, offset, position, positions, selected_lines};
 use crate::ui::app::Message;
 use crate::ui::highlighter::{Colouring, Highlight, MarkupHighlighter, highlight_format};
 use crate::ui::text_editor::{
@@ -102,12 +102,12 @@ fn style(theme: &Theme, editable: bool) -> text_editor::Style {
 /// Tab indents (with spaces, never a tab character), Shift+Tab unindents, Enter (and Shift+Enter)
 /// starts a line indented like the caret's, Backspace in a line's leading spaces goes back to the
 /// last indent stop, Ctrl+Backspace and Ctrl+Delete delete a word (⌥⌫ and ⌥⌦ on macOS, where ⌘⌫
-/// and ⌘⌦ delete to the start and end of the line), Ctrl+Z undoes, Ctrl+Shift+Z and Ctrl+Y redo,
-/// and the app's own Ctrl shortcuts are left for the app. A pane that isn't `editable` keeps only
-/// iced's own keys (moving, selecting, copying). While `reviewing`, Tab accepts the suggestion the
-/// caret is on and Esc rejects it (`App::update` turns a Tab anywhere else back into an indent),
-/// and Ctrl+C and Ctrl+X go through `Message::Clip`, since the widget's text has the suggestions
-/// in it.
+/// and ⌘⌦ delete to the start and end of the line), Alt+↑ and Alt+↓ move lines, Ctrl+Z undoes,
+/// Ctrl+Shift+Z and Ctrl+Y redo, and the app's own Ctrl shortcuts are left for the app. A pane
+/// that isn't `editable` keeps only iced's own keys (moving, selecting, copying). While
+/// `reviewing`, Tab accepts the suggestion the caret is on and Esc rejects it (`App::update` turns
+/// a Tab anywhere else back into an indent), and Ctrl+C and Ctrl+X go through `Message::Clip`,
+/// since the widget's text has the suggestions in it.
 fn key_binding(press: KeyPress, editable: bool, reviewing: bool) -> Option<Binding<Message>> {
     // A custom binding is used even when the editor isn't focused, so check first.
     if !matches!(press.status, Status::Focused { .. }) {
@@ -180,6 +180,12 @@ fn key_binding(press: KeyPress, editable: bool, reviewing: bool) -> Option<Bindi
         Key::Named(Named::Tab) => Some(Binding::Custom(Message::Indent)),
         Key::Named(Named::Enter) => Some(Binding::Custom(Message::NewLine)),
         Key::Named(Named::Backspace) => Some(Binding::Custom(Message::Backspace)),
+        Key::Named(arrow @ (Named::ArrowUp | Named::ArrowDown))
+            if press.modifiers == Modifiers::ALT =>
+        {
+            let up = arrow == Named::ArrowUp;
+            Some(Binding::Custom(Message::MoveLines { up }))
+        }
         _ => Binding::from_key_press(press),
     }
 }
@@ -590,6 +596,50 @@ impl Pane {
         self.perform_or_put_back(Edit::Delete, cursor)
     }
 
+    /// Alt+↑ and Alt+↓: moves the caret's line, or every line the selection is on, up (`up`) or
+    /// down past the next line, as one undo step, with the caret and selection on the same text.
+    /// Nothing moves at the top or bottom, and lines with a suggestion on them, or on the line
+    /// they would pass, are refused. Returns whether the text changed, or why it can't.
+    pub fn move_lines(&mut self, up: bool) -> Result<bool, String> {
+        let cursor = self.content.cursor();
+        let caret = self.to_text(cursor.position);
+        let anchor = cursor.selection.map_or(caret, |at| self.to_text(at));
+        let text = self.model.text();
+        let (first, last) = selected_lines(text, caret, anchor);
+        let (top, bottom) = match up {
+            true => (first.saturating_sub(1), last),
+            false => (first, last + 1),
+        };
+        if self.suggestion_on(top, bottom) {
+            return Err(IN_A_SUGGESTION.to_string());
+        }
+        let (caret, anchor) = (position(text, caret), position(text, anchor));
+        let changes = self.model.move_lines(first..=last, up);
+        if !self.replay(&changes) {
+            return Ok(false);
+        }
+        // The lines keep their text, so the caret and selection keep their columns.
+        let moved = |(line, column): (usize, usize)| {
+            let line = if up { line - 1 } else { line + 1 };
+            self.position(offset(self.model.text(), line, column), true)
+        };
+        let position = moved(caret);
+        let selection = cursor.selection.map(|_| moved(anchor));
+        self.content.move_to(Cursor {
+            position,
+            selection,
+        });
+        Ok(true)
+    }
+
+    /// Whether a suggestion is on any of the model's lines `first` to `last`, which then can't be
+    /// indented or moved.
+    fn suggestion_on(&self, first: usize, last: usize) -> bool {
+        let text = self.model.text();
+        let lines = offset(text, first, 0)..offset(text, last + 1, 0);
+        self.suggestions().iter().any(|s| clashes(&s.range, &lines))
+    }
+
     /// Does `edit` where the caret and selection have just been put, as `perform` does any edit.
     /// If it's refused, they go back to `before`.
     fn perform_or_put_back(&mut self, edit: Edit, before: Cursor) -> Result<bool, String> {
@@ -614,13 +664,8 @@ impl Pane {
             let spaces = Arc::new(" ".repeat(tab_spaces));
             return self.perform(Action::Edit(Edit::Paste(spaces)));
         }
-        let (first, _) = position(text, start);
-        let (mut last, column) = position(text, end);
-        if column == 0 && last > first {
-            last -= 1;
-        }
-        let lines = offset(text, first, 0)..offset(text, last + 1, 0);
-        if self.suggestions().iter().any(|s| clashes(&s.range, &lines)) {
+        let (first, last) = selected_lines(text, start, end);
+        if self.suggestion_on(first, last) {
             return Err(IN_A_SUGGESTION.to_string());
         }
         let changes = match add {
@@ -699,7 +744,6 @@ impl Pane {
 mod tests {
     use super::*;
     use crate::core::review::{BUTTON_ROOM, GHOST_START};
-    use iced::keyboard::Modifiers;
     use iced::keyboard::key::{Code, NativeCode, Physical};
 
     fn cursor_at(line: usize, column: usize) -> Cursor {
@@ -1367,6 +1411,98 @@ mod tests {
             true => assert_eq!(command_backspace, Some(Motion::Home)),
             false => assert_eq!(command_backspace, None),
         }
+    }
+
+    #[test]
+    fn alt_up_and_down_move_the_caret_line_and_the_caret_with_it() {
+        let mut pane = Pane::new("one\ntwo\nthree");
+        pane.content.move_to(cursor_at(2, 3));
+        assert_eq!(pane.move_lines(true), Ok(true));
+        assert_eq!(pane.content.text(), "one\nthree\ntwo");
+        assert_eq!(pane.content.cursor(), cursor_at(1, 3));
+        assert_eq!(pane.move_lines(true), Ok(true));
+        assert_eq!(pane.content.text(), "three\none\ntwo");
+        assert_eq!(pane.move_lines(true), Ok(false), "already at the top");
+        assert_eq!(pane.content.cursor(), cursor_at(0, 3));
+        // Down to the last line, which has no newline after it.
+        assert_eq!(pane.move_lines(false), Ok(true));
+        assert_eq!(pane.move_lines(false), Ok(true));
+        assert_eq!(pane.content.text(), "one\ntwo\nthree");
+        assert_eq!(pane.content.cursor(), cursor_at(2, 3));
+        assert_eq!(pane.move_lines(false), Ok(false), "already at the bottom");
+        assert_eq!(pane.model.text(), pane.content.text());
+        pane.undo();
+        assert_eq!(
+            pane.content.text(),
+            "one\nthree\ntwo",
+            "each move is one undo step"
+        );
+    }
+
+    #[test]
+    fn alt_up_and_down_move_every_selected_line() {
+        let mut pane = Pane::new("a\nbé\nc\nd\n");
+        // From inside "bé" to the start of "d": nothing on "d" is selected, so it stays.
+        let selected = |caret: (usize, usize), anchor: (usize, usize)| Cursor {
+            position: Position {
+                line: caret.0,
+                column: caret.1,
+            },
+            selection: Some(Position {
+                line: anchor.0,
+                column: anchor.1,
+            }),
+        };
+        pane.content.move_to(selected((3, 0), (1, 1)));
+        assert_eq!(pane.move_lines(true), Ok(true));
+        assert_eq!(pane.content.text(), "bé\nc\na\nd\n");
+        assert_eq!(pane.content.cursor(), selected((2, 0), (0, 1)));
+        assert_eq!(pane.move_lines(false), Ok(true));
+        assert_eq!(pane.move_lines(false), Ok(true));
+        assert_eq!(pane.content.text(), "a\nd\nbé\nc\n");
+        assert_eq!(pane.content.cursor(), selected((4, 0), (2, 1)));
+        assert_eq!(pane.copied().as_deref(), Some("é\nc\n"));
+        pane.undo();
+        pane.undo();
+        pane.undo();
+        assert_eq!(pane.content.text(), "a\nbé\nc\nd\n");
+    }
+
+    #[test]
+    fn moving_lines_while_reviewing() {
+        let mut pane = Pane::new("one\ntwo\nthree");
+        pane.suggest(0..3, "1").unwrap();
+        // "three" moves past "two", and the suggestion on "one" stays where it is.
+        pane.put_caret(10);
+        assert_eq!(pane.move_lines(true), Ok(true));
+        assert_eq!(pane.model.text(), "one\nthree\ntwo");
+        assert_eq!(pane.suggestions()[0].range, 0..3);
+        assert_eq!(pane.caret(), 6);
+        // It can't move past "one", which has the suggestion on it.
+        assert_eq!(pane.move_lines(true), Err(IN_A_SUGGESTION.to_string()));
+        assert_eq!(pane.model.text(), "one\nthree\ntwo");
+        assert!(pane.undo());
+        assert_eq!(pane.model.text(), "one\ntwo\nthree");
+        assert_eq!(pane.suggestions()[0].range, 0..3);
+    }
+
+    #[test]
+    fn only_alt_with_an_arrow_moves_lines() {
+        let moves = |key, modifiers| match binding_for(key, modifiers) {
+            Some(Binding::Custom(Message::MoveLines { up })) => Some(up),
+            _ => None,
+        };
+        assert_eq!(moves(Named::ArrowUp, Modifiers::ALT), Some(true));
+        assert_eq!(moves(Named::ArrowDown, Modifiers::ALT), Some(false));
+        assert_eq!(
+            moves(Named::ArrowUp, Modifiers::ALT | Modifiers::SHIFT),
+            None
+        );
+        assert_eq!(
+            moves(Named::ArrowDown, Modifiers::ALT | Modifiers::COMMAND),
+            None
+        );
+        assert_eq!(moves(Named::ArrowUp, Modifiers::empty()), None);
     }
 
     #[test]

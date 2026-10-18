@@ -94,6 +94,11 @@ pub enum Message {
     /// Ctrl+Backspace, Ctrl+Delete and their macOS keys: delete from the caret to where the
     /// motion goes, such as the start of the word (`Pane::delete_to`).
     DeleteTo(Motion),
+    /// Alt+↑ or Alt+↓ in the editor: move the caret's line, or the selected lines, up (`up`) or
+    /// down one line (`Pane::move_lines`).
+    MoveLines {
+        up: bool,
+    },
     Undo,
     Redo,
     /// Ctrl+X or Ctrl+C while reviewing: copy the selected text, without the suggestions, and
@@ -318,6 +323,7 @@ impl App {
             | Message::NewLine
             | Message::Backspace
             | Message::DeleteTo(_)
+            | Message::MoveLines { .. }
                 if self.editable() =>
             {
                 let tab_spaces = usize::from(self.settings.tab_spaces);
@@ -327,6 +333,7 @@ impl App {
                     Message::NewLine => self.pane.new_line(),
                     Message::Backspace => self.pane.backspace(tab_spaces),
                     Message::DeleteTo(motion) => self.pane.delete_to(motion),
+                    Message::MoveLines { up } => self.pane.move_lines(up),
                     // The arm's pattern lets no other message in.
                     _ => Ok(false),
                 };
@@ -340,7 +347,8 @@ impl App {
             | Message::Unindent
             | Message::NewLine
             | Message::Backspace
-            | Message::DeleteTo(_) => {}
+            | Message::DeleteTo(_)
+            | Message::MoveLines { .. } => {}
             Message::Undo | Message::Redo if self.editable() => {
                 let changed = match message {
                     Message::Undo => self.pane.undo(),

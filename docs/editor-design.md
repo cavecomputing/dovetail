@@ -96,9 +96,10 @@ impl TextModel {
 A `debug_assert_eq!(model.text(), content.text())` after recording catches drift in tests and debug
 builds.
 
-**Changes made by the model** (undo, redo, unindent, the Rewrite clear): `TextModel` changes its
-text and returns `Vec<Change>`. A small `ui` function `replay(&mut Content, &TextModel, &[Change])`
-copies each one into `Content`: `move_to(Cursor { position: end, selection: Some(start) })`, then
+**Changes made by the model** (undo, redo, unindent, moving lines, the Rewrite clear): `TextModel`
+changes its text and returns `Vec<Change>`. A small `ui` function
+`replay(&mut Content, &TextModel, &[Change])` copies each one into `Content`:
+`move_to(Cursor { position: end, selection: Some(start) })`, then
 `perform(Edit(Paste(Arc::new(inserted))))`, or `Edit(Delete)` when nothing is inserted. It then puts
 the caret at the end of the last change. Undo of a step applies its changes in reverse order with
 `removed` and `inserted` swapped.
@@ -114,6 +115,9 @@ the caret at the end of the last change. Undo of a step applies its changes in r
   and a refused edit puts the caret back. Ctrl+Backspace and Ctrl+Delete go to
   `Message::DeleteTo(motion)` the same way: `Pane::delete_to` selects with the widget's own word
   motion, so a word is what Ctrl+← steps over, then deletes.
+- Alt+↑ and Alt+↓ go to `Message::MoveLines`, a model change: `TextModel::move_lines` swaps the
+  lines with the one above or below as one `Change` and one undo step, and `Pane::move_lines`
+  replays it and puts the caret and selection back on the same text, a line up or down.
 - **Rewrite clear** (spec 7.4) is `replace(0..len, "")` on the scratch model, so Ctrl+Z restores it.
 - **Two panes** are two `{ content: Content, model: TextModel }` pairs, a small `Pane` struct in
   `app.rs`. v1 is read-only exactly as `editable` works today.

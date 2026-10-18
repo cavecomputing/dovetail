@@ -3,8 +3,8 @@
 //!
 //! The editor widget stays in charge of what is on screen. After each edit the UI hands the new
 //! text here; `record` works out the one `Change` that was made and keeps it for undo. Changes
-//! made here first (undo, redo, indent, unindent, `replace`) are returned so the UI can replay
-//! them into the widget. All offsets are bytes, the same as iced's columns.
+//! made here first (undo, redo, indent, unindent, moving lines, `replace`) are returned so the
+//! UI can replay them into the widget. All offsets are bytes, the same as iced's columns.
 
 use std::ops::{Range, RangeInclusive};
 use std::time::{Duration, Instant};
@@ -205,6 +205,27 @@ impl TextModel {
         changes
     }
 
+    /// Alt+↑ and Alt+↓: swaps `lines` with the line above (`up`) or below, as one undo step.
+    /// Returns the change, or nothing at the top or bottom of the text. The newlines stay where
+    /// they are and the lines move between them, so a last line without one still has none.
+    pub fn move_lines(&mut self, lines: RangeInclusive<usize>, up: bool) -> Vec<Change> {
+        let (first, last) = lines.into_inner();
+        let (top, bottom) = match up {
+            true if first > 0 => (first - 1, last),
+            false if last + 1 < self.text.split('\n').count() => (first, last + 1),
+            _ => return Vec::new(),
+        };
+        let at = offset(&self.text, top, 0);
+        let mut swapped: Vec<&str> = self.text[at..].split('\n').take(bottom - top + 1).collect();
+        let end = at + swapped.iter().map(|line| line.len() + 1).sum::<usize>() - 1;
+        match up {
+            true => swapped.rotate_left(1),
+            false => swapped.rotate_right(1),
+        }
+        let moved = swapped.join("\n");
+        vec![self.replace(at..end, &moved)]
+    }
+
     /// Undoes the last step. Returns the changes to replay into the widget, in order (empty
     /// when there was nothing to undo).
     pub fn undo(&mut self) -> Vec<Change> {
@@ -267,6 +288,18 @@ pub fn position(text: &str, offset: usize) -> (usize, usize) {
     let line = before.matches('\n').count();
     let column = offset - before.rfind('\n').map_or(0, |at| at + 1);
     (line, column)
+}
+
+/// The first and last line of `text` that bytes `a` to `b` (either way round) are on. A last
+/// line only the start of is in the range doesn't count, as nothing on it is selected.
+pub fn selected_lines(text: &str, a: usize, b: usize) -> (usize, usize) {
+    let (first, _) = position(text, a.min(b));
+    let (last, column) = position(text, a.max(b));
+    if column == 0 && last > first {
+        (first, last - 1)
+    } else {
+        (first, last)
+    }
 }
 
 /// The (line, byte column) of each of `offsets` (in order) in `text`, in one pass over the text
@@ -565,6 +598,59 @@ mod tests {
         assert_eq!(changes[1].at, 6, "after the indent on line 0");
         model.undo();
         assert_eq!(model.text(), "a\n  b\n\nc");
+    }
+
+    #[test]
+    fn move_lines_swaps_with_the_line_above_or_below_as_one_step() {
+        let mut model = TextModel::new("one\ntwo\nthree\n".to_string());
+        model.move_lines(1..=1, true);
+        assert_eq!(model.text(), "two\none\nthree\n");
+        model.move_lines(0..=1, false);
+        assert_eq!(model.text(), "three\ntwo\none\n");
+        model.undo();
+        assert_eq!(model.text(), "two\none\nthree\n");
+        model.undo();
+        assert_eq!(model.text(), "one\ntwo\nthree\n");
+        // At the top or the bottom (the empty line after the last newline) nothing moves, and no
+        // undo step is added.
+        assert!(model.move_lines(0..=1, true).is_empty());
+        assert!(model.move_lines(3..=3, false).is_empty());
+        assert!(model.undo().is_empty());
+        assert!(
+            TextModel::new(String::new())
+                .move_lines(0..=0, false)
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn move_lines_leaves_a_missing_last_newline_missing() {
+        let mut model = TextModel::new("naïve\ncafé".to_string());
+        let changes = model.move_lines(1..=1, true);
+        assert_eq!(model.text(), "café\nnaïve");
+        let mut widget = "naïve\ncafé".to_string();
+        for change in &changes {
+            widget.replace_range(
+                change.at..change.at + change.removed.len(),
+                &change.inserted,
+            );
+        }
+        assert_eq!(widget, model.text());
+        model.move_lines(0..=0, false);
+        assert_eq!(model.text(), "naïve\ncafé");
+    }
+
+    #[test]
+    fn selected_lines_leave_out_a_line_only_its_start_is_in() {
+        let text = "ab\ncd\nef";
+        assert_eq!(selected_lines(text, 1, 1), (0, 0));
+        assert_eq!(selected_lines(text, 6, 1), (0, 1), "either way round");
+        assert_eq!(
+            selected_lines(text, 0, 3),
+            (0, 0),
+            "the start of line 1 only"
+        );
+        assert_eq!(selected_lines(text, 3, 3), (1, 1), "the caret alone");
     }
 
     #[test]
