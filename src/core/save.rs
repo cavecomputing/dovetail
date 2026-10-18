@@ -59,12 +59,15 @@ pub fn check_writable(path: &Path) -> io::Result<()> {
     if cfg!(windows) && fs::metadata(&path).is_ok_and(|meta| meta.permissions().readonly()) {
         return Err(ErrorKind::PermissionDenied.into());
     }
-    // Nor will macOS replace a file locked in Finder (the UF_IMMUTABLE flag, 0x2).
-    #[cfg(target_os = "macos")]
-    if fs::metadata(&path)
-        .is_ok_and(|meta| std::os::macos::fs::MetadataExt::st_flags(&meta) & 0x2 != 0)
+    // Linux and macOS also ask about the file itself, by opening it to write (writing nothing),
+    // since the rename needs only the folder: a file the user can't write (made read-only with
+    // chmod, someone else's, or locked in Finder) opens read-only, instead of being replaced or
+    // failing at every save.
+    #[cfg(unix)]
+    if let Err(error) = fs::OpenOptions::new().write(true).open(&path)
+        && error.kind() != ErrorKind::NotFound
     {
-        return Err(ErrorKind::PermissionDenied.into());
+        return Err(error);
     }
     File::create(&temp)?;
     fs::remove_file(&temp)
@@ -308,6 +311,24 @@ mod tests {
         // Windows refuses the save's rename, which is why the file opens read-only.
         assert!(atomic_write(&path, b"y").is_err());
         assert_eq!(fs::read(&path).unwrap(), b"x");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_file_the_user_cant_write_is_refused_before_any_save() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("notes.txt");
+        fs::write(&path, b"x").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o444)).unwrap();
+        // Root ignores permissions, so only check the refusal when they apply.
+        if fs::OpenOptions::new().append(true).open(&path).is_err() {
+            let error = check_writable(&path).unwrap_err();
+            assert_eq!(error.kind(), ErrorKind::PermissionDenied);
+        }
+        // The save's rename would replace it anyway, which is why it opens read-only.
+        atomic_write(&path, b"y").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"y");
     }
 
     #[cfg(target_os = "macos")]
