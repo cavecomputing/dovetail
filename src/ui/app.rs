@@ -730,12 +730,27 @@ fn settings_key(message: Message) -> Option<Message> {
 /// Starts another copy of the app on `path` (or on scratch), so every file gets its own window.
 pub fn open_in_new_window(path: Option<PathBuf>) -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|error| error.to_string())?;
-    let mut command = std::process::Command::new(exe);
+    let mut command = std::process::Command::new(binary_path(exe));
     command.args(path);
     command
         .spawn()
         .map(|_| ())
         .map_err(|error| format!("Couldn't open a new window: {error}"))
+}
+
+/// The app's binary as it is now, from `current_exe`. Once install.sh or `cargo build` replaces
+/// the binary under a running window, Linux names the old one "<path> (deleted)", and the new one
+/// is at <path>. macOS and Windows keep the path the app was started from, so it is used as it is.
+fn binary_path(current_exe: PathBuf) -> PathBuf {
+    if cfg!(target_os = "linux")
+        && !current_exe.exists()
+        && let Some(path) = current_exe
+            .to_str()
+            .and_then(|path| path.strip_suffix(" (deleted)"))
+    {
+        return PathBuf::from(path);
+    }
+    current_exe
 }
 
 fn modified_time(paths: &Paths) -> Option<SystemTime> {
@@ -771,5 +786,16 @@ mod tests {
         });
         second.perform(Action::Edit(Edit::Insert('!')));
         assert_eq!(second.text(), "café!");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_reinstalled_binary_is_started_from_its_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let binary = dir.path().join("app");
+        std::fs::write(&binary, "the new build").unwrap();
+        let deleted = PathBuf::from(format!("{} (deleted)", binary.display()));
+        assert_eq!(binary_path(deleted), binary);
+        assert_eq!(binary_path(binary.clone()), binary);
     }
 }
