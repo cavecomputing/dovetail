@@ -10,8 +10,8 @@ pkgrel=1
 pkgdesc='A fast, quiet plain-text editor and scratchpad, with an assistant that suggests edits'
 arch=('x86_64' 'aarch64')
 url='https://github.com/cavecomputing/text'
-# No licence has been chosen for the app yet; the bundled JetBrains Mono font is OFL-1.1.
-license=('LicenseRef-unlicensed' 'OFL-1.1')
+# The app is MIT; the bundled JetBrains Mono font is OFL-1.1.
+license=('MIT' 'OFL-1.1')
 # winit, wgpu and the keyring load these at run time (dlopen), so they don't show as linked.
 depends=(
   'dbus'
@@ -99,5 +99,5 @@ StartupWMClass=$APP_ID
 DESKTOP
 
   install -Dm644 README.md docs/guide.md -t "$pkgdir/usr/share/doc/$pkgname/"
-  install -Dm644 assets/fonts/OFL.txt -t "$pkgdir/usr/share/licenses/$pkgname/"
+  install -Dm644 LICENSE assets/fonts/OFL.txt -t "$pkgdir/usr/share/licenses/$pkgname/"
 }

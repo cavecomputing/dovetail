@@ -197,6 +197,7 @@ drawing and event wiring.
 ```
 .github/workflows/ci.yml build, test, clippy and fmt on Linux, macOS and Windows for every push
 Cargo.toml, Cargo.lock   dependencies (see "Rust in plain terms")
+LICENSE                  MIT, the app's licence (the font has its own, OFL)
 assets/fonts/            the bundled JetBrains Mono NL Nerd Font (no ligatures) and its licence
 assets/icon/             the app icon: SVGs for Linux, icon.icns for macOS, icon.ico for Windows,
                          and a 64px raw RGBA copy for the window (see its README)

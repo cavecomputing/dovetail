@@ -102,5 +102,5 @@ and API key are kept.
   detail, every setting, and working on the code.
 - [The design](docs/spec.md): what Dovetail is meant to become.
 
-Dovetail bundles JetBrains Mono NL Nerd Font, under the SIL Open Font License: see
-[assets/fonts/OFL.txt](assets/fonts/OFL.txt).
+Dovetail is MIT licensed: see [LICENSE](LICENSE). It bundles JetBrains Mono NL Nerd Font, under
+the SIL Open Font License: see [assets/fonts/OFL.txt](assets/fonts/OFL.txt).

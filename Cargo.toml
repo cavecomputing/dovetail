@@ -2,6 +2,7 @@
 name = "dovetail"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
 
 [dependencies]
 directories = "6.0.0"
