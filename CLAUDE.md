@@ -2,9 +2,13 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-The app is **Dovetail**, a native Linux text editor written in Rust. By default it is a fast,
-minimal plain-text editor and scratchpad. On top of that it has a project mode for rewriting prompts across versions while tracking which *ideas* survive. The
-full design is in [docs/spec.md](docs/spec.md); read the section you are building before you start.
+The app is **Dovetail**, a native Linux text editor written in Rust. On `main` it is a fast,
+minimal plain-text editor and scratchpad, with an assistant pane that reads the text and suggests
+edits. The full design is in [docs/spec.md](docs/spec.md); read the section you are building
+before you start.
+
+Project mode (Rewrite, ideas, paint, versions) lives on the `rewrite` branch, and project work
+happens there.
 
 The owner is new to Rust. When you report back, explain Rust-specific things in plain words
 (what a crate is, why the borrow checker complained, what a command does) rather than assuming
@@ -28,9 +32,8 @@ to land where it can be seen.
 
 ## No hardcoded app name
 
-The name (Dovetail), the project file extension (`.dovetail`), the config folder, the projects
-folder, the `.desktop` file and the MIME type all come from **[src/brand.rs](src/brand.rs)**. Renaming
-the app again must mean editing that one file.
+The name (Dovetail), the app id, the config folder and the `.desktop` file all come from
+**[src/brand.rs](src/brand.rs)**. Renaming the app again must mean editing that one file.
 
 - Never write "Dovetail", `dovetail` or a path containing them anywhere else in `src/`. Use the constants. A grep for those strings outside `brand.rs` should find only docs.
 - The binary name in `Cargo.toml` is the one unavoidable exception; it is listed next to the
@@ -87,7 +90,7 @@ Renaming existing code is its own task. Don't fold a rename into an unrelated ch
 - **Debug vs release**: `cargo run` builds a debug binary, quick to compile but slower to run.
   `cargo run --release` takes longer to build and gives the fast binary you'd actually install.
 - **`Result` and `?`**: a function that can fail returns `Result<T, E>`; `?` means "if this failed,
-  return the error to my caller". `anyhow::Result` is a catch-all error type we use at the edges.
+  return the error to my caller".
 - **`unwrap()` / `expect()`**: crash if the value is an error or missing. Fine in tests; in app code
   only where failure is genuinely impossible, with `expect("why this can't fail")`.
 
@@ -96,7 +99,6 @@ Renaming existing code is its own task. Don't fold a rename into an unrelated ch
 ```bash
 cargo run                         # build (debug) and open the app on the scratch space
 cargo run -- notes.txt            # open a .txt file (everything after -- goes to the app)
-cargo run -- ~/Documents/Dovetail/Nyx/Nyx.dovetail     # open a project
 
 cargo test                        # run every test
 cargo test autosave               # run only tests whose name contains "autosave"
@@ -107,8 +109,8 @@ cargo build --release             # the optimised binary, at target/release/<bin
 ```
 
 Installing for daily use (Linux): `scripts/install.sh` builds the release binary, copies it to
-`~/.local/bin`, and installs the `.desktop` file and the MIME type for project files, all generated
-from the constants in `brand.rs`.
+`~/.local/bin`, and installs the app icon and the `.desktop` file, all generated from the constants
+in `brand.rs`.
 
 Linux needs a few system libraries to open a window (Ubuntu/Debian package names):
 `libxkbcommon-x11-0 libwayland-client0 libvulkan1`. Omarchy/Arch already has them.
@@ -116,9 +118,9 @@ Linux needs a few system libraries to open a window (Ubuntu/Debian package names
 ### How much verification a change needs
 
 - Every change: `cargo build`, `cargo test` and `cargo clippy --all-targets` with no warnings.
-- Logic (saving, counting, projects, git, paint anchoring): unit tests next to the code, in a
-  `#[cfg(test)] mod tests` block at the bottom of the file. Keep that logic out of UI code so it can
-  be tested without a window.
+- Logic (saving, counting, undo, finding, suggested edits, the assistant's tools): unit tests next
+  to the code, in a `#[cfg(test)] mod tests` block at the bottom of the file. Keep that logic out of
+  UI code so it can be tested without a window.
 - Anything visual (layout, colours, the status bar, panes): run the app and look. In a headless
   container: `xvfb-run -a -s "-screen 0 1280x800x24" env ICED_BACKEND=tiny-skia cargo run`, then
   screenshot with `import -window root shot.png` (ImageMagick). Compare against the mockups
@@ -126,10 +128,10 @@ Linux needs a few system libraries to open a window (Ubuntu/Debian package names
 
 ## Architecture
 
-One process per window: launching with no file opens scratch, with a `.txt` opens that file, with a
-project manifest opens that project. Opening another file from inside the app starts a new process
-of the same binary, so every file gets its own window and plays well with tiling window managers.
-A process has exactly one window: Settings, the Commit dialog and the other panels open over it.
+One process per window: launching with no file opens scratch, with a `.txt` opens that file.
+Opening another file from inside the app starts a new process of the same binary, so every file
+gets its own window and plays well with tiling window managers. A process has exactly one window:
+Settings, the Ctrl+P switcher and the menu open over it.
 
 The UI is [iced](https://iced.rs) (Elm-style: `update` handles a `Message` and changes state, `view`
 draws the state; nothing else mutates state). Logic modules do not depend on iced, so they can be
@@ -137,60 +139,45 @@ tested without a window.
 
 ### Folder layout
 
-The code is split by *what it knows about*. The rule that keeps it organised: **`core/`,
-`project/` and `ai/` never import iced**, so all the logic can be tested without opening a window,
-and `ui/` holds only drawing and event wiring.
+The code is split by *what it knows about*. The rule that keeps it organised: **`core/` and `ai/`
+never import iced**, so all the logic can be tested without opening a window, and `ui/` holds only
+drawing and event wiring.
 
 ```
 Cargo.toml, Cargo.lock   dependencies (see "Rust in plain terms")
 assets/fonts/            the bundled JetBrains Mono NL Nerd Font (no ligatures) and its licence
 assets/icon/             the app icon (SVGs for the installer, a 64px raw RGBA copy for the window)
 docs/                    spec.md (the design), design-tokens.json (the Gruvbox palette)
-scripts/install.sh       installs the binary, .desktop file and MIME type
+scripts/install.sh       installs the binary, app icon and .desktop file
 src/
   main.rs                entry point: reads the command line, decides what to open
-  brand.rs               every name and extension (see above)
+  brand.rs               every name (see above)
   core/                  plain-editor logic, no UI
-    paths.rs             where config, scratch and projects live
+    paths.rs             where config and scratch live, and where file dialogs start
     settings.rs          settings.toml: load, defaults, save
     save.rs              atomic file writes and the save-state machine (saved/saving/failed)
-    scratch.rs           the scratch space: text and cursor, resumed on launch; a Rewrite clears
-                         it, keeping the text for the next scratch window's Ctrl+Z
-    opened.rs            what a launch opens (scratch, a .txt, a project's draft): the text, the
-                         cursor, the lock, and whether it's editable
+    scratch.rs           the scratch space: text and cursor, resumed on launch; saving it to a
+                         file empties it, keeping the text for the next scratch window's Ctrl+Z
+    opened.rs            what a launch opens (scratch or a .txt): the text, the cursor, the lock,
+                         and whether it's editable
     lock.rs              OS file locks so two windows never edit the same document
-    counts.rs            word and token counts (tokenizer loads in the background), % change
+    counts.rs            word and token counts (tokenizer loads in the background)
     find.rs              every match of a find query, ignoring case
-    markup.rs            where XML tags and {{macros}} are, for colouring them and naming things
+    markup.rs            where XML tags and {{macros}} are, for colouring them
     text_file.rs         reading and saving .txt files: line endings, outside-change check
-    recent.rs            the recently opened files and projects (data folder), fuzzy matching
-    text_model.rs        a pane's text, its undo/redo history and paint, in byte offsets
+    recent.rs            the recently opened files (data folder), fuzzy matching
+    text_model.rs        a pane's text and its undo/redo history, in byte offsets
     review.rs            suggested edits waiting in a pane, and the display text that shows
                          them inside the document (review mode)
-  project/               project mode logic, no UI
-    mod.rs               a project: create (Rewrite), open, commit, rename, saving paint, the
-                         recent list
-    manifest.rs          the JSON manifest: versions (note, date, paint), ideas, topics, the draft
-    history.rs           versions as git commits
-    paint.rs             paint spans: brushing, erasing, and how they follow edits
-    ideas.rs             ideas and topics: colours, feeling notes, cut marks, merge and split
-    weights.rs           each idea's share of the text, and the Commit check
   ui/                    everything iced: windows, widgets, styling
     app.rs               the App state, Message enum, update and view
     theme.rs             Gruvbox palette roles, the font and its icon glyphs, shared styles
     editor.rs            the editor pane (widget + text model), key bindings, tag/macro colouring,
                          and review mode (suggestions as ghost text, Accept and Reject)
-    text_editor.rs       a copy of iced's text editor widget (draws paint, gutter stripes and
-                         the suggestion buttons), changes marked `ours:`
-    status_bar.rs        the bottom bar (save dot, path, counts, Rewrite/Commit) and its menu
-    project_view.rs      a project window's two panes and their headers, and their paint
-    commit_dialog.rs     the Commit dialog and its Commit check rows
-    project_actions.rs   App's handlers for Rewrite, Commit and opening versions
-    ideas_view.rs        the idea strip and the feeling-note card
-    idea_panel.rs        the panel that edits one idea
-    weights_view.rs      the idea weights view
-    idea_actions.rs      App's handlers for brushes, painting and editing ideas
-    switcher.rs          the Ctrl+P quick switcher over recent files and projects
+    text_editor.rs       a copy of iced's text editor widget (draws find matches, suggested edits
+                         and their buttons), changes marked `ours:`
+    status_bar.rs        the bottom bar (save dot, path, counts, assistant toggle) and its menu
+    switcher.rs          the Ctrl+P quick switcher over recent files
     find_bar.rs          the Ctrl+F find bar: its matches, stepping through them, how they're lit
     file_actions.rs      App's handlers for New file (Ctrl+N), Save (Ctrl+S) and Save as
     window_controls.rs   the top strip's window controls and the resize edges
@@ -221,7 +208,7 @@ files (`pub mod save;`); keep that list current. Tests sit at the bottom of the 
   for the latest save; if it failed, the window stays open and the status bar says why. There is no
   "unsaved" state and no "save changes?" prompt. Ctrl+S only writes sooner, or in scratch (which has
   no file) asks where to save one.
-- **Startup must stay near-instant.** Anything slow (loading the tokenizer, git, network) happens
+- **Startup must stay near-instant.** Anything slow (loading the tokenizer, network) happens
   off the UI thread after the first frame. The window shows text first and fills in counts later.
 - **Tab never writes a tab character.** It inserts N spaces (default 4, from settings).
 - **Colours come from roles, not hex.** `ui/theme.rs` maps the cavecomputing Gruvbox tokens
@@ -237,5 +224,3 @@ files (`pub mod save;`); keep that list current. Tests sit at the bottom of the 
 - **No branding in the UI**: no logo, no app name in the window.
 - **Settings** live in `~/.config/<config dir>/settings.toml` (hand-editable), apply instantly, and
   unknown or missing keys fall back to defaults instead of failing.
-- **Projects** are folders: a JSON manifest (`<name>.<ext>`), `draft.txt`, and a hidden `.git` with
-  one commit per version. The owner never touches git; the app does all of it.

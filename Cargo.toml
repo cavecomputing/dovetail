@@ -4,9 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-anyhow = "1.0.104"
 directories = "6.0.0"
-git2 = { version = "0.21.0", default-features = false, features = ["vendored-libgit2"] }
 iced = { version = "0.14", features = ["tokio", "advanced", "tiny-skia", "wgpu"] }
 keyring = "4"
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "json"] }

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Installs the app for the current user: the release binary in ~/.local/bin, the app icon, a
-# .desktop entry for app launchers, and a MIME type so project files open in the app. Every name comes from
-# src/brand.rs (the binary prints them with --print-brand), so nothing is hardcoded here.
+# Installs the app for the current user: the release binary in ~/.local/bin, the app icon and a
+# .desktop entry for app launchers. Every name comes from src/brand.rs (the binary prints them
+# with --print-brand), so nothing is hardcoded here.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -12,9 +12,8 @@ eval "$("$binary" --print-brand)"
 
 bin_dir="$HOME/.local/bin"
 apps_dir="$HOME/.local/share/applications"
-mime_dir="$HOME/.local/share/mime"
 icons_dir="$HOME/.local/share/icons/hicolor"
-mkdir -p "$bin_dir" "$apps_dir" "$mime_dir/packages"
+mkdir -p "$bin_dir" "$apps_dir"
 
 install -m 755 "$binary" "$bin_dir/$BIN_NAME"
 
@@ -34,25 +33,11 @@ Exec=$bin_dir/$BIN_NAME %f
 Icon=$APP_ID
 Terminal=false
 Categories=Utility;TextEditor;
-MimeType=text/plain;$PROJECT_MIME;
+MimeType=text/plain;
 StartupWMClass=$APP_ID
 DESKTOP
 
-cat > "$mime_dir/packages/$APP_ID.xml" <<MIME
-<?xml version="1.0" encoding="UTF-8"?>
-<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
-  <mime-type type="$PROJECT_MIME">
-    <comment>$APP_NAME project</comment>
-    <icon name="$APP_ID"/>
-    <glob pattern="*.$PROJECT_EXT"/>
-  </mime-type>
-</mime-info>
-MIME
-
-# Refresh the launcher and MIME caches when the tools are there; both are optional.
-if command -v update-mime-database > /dev/null; then
-    update-mime-database "$mime_dir"
-fi
+# Refresh the launcher and icon caches when the tools are there; both are optional.
 if command -v update-desktop-database > /dev/null; then
     update-desktop-database "$apps_dir"
 fi

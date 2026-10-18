@@ -1,10 +1,10 @@
-//! Where config, scratch state and projects live on disk.
+//! Where config and scratch state live on disk, and where file dialogs start.
 
 use std::path::{Path, PathBuf};
 
 use directories::{BaseDirs, UserDirs};
 
-use crate::brand::{CONFIG_DIR_NAME, PROJECTS_DIR_NAME};
+use crate::brand::CONFIG_DIR_NAME;
 
 /// The folders the app reads and writes.
 #[derive(Debug, Clone, PartialEq)]
@@ -13,8 +13,8 @@ pub struct Paths {
     pub config_dir: PathBuf,
     /// `~/.local/share/<app>`: holds the scratch space.
     pub data_dir: PathBuf,
-    /// `~/Documents/<Projects>`: where new projects go unless settings say otherwise.
-    pub projects_dir: PathBuf,
+    /// `~/Documents`: where the file dialogs start when there is no open file to start beside.
+    pub documents_dir: PathBuf,
 }
 
 impl Paths {
@@ -26,13 +26,13 @@ impl Paths {
             return Paths::under(Path::new(&root));
         }
         let base = BaseDirs::new().expect("the home directory is always known on Linux");
-        let documents = UserDirs::new()
+        let documents_dir = UserDirs::new()
             .and_then(|dirs| dirs.document_dir().map(Path::to_path_buf))
             .unwrap_or_else(|| base.home_dir().join("Documents"));
         Paths {
             config_dir: base.config_dir().join(CONFIG_DIR_NAME),
             data_dir: base.data_dir().join(CONFIG_DIR_NAME),
-            projects_dir: documents.join(PROJECTS_DIR_NAME),
+            documents_dir,
         }
     }
 
@@ -41,7 +41,7 @@ impl Paths {
         Paths {
             config_dir: root.join("config"),
             data_dir: root.join("data"),
-            projects_dir: root.join("projects"),
+            documents_dir: root.join("documents"),
         }
     }
 
@@ -62,14 +62,6 @@ pub fn display_path(path: &Path) -> String {
     }
 }
 
-/// `path` with a leading `~` replaced by the home folder, as typed in settings.
-pub fn expand_home(path: &Path) -> PathBuf {
-    match (path.strip_prefix("~"), BaseDirs::new()) {
-        (Ok(rest), Some(base)) => base.home_dir().join(rest),
-        _ => path.to_path_buf(),
-    }
-}
-
 /// Name of the environment variable that moves every folder, derived from the brand so a rename
 /// changes it too: `CONFIG_DIR_NAME` in capitals, dashes as underscores, plus `_HOME`.
 pub fn home_override_var() -> String {
@@ -85,7 +77,7 @@ mod tests {
         let paths = Paths::under(Path::new("/tmp/x"));
         assert_eq!(paths.config_dir, Path::new("/tmp/x/config"));
         assert_eq!(paths.data_dir, Path::new("/tmp/x/data"));
-        assert_eq!(paths.projects_dir, Path::new("/tmp/x/projects"));
+        assert_eq!(paths.documents_dir, Path::new("/tmp/x/documents"));
         assert_eq!(
             paths.settings_file(),
             Path::new("/tmp/x/config/settings.toml")
@@ -109,7 +101,6 @@ mod tests {
         let paths = Paths::detect();
         assert!(paths.config_dir.ends_with(CONFIG_DIR_NAME));
         assert!(paths.data_dir.ends_with(CONFIG_DIR_NAME));
-        assert!(paths.projects_dir.ends_with(PROJECTS_DIR_NAME));
     }
 
     #[test]
@@ -117,13 +108,5 @@ mod tests {
         let home = BaseDirs::new().unwrap().home_dir().to_path_buf();
         assert_eq!(display_path(&home.join("notes.txt")), "~/notes.txt");
         assert_eq!(display_path(Path::new("/etc/hosts")), "/etc/hosts");
-    }
-
-    #[test]
-    fn expand_home_replaces_a_leading_tilde_only() {
-        let home = BaseDirs::new().unwrap().home_dir().to_path_buf();
-        assert_eq!(expand_home(Path::new("~/Prompts")), home.join("Prompts"));
-        assert_eq!(expand_home(Path::new("~")), home);
-        assert_eq!(expand_home(Path::new("/a/~/b")), Path::new("/a/~/b"));
     }
 }

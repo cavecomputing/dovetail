@@ -10,9 +10,7 @@ use iced::widget::text_editor;
 
 use crate::ai::agent::{Conversation, Next, test_connection};
 use crate::ai::client::{Item, Reply, StreamEvent};
-use crate::ai::context::{
-    self, DocKind, ProjectSnapshot, Snapshot, read_versions, shorter_request,
-};
+use crate::ai::context::{DocKind, Snapshot, shorter_request};
 use crate::ai::key::{KeyStore, api_key, key_store, set_api_key};
 use crate::ai::tools::Suggestion;
 use crate::core::counts::Counts;
@@ -22,7 +20,7 @@ use crate::ui::editor::{self, Decision};
 use crate::ui::settings_panel::Connection;
 use crate::ui::status_bar;
 
-/// How long the pane takes to slide in or out, as long as the Rewrite slide.
+/// How long the pane takes to slide in or out.
 const SLIDE: Duration = Duration::from_millis(300);
 pub const COMPOSER_ID: &str = "assistant-composer";
 
@@ -43,8 +41,6 @@ pub enum AssistantAction {
     KeyRead(u64, Result<Option<String>, String>),
     /// The next piece of a reply to the question with this number.
     Reply(u64, StreamEvent),
-    /// A project's committed versions, read from git for the tools.
-    Versions(Result<Vec<(u32, String)>, String>),
     /// Settings: the saved key, and where keys are kept on this machine.
     KeyLoaded(KeyStore, Result<Option<String>, String>),
     KeyTyped(String),
@@ -64,9 +60,6 @@ pub struct Assistant {
     pub conversation: Conversation,
     pub composer: text_editor::Content,
     pub cards: Vec<Card>,
-    /// A project's committed versions, for the tools; `None` until read from git. Committed text
-    /// never changes, so they are read once and added to after each commit.
-    pub versions: Option<Vec<(u32, String)>>,
     /// Numbers the questions, so pieces of a reply that was stopped are ignored.
     question: u64,
     /// The API key for the question being answered, read when it was asked.
@@ -97,7 +90,7 @@ pub enum CardState {
 }
 
 impl Assistant {
-    /// How much of the pane shows, from 0 (closed) to 1 (open), eased like the Rewrite slide.
+    /// How much of the pane shows, from 0 (closed) to 1 (open), eased.
     pub fn shown(&self, now: Instant) -> f32 {
         let t = match self.slide_started {
             Some(start) => {
@@ -152,20 +145,10 @@ impl App {
                 let assistant = &mut self.assistant;
                 assistant.open = !assistant.open;
                 assistant.slide_started = Some(Instant::now());
-                if !assistant.open {
-                    return focus(editor::EDITOR_ID);
-                }
-                let versions = match &self.project {
-                    Some(view) if assistant.versions.is_none() => {
-                        let project = view.project.clone();
-                        Task::perform(
-                            async move { read_versions(&project).map_err(|error| error.to_string()) },
-                            |versions| Message::Assistant(AssistantAction::Versions(versions)),
-                        )
-                    }
-                    _ => Task::none(),
+                return match assistant.open {
+                    true => focus(COMPOSER_ID),
+                    false => focus(editor::EDITOR_ID),
                 };
-                return Task::batch([focus(COMPOSER_ID), versions]);
             }
             AssistantAction::Composer(action) => self.assistant.composer.perform(action),
             AssistantAction::Send => {
@@ -225,13 +208,6 @@ impl App {
                 }
             }
             AssistantAction::KeyRead(..) | AssistantAction::Reply(..) => {}
-            AssistantAction::Versions(Ok(versions)) => self.assistant.versions = Some(versions),
-            AssistantAction::Versions(Err(reason)) => {
-                // Chatting still works; the tools just find no versions.
-                self.assistant.versions = Some(Vec::new());
-                let reason = format!("Couldn't read the versions: {reason}");
-                self.assistant.conversation.error = Some(reason);
-            }
 
             AssistantAction::KeyLoaded(store, key) => {
                 self.key_field.store = Some(store);
@@ -284,12 +260,9 @@ impl App {
         Task::none()
     }
 
-    /// Whether a question can go now: a model is set, no reply is arriving, and in a project the
-    /// versions have been read for the tools.
+    /// Whether a question can go now: a model is set and no reply is arriving.
     pub fn can_ask(&self) -> bool {
-        !self.settings.model.trim().is_empty()
-            && !self.assistant.conversation.busy
-            && (self.project.is_none() || self.assistant.versions.is_some())
+        !self.settings.model.trim().is_empty() && !self.assistant.conversation.busy
     }
 
     /// Asks `question` about the document as it is now. The key is read off the UI thread (the
@@ -327,29 +300,20 @@ impl App {
         task
     }
 
-    /// What the assistant sees: the text being edited, its selection, caret and focus, the
-    /// suggestions waiting in it, and in a project the versions, ideas, notes and paint too.
+    /// What the assistant sees: the text, its selection and caret, and the suggestions waiting
+    /// in it.
     pub fn snapshot(&self) -> Snapshot {
-        let doc = match (&self.project, &self.doc) {
-            (Some(view), _) => DocKind::Project(Box::new(ProjectSnapshot {
-                project: view.project.clone(),
-                draft_paint: self.pane.model.paint.clone(),
-                versions: self.assistant.versions.clone().unwrap_or_default(),
-                shown_version: view.reference_version,
-            })),
-            (None, Doc::Scratch) => DocKind::Scratch,
-            (None, doc) => DocKind::TextFile {
+        let doc = match &self.doc {
+            Doc::Scratch => DocKind::Scratch,
+            doc => DocKind::TextFile {
                 name: status_bar::title(doc),
             },
         };
-        let manifest = self.project.as_ref().map(|view| &view.project.manifest);
-        let (selection, caret) = (self.pane.selection(), self.pane.caret());
         Snapshot {
             doc,
             text: self.pane.model.text().to_string(),
-            focus: context::focus(&self.pane.model, selection.clone(), caret, manifest),
-            selection,
-            caret,
+            selection: self.pane.selection(),
+            caret: self.pane.caret(),
             read_only: !self.editable(),
             waiting: self
                 .pane
@@ -375,10 +339,7 @@ impl App {
             .count();
         for suggestion in new {
             let range = suggestion.at..suggestion.at + suggestion.find.len();
-            let state = match self
-                .pane
-                .suggest(range, &suggestion.replace, suggestion.idea)
-            {
+            let state = match self.pane.suggest(range, &suggestion.replace) {
                 Ok(id) => CardState::Waiting(id),
                 Err(reason) => CardState::Gone(reason),
             };
@@ -397,7 +358,6 @@ impl App {
                 suggestion,
             });
         }
-        self.refresh_ideas();
     }
 
     /// Marks each waiting card whose suggestion has left the document as `decided`.

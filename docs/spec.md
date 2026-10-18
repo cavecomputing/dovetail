@@ -6,6 +6,8 @@ A native Linux desktop text editor, written in Rust. By default it's a fast, min
 - Running brainstorm log: [notes.md](notes.md)
 - Name: **Dovetail** (2026-10-17). It replaces the working name Word Designer.
 
+> **What `main` builds (2026-10-18):** for now `main` is the plain editor and scratchpad (§2 to §6, §10, §11) plus the assistant pane (§9) without its project parts. Project mode (the Rewrite flow, project format and commit check in §7, and ideas, paint and weights in §8, plus the project parts of the other sections) lives on the `rewrite` branch until the basic text editing is solid. This spec keeps the whole design; the notes below mark what is only on `rewrite`.
+
 ---
 
 ## 1. The problem it solves
@@ -29,25 +31,25 @@ Rewriting a prompt usually means two windows side by side: the old version on th
 | Action | Result |
 |---|---|
 | Launch the app | Opens the one continuous **scratch space**, resuming exactly where it was left (text, cursor, scroll). |
-| Open a project file (`.dovetail`) | Opens that project. |
+| Open a project file (`.dovetail`) | Opens that project (`rewrite` branch only). |
 | Open a `.txt` | Opens just that text file. |
 
 - **No tabs.** Each opened file or project gets its own window, which plays well with tiling WMs.
-- `Ctrl+P` opens a quick switcher with fuzzy search over recent files and projects.
+- `Ctrl+P` opens a quick switcher with fuzzy search over recent files (and projects, on the `rewrite` branch).
 - `Ctrl+0` (or similar) jumps back to scratch from anywhere.
 - `Ctrl+,` opens Settings, a panel over the window (2026-10-18: not a separate window). See §10.
 - `Ctrl+L` opens and closes the assistant pane.
 - The usual editor keys too (2026-10-18): `Ctrl+N` new file (asks where, opens in its own window), `Ctrl+O` open, `Ctrl+S` save (see §4), `Ctrl+Shift+S` save as, `Ctrl+W` close the window, `Ctrl+F` find, `Ctrl+=` / `Ctrl+-` font size.
-- **Find** (`Ctrl+F`): a bar just above the status bar. Matches ignore case and are lit up in the text, the current one outlined; Enter and Shift+Enter step through them, Esc closes the bar and leaves the match selected. In a project it searches the draft.
+- **Find** (`Ctrl+F`): a bar just above the status bar. Matches ignore case and are lit up in the text, the current one outlined; Enter and Shift+Enter step through them, Esc closes the bar and leaves the match selected. On the `rewrite` branch, in a project it searches the draft.
 - Startup has to be near-instant: launch, jot, close. This is a key reason to prefer pure Rust over a webview.
 - Launch from the app menu or a short terminal command.
-- Register as a `.desktop` app with a MIME type for `.dovetail`. Optionally act as a `.txt` handler too.
+- Register as a `.desktop` app that can open `.txt` files. The `rewrite` branch also registers a MIME type for `.dovetail`.
 
 ## 4. Saving
 
 - **Everything autosaves**, scratch included. There's never a "save changes?" prompt.
-- `Ctrl+S` still does something useful (2026-10-18). In a `.txt` or project it writes now instead of after the pause. Scratch has no file, so there it asks where to save: the window becomes that `.txt`, and scratch is cleared with its text kept for the next scratch window's undo, as after a Rewrite.
-- `Ctrl+Shift+S` (Save as) moves a `.txt` to a new file and keeps editing there; the old file keeps its last save. Projects live in their own folder, so they have no Save as.
+- `Ctrl+S` still does something useful (2026-10-18). In a `.txt` (or a project, on the `rewrite` branch) it writes now instead of after the pause. Scratch has no file, so there it asks where to save: the window becomes that `.txt`, and scratch is cleared with its text kept for the next scratch window's undo (as after a Rewrite, on the `rewrite` branch).
+- `Ctrl+Shift+S` (Save as) moves a `.txt` to a new file and keeps editing there; the old file keeps its last save. On the `rewrite` branch, projects live in their own folder, so they have no Save as.
 - **Closing waits for the save.** The window only closes once the latest autosave has been written. If a save fails, the window stays open and says why.
 - The scratch space persists between launches as a single document.
 - Plain docs are ordinary `.txt` files.
@@ -64,16 +66,17 @@ Rewriting a prompt usually means two windows side by side: the old version on th
 
 Left to right:
 
-- **Plain doc:** `☰ menu` · save dot · path (or `Scratch`) … words · tokens · assistant toggle · **pen icon (Rewrite)**
-- **Project:** `☰ menu` · save dot · project path · `v3 → draft` … words · tokens · `−45% vs v3` · assistant toggle · **Commit**
+- **Plain doc (`main`):** `☰ menu` · save dot · path (or `Scratch`) … words · tokens · assistant toggle
+- **Plain doc (`rewrite` branch):** the same, then the **pen icon (Rewrite)**
+- **Project (`rewrite` branch):** `☰ menu` · save dot · project path · `v3 → draft` … words · tokens · `−45% vs v3` · assistant toggle · **Commit**
 
 Rules:
-- The bottom-right corner always holds the **next step**: the pen icon on plain docs, Commit in projects.
+- On the `rewrite` branch the bottom-right corner always holds the **next step**: the pen icon on plain docs, Commit in projects. On `main` it holds the assistant toggle.
 - **Save dot:** green means saved (quiet, with the word on hover). Yellow with a gentle pulse means saving. Orange with words means the save failed, for example "Save failed: disk full", and also blocks closing. There's no "unsaved" state, because everything autosaves.
 - The tokenizer and encoding show on hover over the token count, not in the bar. Line and column are off by default and can be turned on.
-- The menu holds open, recent, settings and version history.
+- The menu holds new file, open, recent, save as (save to a file in scratch), find, settings and scratch. On the `rewrite` branch a project's menu adds version history and idea weights.
 
-## 7. Projects: the rewrite flow
+## 7. Projects: the rewrite flow (`rewrite` branch)
 
 1. In scratch or a `.txt`, paste or write the text, then click the **pen (Rewrite)**.
 2. The text **slides left and becomes v1**, read-only. A copy lands on the right as the **draft**.
@@ -100,7 +103,7 @@ Before committing, a small dialog shows:
 - Ideas carried, cut on purpose, and **missing**.
 - A "Heads up" when an idea has no text left. The options are Go back, Mark as cut, or Commit anyway.
 
-## 8. Ideas: tracking meaning across versions
+## 8. Ideas: tracking meaning across versions (`rewrite` branch)
 
 This is what makes the app different. It's the agreed direction, with details to be refined while building.
 
@@ -130,19 +133,19 @@ This is what makes the app different. It's the agreed direction, with details to
 
 ## 10. Settings
 
-A settings panel that opens over the app, from the menu or `Ctrl+,`, in whichever window it was asked for (scratch, a `.txt` or a project), with the document dimmed behind it (2026-10-18: not a separate window). It scrolls when taller than the window; Esc, its close glyph or a click on the dimmed document closes it. While it's open, typing goes only to its fields and the document's shortcuts are off. Changes apply instantly, and other open windows pick them up too. Settings are stored in `~/.config/<app>/settings.toml`, so they can be edited by hand.
+A settings panel that opens over the app, from the menu or `Ctrl+,`, in whichever window it was asked for (scratch, a `.txt`, or a project on the `rewrite` branch), with the document dimmed behind it (2026-10-18: not a separate window). It scrolls when taller than the window; Esc, its close glyph or a click on the dimmed document closes it. While it's open, typing goes only to its fields and the document's shortcuts are off. Changes apply instantly, and other open windows pick them up too. Settings are stored in `~/.config/<app>/settings.toml`, so they can be edited by hand.
 
 | Section | Settings |
 |---|---|
 | Appearance | Theme (Gruvbox dark / light / follow system), font, font size (default 14), reading mode (Full width, default, or Comfort with a character width) |
 | Editor | Tab inserts N spaces (**default 4**, never tabs), word wrap (**on** by default), XML and macro colouring |
-| Saving | Autosave timing, projects folder |
+| Saving | Autosave timing (the `rewrite` branch adds the projects folder) |
 | Assistant | Base URL, API key (keyring), model, request format (Responses, default / Chat Completions), test connection |
 | Window | Window controls: Auto / Always show / Always hide |
 
 ## 11. Counting
 
-- Word and token counts update live in both panes.
+- Word and token counts update live (in both panes of a project, on the `rewrite` branch).
 - The tokenizer is OpenAI's o200k, via `tiktoken-rs`. That's a good enough estimate for Claude and Gemini.
 - Later: count `{{macros}}` separately from real text, since they expand at runtime.
 
@@ -163,6 +166,8 @@ A settings panel that opens over the app, from the menu or `Ctrl+,`, in whicheve
 4. **Commit check and feeling notes.**
 5. **Claude pane** with suggest-only edits.
 6. **Later:** Hyprland auto-sense polish, the XML-aware view, Gemini, prompt export, and idea merge/split.
+
+`main` holds step 1, `Ctrl+P` recent files from step 2, and step 5 without its project parts. Steps 2 to 4 and the project parts of step 5 are on the `rewrite` branch (2026-10-18).
 
 ## 14. Still open
 

@@ -13,7 +13,6 @@ use crate::core::scratch::{
     ScratchState, claim_scratch, scratch_lock_path, scratch_text_path, take_cleared,
 };
 use crate::core::text_file::{DiskStamp, LineEnding, read_text};
-use crate::project::{DRAFT_FILE, is_project};
 
 /// What a window is showing.
 #[derive(Debug, Clone)]
@@ -23,8 +22,6 @@ pub enum Doc {
         path: PathBuf,
         line_ending: LineEnding,
     },
-    /// A project, by its manifest's path. The window edits its `draft.txt`.
-    Project(PathBuf),
 }
 
 /// A document ready for the window.
@@ -42,7 +39,8 @@ pub struct OpenedDoc {
     pub lock: Option<File>,
     /// The file on disk as it was read, so a save can tell if someone else changed it.
     pub disk_stamp: Option<DiskStamp>,
-    /// What a Rewrite cleared from scratch, for the window to offer as its first undo step.
+    /// What scratch held before Save to a file emptied it, for the window to offer as its first
+    /// undo step.
     pub cleared_scratch: Option<String>,
 }
 
@@ -104,16 +102,8 @@ pub fn open_doc(doc: Doc, paths: &Paths) -> OpenedDoc {
             opened.disk_stamp = DiskStamp::of(&path);
             opened.doc = Doc::File { path, line_ending };
         }
-        Doc::Project(path) => {
-            let _ = remember(&paths.data_dir, &path);
-            match read_text(&path.with_file_name(DRAFT_FILE)) {
-                Ok(file) => opened.text = file.text,
-                Err(error) if error.kind() == ErrorKind::NotFound => {}
-                Err(error) => opened.read_only_reason = Some(format!("Couldn't open: {error}")),
-            }
-        }
     }
-    if let Doc::File { path, .. } | Doc::Project(path) = &opened.doc
+    if let Doc::File { path, .. } = &opened.doc
         && opened.read_only_reason.is_none()
     {
         opened.lock = match claim_lock(&lock_for(&paths.data_dir, path)) {
@@ -160,27 +150,14 @@ pub fn empty_file(data_dir: &Path, path: &Path) -> Result<(), String> {
 
 const OPEN_ELSEWHERE: &str = "That file is open in another window";
 
-/// The lock that guards writing `path`. A project's draft is guarded by its project's lock and
-/// scratch's text by scratch's own, so no window can open or save over either while it's open.
+/// The lock that guards writing `path`. Scratch's text is guarded by scratch's own lock, so no
+/// window can open or save over it while scratch is open.
 fn lock_for(data_dir: &Path, path: &Path) -> PathBuf {
     let real = |path: &Path| fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     if real(path) == real(&scratch_text_path(data_dir)) {
         return scratch_lock_path(data_dir);
     }
-    let manifest = match path.file_name() {
-        Some(name) if name == DRAFT_FILE => manifest_beside(path),
-        _ => None,
-    };
-    file_lock_path(data_dir, manifest.as_deref().unwrap_or(path))
-}
-
-/// The project manifest in the same folder as `path`, if there is one.
-fn manifest_beside(path: &Path) -> Option<PathBuf> {
-    fs::read_dir(path.parent()?)
-        .ok()?
-        .flatten()
-        .map(|entry| entry.path())
-        .find(|path| is_project(path))
+    file_lock_path(data_dir, path)
 }
 
 /// Why `path` can't be saved, or `None` if it can.
@@ -232,28 +209,22 @@ mod tests {
     }
 
     #[test]
-    fn a_project_draft_and_scratch_text_are_guarded_by_their_windows() {
+    fn scratch_text_is_guarded_by_the_scratch_window() {
         let dir = tempfile::tempdir().unwrap();
         let paths = Paths::under(dir.path());
-        let project = crate::project::create_project(&paths.projects_dir, "Nyx").unwrap();
-        atomic_write(&project.draft_path(), b"draft").unwrap();
-        let _project_window = open_doc(Doc::Project(project.manifest_path()), &paths);
         let _scratch_window = open_doc(Doc::Scratch, &paths);
-        let scratch_text = scratch_text_path(&paths.data_dir);
-        for path in [project.draft_path(), scratch_text.clone()] {
-            let refused = save_as(&paths.data_dir, &path, "mine", LineEnding::Lf);
-            assert_eq!(refused.unwrap_err(), OPEN_ELSEWHERE);
-            assert_eq!(
-                empty_file(&paths.data_dir, &path).unwrap_err(),
-                OPEN_ELSEWHERE
-            );
-            let other = open_doc(file_doc(&path), &paths);
-            assert_eq!(
-                other.read_only_reason.as_deref(),
-                Some("Open in another window")
-            );
-        }
-        assert_eq!(fs::read_to_string(project.draft_path()).unwrap(), "draft");
+        let path = scratch_text_path(&paths.data_dir);
+        let refused = save_as(&paths.data_dir, &path, "mine", LineEnding::Lf);
+        assert_eq!(refused.unwrap_err(), OPEN_ELSEWHERE);
+        assert_eq!(
+            empty_file(&paths.data_dir, &path).unwrap_err(),
+            OPEN_ELSEWHERE
+        );
+        let other = open_doc(file_doc(&path), &paths);
+        assert_eq!(
+            other.read_only_reason.as_deref(),
+            Some("Open in another window")
+        );
     }
 
     #[test]
@@ -370,27 +341,7 @@ mod tests {
     }
 
     #[test]
-    fn project_opens_its_draft_and_is_locked_to_one_window() {
-        let dir = tempfile::tempdir().unwrap();
-        let paths = Paths::under(dir.path());
-        let project = crate::project::create_project(&paths.projects_dir, "Nyx").unwrap();
-        atomic_write(&project.draft_path(), b"Nyx, rewritten").unwrap();
-        let first = open_doc(Doc::Project(project.manifest_path()), &paths);
-        assert_eq!(first.text, "Nyx, rewritten");
-        assert!(first.read_only_reason.is_none());
-        let second = open_doc(Doc::Project(project.manifest_path()), &paths);
-        assert_eq!(
-            second.read_only_reason.as_deref(),
-            Some("Open in another window")
-        );
-        assert_eq!(
-            crate::core::recent::recent_files(&paths.data_dir),
-            vec![project.manifest_path()]
-        );
-    }
-
-    #[test]
-    fn scratch_offers_what_a_rewrite_cleared_once() {
+    fn scratch_offers_its_cleared_text_once() {
         let dir = tempfile::tempdir().unwrap();
         let paths = Paths::under(dir.path());
         crate::core::scratch::clear_scratch(&paths.data_dir, "old").unwrap();

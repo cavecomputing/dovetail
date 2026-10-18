@@ -1,7 +1,9 @@
 //! The Settings panel (Ctrl+,), over the dimmed document. Every change applies at once and is
 //! written to settings.toml.
 
-use iced::widget::{button, column, container, row, scrollable, space, text, text_input};
+use iced::widget::{
+    button, column, container, mouse_area, row, scrollable, space, text, text_input,
+};
 use iced::{Background, Border, Color, Element, Fill, Padding, Theme};
 
 use crate::ai::key::KeyStore;
@@ -11,7 +13,6 @@ use crate::core::settings::{
 };
 use crate::ui::app::{App, Message};
 use crate::ui::assistant_actions::AssistantAction;
-use crate::ui::project_view::modal;
 use crate::ui::status_bar::dot;
 use crate::ui::theme::{self, GLYPH_CLOSE, Roles, dialog_box, icon_button, subtle};
 
@@ -26,7 +27,6 @@ pub enum Change {
     ColourMarkup(bool),
     ShowLineCol(bool),
     AutosaveDelay(u64),
-    ProjectsFolder(String),
     BaseUrl(String),
     Model(String),
     RequestFormat(RequestFormat),
@@ -64,10 +64,6 @@ pub fn apply(change: Change, settings: &mut Settings) {
         Change::ColourMarkup(on) => settings.colour_markup = on,
         Change::ShowLineCol(on) => settings.show_line_col = on,
         Change::AutosaveDelay(ms) => settings.autosave_delay_ms = ms,
-        Change::ProjectsFolder(folder) if folder.trim().is_empty() => {
-            settings.projects_folder = None
-        }
-        Change::ProjectsFolder(folder) => settings.projects_folder = Some(folder.into()),
         Change::BaseUrl(url) => settings.base_url = url,
         Change::Model(model) => settings.model = model,
         Change::RequestFormat(format) => settings.request_format = format,
@@ -182,31 +178,17 @@ pub fn view(app: &App) -> Element<'_, Message> {
     );
 
     let delay = settings.autosave_delay_ms;
-    let projects_folder = match &settings.projects_folder {
-        Some(folder) => folder.display().to_string(),
-        None => String::new(),
-    };
     let saving = section(
         "saving",
-        vec![
-            setting_row(
-                "Autosave after",
-                stepper(
-                    delay.to_string(),
-                    "ms pause in typing",
-                    Change::AutosaveDelay(delay.saturating_sub(250)),
-                    Change::AutosaveDelay(delay + 250),
-                ),
+        vec![setting_row(
+            "Autosave after",
+            stepper(
+                delay.to_string(),
+                "ms pause in typing",
+                Change::AutosaveDelay(delay.saturating_sub(250)),
+                Change::AutosaveDelay(delay + 250),
             ),
-            setting_row(
-                "Projects folder",
-                field(
-                    &display_path(&app.paths.projects_dir),
-                    &projects_folder,
-                    Change::ProjectsFolder,
-                ),
-            ),
-        ],
+        )],
     );
 
     let format = settings.request_format;
@@ -333,6 +315,23 @@ pub fn view(app: &App) -> Element<'_, Message> {
         })
         .style(dialog_box);
     modal(card.into())
+}
+
+/// `card` centred over a dimmed window; clicking outside it goes back.
+fn modal(card: Element<'_, Message>) -> Element<'_, Message> {
+    iced::widget::stack![
+        mouse_area(
+            container(space().width(Fill).height(Fill)).style(|theme: &Theme| container::Style {
+                background: Some(Background::Color(Roles::of(theme).bg_page.scale_alpha(0.7))),
+                ..container::Style::default()
+            })
+        )
+        .on_press(Message::CloseMenu),
+        container(iced::widget::opaque(card))
+            .center(Fill)
+            .padding(24),
+    ]
+    .into()
 }
 
 fn section<'a>(label: &'a str, rows: Vec<Element<'a, Message>>) -> Element<'a, Message> {
@@ -541,14 +540,5 @@ mod tests {
         assert_eq!(settings.tab_spaces, 1);
         apply(Change::FontSize(100.0), &mut settings);
         assert_eq!(settings.font_size, 40.0);
-    }
-
-    #[test]
-    fn empty_projects_folder_means_the_default() {
-        let mut settings = Settings::default();
-        apply(Change::ProjectsFolder("~/Writing".into()), &mut settings);
-        assert!(settings.projects_folder.is_some());
-        apply(Change::ProjectsFolder("  ".into()), &mut settings);
-        assert_eq!(settings.projects_folder, None);
     }
 }

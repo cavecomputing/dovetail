@@ -4,7 +4,7 @@ use std::f32::consts::TAU;
 use std::path::Path;
 
 use iced::widget::text::Wrapping;
-use iced::widget::{button, column, container, mouse_area, row, scrollable, space, text, tooltip};
+use iced::widget::{button, column, container, mouse_area, row, space, text, tooltip};
 use iced::{Background, Border, Color, Element, Fill, Theme};
 
 use crate::core::opened::Doc;
@@ -13,15 +13,12 @@ use crate::core::save::SaveState;
 use crate::ui::app::{App, Message};
 use crate::ui::assistant_actions::AssistantAction;
 use crate::ui::find_bar::FindAction;
-use crate::ui::idea_actions::IdeaAction;
 use crate::ui::theme::{
-    self, GLYPH_CLAUDE, GLYPH_MENU, GLYPH_PEN, Roles, icon_button, menu_button, raised_box,
+    self, GLYPH_CLAUDE, GLYPH_MENU, Roles, icon_button, menu_button, raised_box,
 };
 
 pub const HEIGHT: f32 = 24.0;
 const TEXT_SIZE: f32 = 11.0;
-/// About how tall one menu row is (13px text plus its padding).
-const MENU_ROW_HEIGHT: f32 = 25.0;
 
 pub fn view(app: &App) -> Element<'_, Message> {
     let roles = Roles::of(&app.theme);
@@ -32,9 +29,6 @@ pub fn view(app: &App) -> Element<'_, Message> {
         left = left.push(save_status(app, roles));
     }
     left = left.push(small(doc_label(&app.doc)));
-    if let Some(project) = &app.project {
-        left = left.push(small(format!("v{} → draft", project.reference_version)));
-    }
     match app.pane.suggestions().len() {
         0 => {}
         1 => left = left.push(small("1 suggestion")),
@@ -84,39 +78,8 @@ pub fn view(app: &App) -> Element<'_, Message> {
             column + 1
         )));
     }
-    // The bottom-right corner holds the next step: Rewrite on a plain doc, Commit in a project.
     right = right.push(space().width(16));
-    match &app.project {
-        Some(project) => {
-            if let Some((label, shorter)) = project.change_label(app.counts) {
-                let color = if shorter {
-                    roles.accent_aqua
-                } else {
-                    roles.fg_muted
-                };
-                let words = format!("{label} vs v{}", project.reference_version);
-                right = right.push(small(words).color(color));
-                right = right.push(space().width(12));
-            }
-            right = right.push(assistant_toggle(app.assistant.open));
-            right = right.push(space().width(8));
-            let next = project.project.latest_version() + 1;
-            // The Commit check needs the newest version's text, read from git at startup.
-            let loaded = project.latest_text.is_some();
-            let commit = (app.editable() && !app.busy && loaded).then_some(Message::OpenCommit);
-            right = right.push(word_button(format!("Commit v{next}"), commit));
-        }
-        None => {
-            let can_rewrite = app.editable() && !app.busy && !matches!(app.doc, Doc::Project(_));
-            let rewrite = can_rewrite.then_some(Message::Rewrite);
-            right = right.push(assistant_toggle(app.assistant.open));
-            right = right.push(space().width(8));
-            right = right.push(hint(
-                glyph_button(GLYPH_PEN, rewrite),
-                "Rewrite: start a project from this text",
-            ));
-        }
-    }
+    right = right.push(assistant_toggle(app.assistant.open));
 
     // The left end takes what room is left and is cut off, so the right end always fits.
     let left = container(left).width(Fill).clip(true);
@@ -141,12 +104,11 @@ pub fn bar(content: Element<'_, Message>) -> Element<'_, Message> {
     .into()
 }
 
-/// What the window shows: scratch, the file's path, or the project's folder.
+/// What the window shows: scratch, or the file's path.
 fn doc_label(doc: &Doc) -> String {
     match doc {
         Doc::Scratch => "Scratch".to_string(),
         Doc::File { path, .. } => display_path(path),
-        Doc::Project(path) => display_path(path.parent().unwrap_or(path)),
     }
 }
 
@@ -224,7 +186,7 @@ fn assistant_toggle<'a>(open: bool) -> Element<'a, Message> {
     hint(toggle, words)
 }
 
-/// A small framed word button, like the mockup's Commit button.
+/// A small framed word button, such as "Reload from disk".
 fn word_button<'a>(label: String, on_press: Option<Message>) -> Element<'a, Message> {
     button(small(label))
         .padding([1, 8])
@@ -267,8 +229,7 @@ pub fn menu(app: &App) -> Element<'_, Message> {
         menu_item("Open…".to_string(), "Ctrl+O", Message::OpenDialog),
         menu_item("Open recent…".to_string(), "Ctrl+P", Message::OpenSwitcher),
     ];
-    // Scratch has no file, so Ctrl+S saves it to one; a .txt can move to another (a project
-    // lives in its own folder).
+    // Scratch has no file, so Ctrl+S saves it to one; a .txt can move to another.
     items = match &app.doc {
         Doc::Scratch => items.push(menu_item(
             "Save to a file…".to_string(),
@@ -280,7 +241,6 @@ pub fn menu(app: &App) -> Element<'_, Message> {
             "Ctrl+Shift+S",
             Message::SaveAs,
         )),
-        Doc::Project(_) => items,
     };
     items = items
         .push(menu_item(
@@ -290,46 +250,20 @@ pub fn menu(app: &App) -> Element<'_, Message> {
         ))
         .push(menu_heading("Recent"));
     let current = match &app.doc {
-        Doc::File { path, .. } | Doc::Project(path) => Some(path),
+        Doc::File { path, .. } => Some(path),
         Doc::Scratch => None,
     };
     let recent: Vec<_> = app
         .recent
         .iter()
-        .filter(|item| Some(&item.path) != current)
+        .filter(|path| Some(*path) != current)
         .collect();
     if recent.is_empty() {
         items = items.push(menu_heading("  nothing yet"));
     }
-    for item in recent {
-        let message = Message::OpenPath(item.path.clone());
-        items = items.push(menu_item(item.label.clone(), "", message));
-    }
-    if let Some(project) = &app.project {
-        items = items.push(menu_heading("Version history"));
-        let mut versions = column![];
-        for version in project.project.manifest.versions.iter().rev() {
-            let mut label = format!("v{}", version.number);
-            if !version.note.is_empty() {
-                label.push_str(&format!("  {}", version.note));
-            }
-            if version.number == project.reference_version {
-                label.push_str("  (shown)");
-            }
-            versions = versions.push(menu_item(
-                label,
-                version.committed_on(),
-                Message::ShowVersion(version.number),
-            ));
-        }
-        // A long history scrolls after about eight rows, so Settings and Scratch stay in view.
-        items = items
-            .push(container(scrollable(versions).spacing(2)).max_height(8.0 * MENU_ROW_HEIGHT));
-        items = items.push(menu_item(
-            "Idea weights".to_string(),
-            "Ctrl+Shift+W",
-            Message::Idea(IdeaAction::ToggleWeights),
-        ));
+    for path in recent {
+        let message = Message::OpenPath(path.clone());
+        items = items.push(menu_item(file_name(path), "", message));
     }
     items = items
         .push(menu_item(
@@ -398,15 +332,11 @@ pub fn title(doc: &Doc) -> String {
     match doc {
         Doc::Scratch => "Scratch".to_string(),
         Doc::File { path, .. } => file_name(path),
-        Doc::Project(path) => path
-            .file_stem()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string(),
     }
 }
 
-fn file_name(path: &Path) -> String {
+/// `path`'s file name, for the title and the recent lists.
+pub fn file_name(path: &Path) -> String {
     path.file_name()
         .unwrap_or(path.as_os_str())
         .to_string_lossy()

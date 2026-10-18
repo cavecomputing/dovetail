@@ -104,7 +104,7 @@ impl App {
     }
 
     /// The matches as the editor draws them while the bar is open: each lit up in the text
-    /// colour, so it shows over any idea's paint, the selected one outlined in yellow too.
+    /// colour, the selected one outlined in yellow too.
     pub fn find_runs(&self) -> Vec<PaintRun> {
         if !self.find.open {
             return Vec::new();

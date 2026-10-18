@@ -4,9 +4,9 @@
 //! `scratch.json` next to it, both in the data folder. The view comes back with the same line at
 //! the top.
 //!
-//! A Rewrite clears scratch. The text it held is kept in `scratch-cleared.txt` until the next
-//! scratch window opens, which takes it back as its first undo step: scratch opens empty, and
-//! Ctrl+Z brings the text back.
+//! Saving scratch to a file empties it. The text it held is kept in `scratch-cleared.txt` until
+//! the next scratch window opens, which takes it back as its first undo step: scratch opens empty,
+//! and Ctrl+Z brings the text back.
 
 use std::fs::{self, File, TryLockError};
 use std::io::{self, ErrorKind};
@@ -91,14 +91,14 @@ impl ScratchView {
     }
 }
 
-/// Empties scratch after a Rewrite, keeping `text` (what it held) for the next scratch window to
-/// undo back to.
+/// Empties scratch after its text was saved to a file, keeping `text` (what it held) for the next
+/// scratch window to undo back to.
 pub fn clear_scratch(data_dir: &Path, text: &str) -> io::Result<()> {
     atomic_write(&data_dir.join(CLEARED_FILE), text.as_bytes())?;
     ScratchState::default().save(data_dir)
 }
 
-/// The text a Rewrite cleared from scratch, if any, removed so it is only offered once.
+/// The text scratch was emptied of, if any, removed so it is only offered once.
 pub fn take_cleared(data_dir: &Path) -> Option<String> {
     let path = data_dir.join(CLEARED_FILE);
     let text = fs::read_to_string(&path).ok()?;

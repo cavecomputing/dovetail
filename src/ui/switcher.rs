@@ -1,34 +1,36 @@
-//! The Ctrl+P quick switcher: type a few letters of a recent file or project, Enter opens it in a
-//! new window, Esc closes.
+//! The Ctrl+P quick switcher: type a few letters of a recent file, Enter opens it in a new window,
+//! Esc closes.
+
+use std::path::{Path, PathBuf};
 
 use iced::widget::{button, column, container, row, space, text, text_input};
 use iced::{Background, Border, Color, Element, Fill, Padding, Task, Theme};
 
 use crate::core::opened::Doc;
 use crate::core::paths::display_path;
-use crate::core::recent::match_score;
-use crate::project::{RecentItem, recent_items};
+use crate::core::recent::{existing_recent_files, match_score};
 use crate::ui::app::{App, Message, open_in_new_window};
 use crate::ui::editor;
-use crate::ui::theme::{GLYPH_FILE, GLYPH_PROJECT, Roles, raised_box};
+use crate::ui::status_bar::file_name;
+use crate::ui::theme::{GLYPH_FILE, Roles, raised_box};
 
 pub const SWITCHER_ID: &str = "switcher";
 
 pub struct Switcher {
     pub query: String,
-    /// The recent files and projects, newest first, without this window's own document.
-    pub items: Vec<RecentItem>,
+    /// The recent files, newest first, without this window's own file.
+    pub items: Vec<PathBuf>,
     /// Index into `matches()`.
     pub selected: usize,
 }
 
 impl Switcher {
     /// The items matching the query, best first (newest first among equals).
-    pub fn matches(&self) -> Vec<&RecentItem> {
-        let mut scored: Vec<(i32, &RecentItem)> = self
+    pub fn matches(&self) -> Vec<&PathBuf> {
+        let mut scored: Vec<(i32, &PathBuf)> = self
             .items
             .iter()
-            .filter_map(|item| Some((match_score(&self.query, &item.label)?, item)))
+            .filter_map(|path| Some((match_score(&self.query, &file_name(path))?, path)))
             .collect();
         // A stable sort keeps the newest first among equal scores.
         scored.sort_by_key(|(score, _)| -score);
@@ -52,12 +54,12 @@ impl App {
                     return iced::widget::operation::focus(editor::EDITOR_ID);
                 }
                 let current = match &self.doc {
-                    Doc::File { path, .. } | Doc::Project(path) => Some(path),
+                    Doc::File { path, .. } => Some(path),
                     Doc::Scratch => None,
                 };
-                let items = recent_items(&self.paths.data_dir)
+                let items = existing_recent_files(&self.paths.data_dir)
                     .into_iter()
-                    .filter(|item| Some(&item.path) != current)
+                    .filter(|path| Some(path) != current)
                     .collect();
                 self.switcher = Some(Switcher {
                     query: String::new(),
@@ -80,7 +82,9 @@ impl App {
             Message::SwitcherOpen => {
                 let picked = self.switcher.as_ref().and_then(|switcher| {
                     let matches = switcher.matches();
-                    matches.get(switcher.selected).map(|item| item.path.clone())
+                    matches
+                        .get(switcher.selected)
+                        .map(|path| path.to_path_buf())
                 });
                 if let Some(path) = picked {
                     self.switcher = None;
@@ -96,7 +100,7 @@ impl App {
 
 /// The switcher panel near the top of the window: the search box, then the matches.
 pub fn view(switcher: &Switcher) -> Element<'_, Message> {
-    let search = text_input("Open a recent file or project", &switcher.query)
+    let search = text_input("Open a recent file", &switcher.query)
         .id(SWITCHER_ID)
         .on_input(Message::SwitcherQuery)
         .on_submit(Message::SwitcherOpen)
@@ -121,13 +125,13 @@ pub fn view(switcher: &Switcher) -> Element<'_, Message> {
     let matches = switcher.matches();
     if matches.is_empty() {
         let words = match switcher.items.is_empty() {
-            true => "No recent files or projects yet",
+            true => "No recent files yet",
             false => "Nothing matches",
         };
         rows = rows.push(container(text(words).size(12)).padding([6, 10]));
     }
-    for (index, item) in matches.into_iter().enumerate().take(12) {
-        rows = rows.push(match_row(item, index == switcher.selected));
+    for (index, path) in matches.into_iter().enumerate().take(12) {
+        rows = rows.push(match_row(path, index == switcher.selected));
     }
 
     let panel = container(column![search, rows].spacing(6).width(560))
@@ -146,18 +150,13 @@ pub fn view(switcher: &Switcher) -> Element<'_, Message> {
     .into()
 }
 
-/// One match: a glyph for file or project, its name, and where it lives.
-fn match_row(item: &RecentItem, selected: bool) -> Element<'_, Message> {
-    let glyph = if item.is_project {
-        GLYPH_PROJECT
-    } else {
-        GLYPH_FILE
-    };
-    let folder = item.path.parent().map(display_path).unwrap_or_default();
+/// One match: a file glyph, its name, and where it lives.
+fn match_row(path: &Path, selected: bool) -> Element<'_, Message> {
+    let folder = path.parent().map(display_path).unwrap_or_default();
     button(
         row![
-            text(glyph).size(14),
-            text(item.label.as_str()).size(13),
+            text(GLYPH_FILE).size(14),
+            text(file_name(path)).size(13),
             space::horizontal(),
             text(folder).size(11).style(|theme: &Theme| text::Style {
                 color: Some(Roles::of(theme).fg_subtle),
@@ -182,6 +181,6 @@ fn match_row(item: &RecentItem, selected: bool) -> Element<'_, Message> {
             ..button::Style::default()
         }
     })
-    .on_press(Message::OpenPath(item.path.clone()))
+    .on_press(Message::OpenPath(path.to_path_buf()))
     .into()
 }
