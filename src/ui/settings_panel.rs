@@ -1,7 +1,8 @@
-//! The Settings window (Ctrl+,). Every change applies at once and is written to settings.toml.
+//! The Settings panel (Ctrl+,), over the dimmed document. Every change applies at once and is
+//! written to settings.toml.
 
 use iced::widget::{button, column, container, row, scrollable, space, text, text_input};
-use iced::{Background, Border, Color, Element, Fill, Theme};
+use iced::{Background, Border, Color, Element, Fill, Padding, Theme};
 
 use crate::ai::key::KeyStore;
 use crate::core::paths::display_path;
@@ -10,10 +11,11 @@ use crate::core::settings::{
 };
 use crate::ui::app::{App, Message};
 use crate::ui::assistant_actions::AssistantAction;
-use crate::ui::status_bar::{self, dot, small};
-use crate::ui::theme::{self, Roles, subtle};
+use crate::ui::project_view::modal;
+use crate::ui::status_bar::dot;
+use crate::ui::theme::{self, GLYPH_CLOSE, Roles, dialog_box, icon_button, subtle};
 
-/// One edit made in the Settings window.
+/// One edit made in the Settings panel.
 #[derive(Debug, Clone)]
 pub enum Change {
     Theme(ThemeSetting),
@@ -281,44 +283,56 @@ pub fn view(app: &App) -> Element<'_, Message> {
         )],
     );
 
-    let sections = column![appearance, editor, saving, assistant, window]
-        .spacing(28)
-        .max_width(640);
-    let page = scrollable(container(sections).center_x(Fill).padding([40, 24])).height(Fill);
+    let sections = column![appearance, editor, saving, assistant, window].spacing(28);
+    // Taller than the window, it scrolls, with the bar in the card's right margin.
+    let page = scrollable(container(sections).padding([0, 32]));
 
+    // Where the settings are saved, or why they can't be.
     let roles = Roles::of(&app.theme);
-    let status: Element<'_, Message> = match &app.settings_error {
-        Some(reason) => row![
-            dot(roles.accent_warm),
-            small(reason.as_str()).color(roles.accent_warm)
-        ]
-        .spacing(6)
-        .align_y(iced::Center)
-        .into(),
-        None => row![
-            dot(roles.accent_aqua),
-            small(display_path(&app.paths.settings_file()))
-        ]
-        .spacing(6)
-        .align_y(iced::Center)
-        .into(),
+    let (dot_color, color, file) = match &app.settings_error {
+        Some(reason) => (roles.accent_warm, roles.accent_warm, reason.clone()),
+        None => (
+            roles.accent_aqua,
+            roles.fg_muted,
+            display_path(&app.paths.settings_file()),
+        ),
     };
-    let footer = status_bar::bar(
-        row![
-            status,
-            space::horizontal(),
-            // Hidden while there's a problem, which needs the room and isn't instant.
-            small(if app.settings_error.is_some() {
-                ""
-            } else {
-                "changes apply instantly"
-            })
-        ]
-        .align_y(iced::Center)
-        .padding([0, 6])
-        .into(),
-    );
-    column![page, footer].into()
+    let close = button(text(GLYPH_CLOSE).size(13).center())
+        .width(28)
+        .height(24)
+        .padding(0)
+        .style(icon_button)
+        .on_press(Message::CloseMenu);
+    let header = row![
+        text("Settings").size(13),
+        dot(dot_color),
+        text(file).size(12).color(color),
+        space::horizontal(),
+        // Hidden while there's a problem, which needs the room and isn't instant.
+        hint(if app.settings_error.is_some() {
+            ""
+        } else {
+            "changes apply instantly"
+        }),
+        close,
+    ]
+    .spacing(8)
+    .align_y(iced::Center)
+    .padding(Padding {
+        left: 32.0,
+        right: 12.0,
+        ..Padding::ZERO
+    });
+    let card = container(column![header, page].spacing(20))
+        .width(Fill)
+        .max_width(704)
+        .padding(Padding {
+            top: 12.0,
+            bottom: 28.0,
+            ..Padding::ZERO
+        })
+        .style(dialog_box);
+    modal(card.into())
 }
 
 fn section<'a>(label: &'a str, rows: Vec<Element<'a, Message>>) -> Element<'a, Message> {

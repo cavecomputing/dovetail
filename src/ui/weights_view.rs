@@ -12,7 +12,7 @@ use crate::ui::idea_actions::IdeaAction;
 use crate::ui::ideas_view::{on, percent};
 use crate::ui::project_view::{ProjectView, modal};
 use crate::ui::status_bar;
-use crate::ui::theme::{Roles, fill, raised_box, subtle};
+use crate::ui::theme::{Roles, dialog_box, fill, raised_box, subtle};
 
 /// What the weights view counts in.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -210,15 +210,7 @@ pub fn view<'a>(app: &'a App, project: &'a ProjectView) -> Element<'a, Message> 
         .width(880)
         .height(640)
         .padding([28, 32])
-        .style(|theme: &Theme| {
-            let roles = Roles::of(theme);
-            container::Style {
-                background: Some(Background::Color(roles.bg_surface)),
-                text_color: Some(roles.fg),
-                border: Border::default().rounded(6).width(1).color(roles.border),
-                ..container::Style::default()
-            }
-        });
+        .style(dialog_box);
     modal(card.into())
 }
 

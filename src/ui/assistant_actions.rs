@@ -1,6 +1,6 @@
 //! The assistant half of `App::update`: opening the pane, asking, streaming each reply and
 //! running its tools (the loop itself is `ai::agent`), showing proposed edits as suggestions in
-//! the document, and the Settings window's API key and connection test.
+//! the document, and the Settings panel's API key and connection test.
 
 use std::time::{Duration, Instant};
 
@@ -19,7 +19,7 @@ use crate::core::counts::Counts;
 use crate::core::opened::Doc;
 use crate::ui::app::{App, Message};
 use crate::ui::editor::{self, Decision};
-use crate::ui::settings_window::Connection;
+use crate::ui::settings_panel::Connection;
 use crate::ui::status_bar;
 
 /// How long the pane takes to slide in or out, as long as the Rewrite slide.

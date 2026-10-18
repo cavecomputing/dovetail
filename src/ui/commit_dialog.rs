@@ -3,14 +3,14 @@
 
 use iced::widget::text::Wrapping;
 use iced::widget::{button, column, container, row, space, text, text_input};
-use iced::{Background, Border, Color, Element, Fill, Padding, Theme};
+use iced::{Border, Color, Element, Fill, Padding, Theme};
 
 use crate::project::paint::IdeaId;
 use crate::ui::app::{App, Message};
 use crate::ui::idea_actions::IdeaAction;
 use crate::ui::project_view::{ProjectView, modal};
 use crate::ui::status_bar;
-use crate::ui::theme::{Roles, bold, fill, input_style, muted, subtle};
+use crate::ui::theme::{Roles, bold, dialog_box, fill, input_style, muted, subtle};
 
 pub const COMMIT_NOTE_ID: &str = "commit-note";
 
@@ -136,15 +136,7 @@ pub fn commit_dialog<'a>(
             bottom: 16.0,
             left: 22.0,
         })
-        .style(|theme: &Theme| {
-            let roles = Roles::of(theme);
-            container::Style {
-                background: Some(Background::Color(roles.bg_surface)),
-                text_color: Some(roles.fg),
-                border: Border::default().rounded(6).width(1).color(roles.border),
-                ..container::Style::default()
-            }
-        });
+        .style(dialog_box);
     modal(card.into())
 }
 

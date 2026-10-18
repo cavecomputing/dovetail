@@ -129,6 +129,7 @@ Linux needs a few system libraries to open a window (Ubuntu/Debian package names
 One process per window: launching with no file opens scratch, with a `.txt` opens that file, with a
 project manifest opens that project. Opening another file from inside the app starts a new process
 of the same binary, so every file gets its own window and plays well with tiling window managers.
+A process has exactly one window: Settings, the Commit dialog and the other panels open over it.
 
 The UI is [iced](https://iced.rs) (Elm-style: `update` handles a `Message` and changes state, `view`
 draws the state; nothing else mutates state). Logic modules do not depend on iced, so they can be
@@ -193,7 +194,7 @@ src/
     find_bar.rs          the Ctrl+F find bar: its matches, stepping through them, how they're lit
     file_actions.rs      App's handlers for New file (Ctrl+N), Save (Ctrl+S) and Save as
     window_controls.rs   the top strip's window controls and the resize edges
-    settings_window.rs   the Settings window and how each change applies
+    settings_panel.rs    the Settings panel over the window (Ctrl+,) and how each change applies
     assistant_view.rs    the assistant pane (Ctrl+L, every window): chips, chat, suggestion cards,
                          composer, and how it sits beside or over the document
     assistant_actions.rs App's handlers for the assistant: the slide, the agent loop off the UI

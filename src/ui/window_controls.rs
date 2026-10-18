@@ -2,7 +2,7 @@
 //! undecorated window. Under a tiling window manager both are left out.
 
 use iced::widget::{button, container, mouse_area, row, space, stack, text};
-use iced::window::{self, Direction};
+use iced::window::Direction;
 use iced::{Element, Fill, Length, mouse};
 
 use crate::core::settings::WindowControls;
@@ -41,7 +41,7 @@ fn tiling_window_manager() -> bool {
 }
 
 /// The top strip: a drag area with minimize, maximize and close at the right.
-pub fn strip<'a>(window: window::Id) -> Element<'a, Message> {
+pub fn strip<'a>() -> Element<'a, Message> {
     let control = |glyph, message| {
         button(text(glyph).size(13).center())
             .width(28)
@@ -51,9 +51,9 @@ pub fn strip<'a>(window: window::Id) -> Element<'a, Message> {
             .on_press(message)
     };
     let controls = row![
-        control(GLYPH_MINIMIZE, Message::Minimize(window)),
-        control(GLYPH_MAXIMIZE, Message::ToggleMaximize(window)),
-        control(GLYPH_CLOSE, Message::CloseRequested(window)),
+        control(GLYPH_MINIMIZE, Message::Minimize),
+        control(GLYPH_MAXIMIZE, Message::ToggleMaximize),
+        control(GLYPH_CLOSE, Message::CloseRequested),
     ]
     .spacing(6);
     mouse_area(
@@ -62,20 +62,23 @@ pub fn strip<'a>(window: window::Id) -> Element<'a, Message> {
             .padding([0, 4])
             .center_y(STRIP_HEIGHT),
     )
-    .on_press(Message::Drag(window))
-    .on_double_click(Message::ToggleMaximize(window))
+    .on_press(Message::Drag)
+    .on_double_click(Message::ToggleMaximize)
     .into()
 }
 
 /// Thin grab areas on the left, right and bottom edges (and the bottom corners) laid over `page`.
-pub fn with_resize_edges<'a>(
-    page: Element<'a, Message>,
-    window: window::Id,
-) -> Element<'a, Message> {
-    let edge = |width: Length, height: Length, cursor, direction| {
-        mouse_area(space().width(width).height(height))
-            .interaction(cursor)
-            .on_press(Message::Resize(window, direction))
+/// While the controls are hidden the areas are left empty, keeping the layout's shape.
+pub fn with_resize_edges(page: Element<'_, Message>, shown: bool) -> Element<'_, Message> {
+    let edge = |width: Length, height: Length, cursor, direction| -> Element<'static, Message> {
+        let area = space().width(width).height(height);
+        match shown {
+            true => mouse_area(area)
+                .interaction(cursor)
+                .on_press(Message::Resize(direction))
+                .into(),
+            false => area.into(),
+        }
     };
     let side = |direction| {
         edge(

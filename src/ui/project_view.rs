@@ -378,7 +378,9 @@ pub fn modal(card: Element<'_, Message>) -> Element<'_, Message> {
             })
         )
         .on_press(Message::CloseMenu),
-        container(iced::widget::opaque(card)).center(Fill),
+        container(iced::widget::opaque(card))
+            .center(Fill)
+            .padding(24),
     ]
     .into()
 }
