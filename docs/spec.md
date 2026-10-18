@@ -60,7 +60,7 @@ Rewriting a prompt usually means two windows side by side: the old version on th
 
 - Text starts at the top left, like any text editor, with only a small margin (2026-10-18: a centred, floating column didn't feel like an editor). Word wrap is on by default.
 - Reading mode is either **Full width** (the default) or **Comfort**, which caps lines at a number of characters (80 by default, adjustable), still anchored left.
-- The Tab key inserts **4 spaces** by default (configurable) and never writes a tab character.
+- The Tab key inserts **4 spaces** by default (configurable) and never writes a tab character; with several lines selected it indents each of them.
 - Optional colouring for XML tags and `{{macros}}`. This matters for prompts that use `<system_instructions status="enabled">`, `{{char}}`, `{{user}}` and `{{#x}}…{{/x}}` blocks. Plain prose has to work just as well.
 - There's no markdown rendering. It isn't needed.
 
