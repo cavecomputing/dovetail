@@ -11,7 +11,7 @@ use iced::{Element, Size, Subscription, Task, Theme, event, keyboard};
 
 use crate::core::counts::{Counts, load_tokenizer_in_background, token_count, word_count};
 use crate::core::markdown::is_markdown;
-use crate::core::opened::{Doc, open_doc};
+use crate::core::opened::{Doc, OpenedDoc, open_doc};
 use crate::core::paths::Paths;
 use crate::core::recent::existing_recent_files;
 use crate::core::save::{Autosaver, SaveState, failure_reason};
@@ -63,6 +63,8 @@ pub struct App {
     pub saving_since: Option<Instant>,
     pub now: Instant,
     closing: bool,
+    /// A file to open in scratch's place once the save running now ends (see `open_file`).
+    pub opening: Option<PathBuf>,
 
     /// The text's word and token counts. The token count lags behind typing (see `TOKEN_PAUSE`).
     pub counts: Counts,
@@ -228,23 +230,14 @@ const APP_ICON_RGBA: &[u8] = include_bytes!("../../assets/icon/icon-64.rgba");
 
 impl App {
     fn new(doc: Doc) -> (App, Task<Message>) {
-        let paths = Paths::detect();
+        App::with_paths(doc, Paths::detect())
+    }
+
+    /// `new` with its folders given, for tests.
+    fn with_paths(doc: Doc, paths: Paths) -> (App, Task<Message>) {
         let (settings, settings_error) = Settings::load(&paths.settings_file());
         let opened = open_doc(doc, &paths);
-        // Scratch emptied by Save to a file opens empty, with Ctrl+Z bringing the old text back.
-        let mut pane = Pane::new(opened.cleared_scratch.as_deref().unwrap_or(&opened.text));
-        if let Some(cleared) = &opened.cleared_scratch {
-            pane.replace(0..cleared.len(), &opened.text);
-        }
-        if let Some((line, column)) = opened.cursor {
-            pane.content.move_to(Cursor {
-                position: Position { line, column },
-                selection: None,
-            });
-        }
-        if let Some(line) = opened.scroll_line {
-            pane.content.scroll_to_line(line);
-        }
+        let pane = pane_for(&opened);
 
         let (main_window, open) = window::open(window_settings());
         let (tokenizer_sender, tokenizer_ready) = iced::futures::channel::oneshot::channel();
@@ -284,6 +277,7 @@ impl App {
             saving_since: None,
             now: Instant::now(),
             closing: false,
+            opening: None,
             menu_open: false,
             find: Find::default(),
             assistant: Assistant::default(),
@@ -296,6 +290,33 @@ impl App {
             iced::system::theme().map(Message::SystemTheme),
         ]);
         (app, tasks)
+    }
+
+    /// Makes `opened` this window's document in place of scratch, as if the window had been
+    /// launched on it: its text, cursor, lock (scratch's goes), and a fresh undo history and save
+    /// state. The find bar closes, and the assistant starts a new chat (its pane stays as it was),
+    /// since both were about scratch's text.
+    pub fn show(&mut self, opened: OpenedDoc) -> Task<Message> {
+        self.pane = pane_for(&opened);
+        self.counts = Counts {
+            words: word_count(&opened.text),
+            tokens: None,
+        };
+        self.uncounted_edit = None;
+        self.doc = opened.doc;
+        self.read_only_reason = opened.read_only_reason;
+        self._doc_lock = opened.lock;
+        self.disk_stamp = opened.disk_stamp;
+        self.disk_conflict = false;
+        self.autosaver = Autosaver::new(Duration::from_millis(self.settings.autosave_delay_ms));
+        self.saving_since = None;
+        self.recent = existing_recent_files(&self.paths.data_dir);
+        self.find = Find::default();
+        self.assistant.stop();
+        self.assistant.conversation = Default::default();
+        self.assistant.cards.clear();
+        let focus = iced::widget::operation::focus(editor::EDITOR_ID);
+        Task::batch([self.count_tokens(), focus])
     }
 
     fn title(&self, _window: window::Id) -> String {
@@ -422,6 +443,8 @@ impl App {
                     self.closing = false;
                 } else if self.closing {
                     return self.continue_closing();
+                } else if let Some(path) = self.opening.take() {
+                    return self.open_file(path);
                 }
             }
             Message::TokenizerReady => return self.count_tokens(),
@@ -496,11 +519,7 @@ impl App {
                 return Task::perform(dialog, |picked| picked)
                     .and_then(|file| Task::done(Message::OpenPath(file.path().to_path_buf())));
             }
-            Message::OpenPath(path) => {
-                self.menu_open = false;
-                self.switcher = None;
-                self.set_notice(open_in_new_window(Some(path)).err());
-            }
+            Message::OpenPath(path) => return self.open_file(path),
             Message::OpenSettings => {
                 self.menu_open = false;
                 if std::mem::replace(&mut self.settings_open, true) {
@@ -710,7 +729,7 @@ impl App {
         self.read_only_reason.is_none()
     }
 
-    fn scratch_view(&self) -> ScratchView {
+    pub fn scratch_view(&self) -> ScratchView {
         let position = self.pane.content.cursor().position;
         ScratchView {
             cursor_line: position.line,
@@ -811,6 +830,25 @@ impl App {
     }
 }
 
+/// The editor for `opened`: its text, cursor and view. Scratch emptied by Save to a file opens
+/// empty, with Ctrl+Z bringing the old text back.
+fn pane_for(opened: &OpenedDoc) -> Pane {
+    let mut pane = Pane::new(opened.cleared_scratch.as_deref().unwrap_or(&opened.text));
+    if let Some(cleared) = &opened.cleared_scratch {
+        pane.replace(0..cleared.len(), &opened.text);
+    }
+    if let Some((line, column)) = opened.cursor {
+        pane.content.move_to(Cursor {
+            position: Position { line, column },
+            selection: None,
+        });
+    }
+    if let Some(line) = opened.scroll_line {
+        pane.content.scroll_to_line(line);
+    }
+    pane
+}
+
 /// App-wide keys. Up and Down move through the switcher's list, and Enter steps through the find
 /// bar's matches (each ignored while its panel is closed).
 fn shortcut(event: iced::Event, status: event::Status, _window: window::Id) -> Option<Message> {
@@ -874,7 +912,8 @@ fn settings_key(message: Message) -> Option<Message> {
     }
 }
 
-/// Starts another copy of the app on `path` (or on scratch), so every file gets its own window.
+/// Starts another copy of the app on `path` (or on scratch), so every file gets its own window
+/// (from scratch, `open_file` opens it in scratch's place instead).
 pub fn open_in_new_window(path: Option<PathBuf>) -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|error| error.to_string())?;
     let mut command = std::process::Command::new(binary_path(exe));
@@ -909,6 +948,7 @@ fn modified_time(paths: &Paths) -> Option<SystemTime> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::text_file::LineEnding;
     use crate::ui::text_editor::Content;
     use iced::widget::text_editor::Motion;
 
@@ -962,6 +1002,97 @@ mod tests {
             press(keyboard::Modifiers::COMMAND),
             Some(Message::Assistant(AssistantAction::Toggle))
         ));
+    }
+
+    /// A scratch window over folders in a temp dir, with `typed` typed into it, and a file
+    /// `notes.md` beside it to open.
+    fn scratch_window(typed: &str) -> (tempfile::TempDir, Paths, App, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::under(dir.path());
+        let notes = dir.path().join("notes.md");
+        std::fs::write(&notes, "# notes\r\n").unwrap();
+        let (mut app, _) = App::with_paths(Doc::Scratch, paths.clone());
+        for letter in typed.chars() {
+            let _ = app.update(Message::Edit(Action::Edit(Edit::Insert(letter))));
+        }
+        (dir, paths, app, notes)
+    }
+
+    #[test]
+    fn opening_from_scratch_saves_it_and_shows_the_file_in_its_place() {
+        let (_dir, paths, mut app, notes) = scratch_window("hello");
+        // Typed inside the autosave pause: nothing is on disk yet.
+        assert!(app.autosaver.pending());
+        let _ = app.update(Message::OpenPath(notes.clone()));
+        let scratch = ScratchState::load(&paths.data_dir).unwrap();
+        assert_eq!(scratch.text, "hello");
+        assert_eq!(scratch.cursor(), (0, 5));
+        // Scratch's lock went with it, so the next scratch window can edit it.
+        assert!(!scratch_open_elsewhere(&paths.data_dir));
+        assert!(matches!(
+            &app.doc,
+            Doc::File { path, line_ending: LineEnding::CrLf, .. } if *path == notes
+        ));
+        assert_eq!(status_bar::title(&app.doc), "notes.md");
+        assert_eq!(app.pane.model.text(), "# notes\n");
+        assert!(app.editable());
+        assert_eq!(app.autosaver.state(), SaveState::Saved);
+        assert_eq!(app.recent, vec![notes.clone()]);
+    }
+
+    #[test]
+    fn scratchs_undo_history_stays_out_of_the_file() {
+        let (_dir, _paths, mut app, notes) = scratch_window("scratch text");
+        let _ = app.update(Message::OpenPath(notes.clone()));
+        let _ = app.update(Message::Undo);
+        assert_eq!(app.pane.model.text(), "# notes\n");
+        assert!(!app.autosaver.pending(), "nothing for the file to save");
+        assert_eq!(std::fs::read_to_string(&notes).unwrap(), "# notes\r\n");
+    }
+
+    #[test]
+    fn a_failed_scratch_save_keeps_the_window_on_scratch() {
+        let (_dir, paths, mut app, notes) = scratch_window("keep me");
+        // A folder where scratch's text goes makes every save of it fail.
+        std::fs::create_dir_all(crate::core::scratch::scratch_text_path(&paths.data_dir)).unwrap();
+        let _ = app.update(Message::OpenPath(notes.clone()));
+        assert!(matches!(app.doc, Doc::Scratch));
+        assert_eq!(app.pane.model.text(), "keep me");
+        assert!(matches!(app.autosaver.state(), SaveState::Failed(_)));
+        // The file wasn't claimed, so another window can still edit it.
+        let other = open_doc(
+            Doc::File {
+                path: notes,
+                line_ending: LineEnding::Lf,
+                bom: false,
+            },
+            &paths,
+        );
+        assert!(other.read_only_reason.is_none());
+    }
+
+    #[test]
+    fn opening_waits_for_an_autosave_already_running() {
+        let (_dir, paths, mut app, notes) = scratch_window("a");
+        let generation = app.autosaver.begin(Instant::now());
+        let _ = app.update(Message::OpenPath(notes.clone()));
+        assert!(matches!(app.doc, Doc::Scratch));
+        let _ = app.update(Message::Edit(Action::Edit(Edit::Insert('b'))));
+        let _ = app.update(Message::Saved(generation, Ok(None)));
+        assert!(matches!(&app.doc, Doc::File { path, .. } if *path == notes));
+        assert_eq!(ScratchState::load(&paths.data_dir).unwrap().text, "ab");
+    }
+
+    #[test]
+    fn a_file_that_cant_be_opened_leaves_scratch_as_it_was() {
+        let (dir, _paths, mut app, _notes) = scratch_window("mine");
+        let binary = dir.path().join("binary.txt");
+        std::fs::write(&binary, [0xff, 0xfe]).unwrap();
+        let _ = app.update(Message::OpenPath(binary));
+        assert!(matches!(app.doc, Doc::Scratch));
+        assert_eq!(app.pane.model.text(), "mine");
+        let notice = app.notice.as_ref().map(|(words, _)| words.as_str());
+        assert_eq!(notice, Some("Couldn't open: not a UTF-8 text file"));
     }
 
     #[cfg(target_os = "linux")]

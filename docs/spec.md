@@ -35,12 +35,12 @@ Rewriting a prompt usually means two windows side by side: the old version on th
 | Open a project file (`.dovetail`) | Opens that project (`rewrite` branch only). |
 | Open a `.txt`, `.md` or `.markdown` | Opens just that text file. Markdown is coloured (§5), never rendered. The Open, New file and Save as dialogs offer all three. |
 
-- **No tabs.** Each opened file or project gets its own window, which plays well with tiling WMs.
+- **No tabs.** Each opened file or project gets its own window, which plays well with tiling WMs. The exception is scratch (2026-10-18): a file opened from a window showing scratch (`Ctrl+O`, `Ctrl+P`, Recent in the menu, or `Ctrl+N`'s new file) takes scratch's place in that window instead. Scratch's latest text and cursor are written first, and if that fails, or the file can't be opened (open in another window, not UTF-8), the window stays on scratch and the status bar says why. Scratch resumes as ever in the next window that opens it.
 - `Ctrl+P` opens a quick switcher with fuzzy search over recent files (and projects, on the `rewrite` branch).
 - `Ctrl+0` (or similar) jumps back to scratch from anywhere.
 - `Ctrl+,` opens Settings, a panel over the window (2026-10-18: not a separate window). See §10.
 - `Ctrl+L` opens and closes the assistant pane.
-- The usual editor keys too (2026-10-18): `Ctrl+N` new file (asks where, opens in its own window), `Ctrl+O` open, `Ctrl+S` save (see §4), `Ctrl+Shift+S` save as, `Ctrl+W` close the window, `Ctrl+F` find, `Ctrl+=` / `Ctrl+-` font size.
+- The usual editor keys too (2026-10-18): `Ctrl+N` new file (asks where, opens it like `Ctrl+O`), `Ctrl+O` open, `Ctrl+S` save (see §4), `Ctrl+Shift+S` save as, `Ctrl+W` close the window, `Ctrl+F` find, `Ctrl+=` / `Ctrl+-` font size.
 - On macOS each `Ctrl` shortcut is `⌘` instead, and the menu and hints write shortcuts the macOS way (`⇧⌘S`). macOS also gets its usual `⌘↑` / `⌘↓` (start and end of the text), `⌘M` (minimize) and `⌘G` / `⇧⌘G` (next and previous match). `⌘Q` closes the window, so it waits for the save like any close (§4).
 - **Find** (`Ctrl+F`): a bar just above the status bar. Matches ignore case and are lit up in the text, the current one outlined; Enter and Shift+Enter step through them, Esc closes the bar and leaves the match selected. On the `rewrite` branch, in a project it searches the draft.
 - Startup has to be near-instant: launch, jot, close. This is a key reason to prefer pure Rust over a webview.

@@ -180,7 +180,8 @@ name from `brand.rs` through `<bin> --print-brand`:
 
 One process per window: launching with no file opens scratch, with a `.txt` or `.md` opens that file.
 Opening another file from inside the app starts a new process of the same binary, so every file
-gets its own window and plays well with tiling window managers. A process has exactly one window:
+gets its own window and plays well with tiling window managers; from scratch, the file takes
+scratch's place in the same window instead, once scratch is saved. A process has exactly one window:
 Settings, the Ctrl+P switcher and the menu open over it.
 
 The UI is [iced](https://iced.rs) (Elm-style: `update` handles a `Message` and changes state, `view`
@@ -240,7 +241,8 @@ src/
     status_bar.rs        the bottom bar (save dot, path, counts, assistant toggle) and its menu
     switcher.rs          the Ctrl+P quick switcher over recent files
     find_bar.rs          the Ctrl+F find bar: its matches, stepping through them, how they're lit
-    file_actions.rs      App's handlers for New file (Ctrl+N), Save (Ctrl+S) and Save as
+    file_actions.rs      App's handlers for opening a file (in scratch's place, or a new window),
+                         New file (Ctrl+N), Save (Ctrl+S) and Save as
     window_controls.rs   the top strip's window controls and the resize edges; on macOS, Quit
                          pointed at closing the window
     settings_panel.rs    the Settings panel over the window (Ctrl+,) and how each change applies

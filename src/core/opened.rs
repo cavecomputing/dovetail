@@ -5,7 +5,7 @@ use std::fs::{File, TryLockError};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
-use crate::core::lock::{claim_lock, file_lock_path};
+use crate::core::lock::{claim_lock, file_lock_path, locked_elsewhere};
 use crate::core::paths::Paths;
 use crate::core::recent::{remember, same_file};
 use crate::core::save::{atomic_write, check_writable, failure_reason};
@@ -97,8 +97,7 @@ pub fn open_doc(doc: Doc, paths: &Paths) -> OpenedDoc {
                 }
                 Err(error) if error.kind() == ErrorKind::NotFound => {
                     if atomic_write(&path, b"").is_err() {
-                        opened.read_only_reason =
-                            Some("Read-only: no permission to save here".to_string());
+                        opened.read_only_reason = Some(NO_PERMISSION.to_string());
                     }
                 }
                 Err(error) => opened.read_only_reason = Some(format!("Couldn't open: {error}")),
@@ -124,6 +123,32 @@ pub fn open_doc(doc: Doc, paths: &Paths) -> OpenedDoc {
         };
     }
     opened
+}
+
+/// Opens the file at `path` in the window showing scratch, in scratch's place, as a launch on it
+/// would. A file the window couldn't edit or even show, being open in another window or not
+/// readable as text, is refused with the reason, so scratch stays. One the user can't write still
+/// opens, read-only.
+pub fn open_in_place(path: &Path, paths: &Paths) -> Result<OpenedDoc, String> {
+    let data_dir = &paths.data_dir;
+    if is_own_file(data_dir, &Doc::Scratch, path) {
+        return Err(OPEN_HERE.to_string());
+    }
+    if locked_elsewhere(&lock_for(data_dir, path)) {
+        return Err(OPEN_ELSEWHERE.to_string());
+    }
+    let doc = Doc::File {
+        path: path.to_path_buf(),
+        line_ending: LineEnding::default(),
+        bom: false,
+    };
+    let opened = open_doc(doc, paths);
+    if let Some(reason) = &opened.read_only_reason
+        && reason != NO_PERMISSION
+    {
+        return Err(reason.clone());
+    }
+    Ok(opened)
 }
 
 /// Gives the text of the window showing `own` a new home at `path` (Save as): claims the file so
@@ -174,6 +199,7 @@ pub fn empty_file(data_dir: &Path, own: &Doc, path: &Path) -> Result<(), String>
 
 const OPEN_ELSEWHERE: &str = "That file is open in another window";
 const OPEN_HERE: &str = "That file is open in this window";
+const NO_PERMISSION: &str = "Read-only: no permission to save here";
 
 /// True when `path` is where the window showing `own` keeps its text (scratch's file, for
 /// scratch). The window's own claim on it would otherwise read as another window's.
@@ -198,7 +224,7 @@ fn lock_for(data_dir: &Path, path: &Path) -> PathBuf {
 fn writable_reason(path: &Path) -> Option<String> {
     match check_writable(path) {
         Ok(()) => None,
-        Err(_) => Some("Read-only: no permission to save here".to_string()),
+        Err(_) => Some(NO_PERMISSION.to_string()),
     }
 }
 
@@ -450,6 +476,64 @@ mod tests {
             }
         }
         fs::set_permissions(&locked, fs::Permissions::from_mode(0o700)).unwrap();
+    }
+
+    #[test]
+    fn open_in_place_opens_a_file_as_a_launch_would() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::under(dir.path());
+        let path = dir.path().join("notes.md");
+        fs::write(&path, "\u{feff}a\r\nb").unwrap();
+        let opened = open_in_place(&path, &paths).unwrap();
+        assert_eq!(opened.text, "a\nb");
+        assert!(opened.read_only_reason.is_none() && opened.lock.is_some());
+        assert!(matches!(
+            opened.doc,
+            Doc::File {
+                line_ending: LineEnding::CrLf,
+                bom: true,
+                ..
+            }
+        ));
+        assert_eq!(
+            crate::core::recent::recent_files(&paths.data_dir),
+            vec![path]
+        );
+    }
+
+    #[test]
+    fn open_in_place_refuses_what_scratch_shouldnt_be_swapped_for() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::under(dir.path());
+        let taken = dir.path().join("taken.txt");
+        fs::write(&taken, "theirs").unwrap();
+        let _other = open_doc(file_doc(&taken), &paths);
+        let refused = open_in_place(&taken, &paths);
+        assert_eq!(refused.unwrap_err(), OPEN_ELSEWHERE);
+        let binary = dir.path().join("binary.txt");
+        fs::write(&binary, [0xff, 0xfe]).unwrap();
+        let refused = open_in_place(&binary, &paths);
+        assert_eq!(refused.unwrap_err(), "Couldn't open: not a UTF-8 text file");
+        let _scratch = open_doc(Doc::Scratch, &paths);
+        let refused = open_in_place(&scratch_text_path(&paths.data_dir), &paths);
+        assert_eq!(refused.unwrap_err(), OPEN_HERE);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn open_in_place_opens_a_file_the_user_cant_write_read_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::under(dir.path());
+        let path = dir.path().join("ro.txt");
+        fs::write(&path, "look").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o444)).unwrap();
+        // Root ignores permissions, so only check when they apply.
+        if fs::OpenOptions::new().append(true).open(&path).is_err() {
+            let opened = open_in_place(&path, &paths).unwrap();
+            assert_eq!(opened.text, "look");
+            assert_eq!(opened.read_only_reason.as_deref(), Some(NO_PERMISSION));
+        }
     }
 
     #[test]
