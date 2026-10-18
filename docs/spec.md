@@ -86,7 +86,7 @@ Rules:
 - On the `rewrite` branch the bottom-right corner always holds the **next step**: the pen icon on plain docs, Commit in projects. On `main` it holds the assistant toggle.
 - **Save dot:** green means saved (quiet, with the word on hover). Yellow with a gentle pulse means saving. Orange with words means the save failed, for example "Save failed: disk full", and also blocks closing. There's no "unsaved" state, because everything autosaves.
 - The tokenizer and encoding show on hover over the token count, not in the bar. Line and column are off by default and can be turned on.
-- The menu holds new file, open, open recent, save as (save to a file in scratch), find, replace, go to line, show or hide line numbers, the recent files, settings and scratch. File-type tools (Format and Minify JSON) are in the `Ctrl+Shift+P` palette instead (Matt, 2026-10-18). On the `rewrite` branch a project's menu adds version history and idea weights.
+- The menu holds new file, open, open recent, save as (save to a file in scratch), find, replace, go to line, show or hide line numbers, settings and scratch, then the recent files last, so the commands stay put however many there are (Matt, 2026-10-18). File-type tools (Format and Minify JSON) are in the `Ctrl+Shift+P` palette instead (Matt, 2026-10-18). On the `rewrite` branch a project's menu adds version history and idea weights.
 
 ## 7. Projects: the rewrite flow (`rewrite` branch)
 

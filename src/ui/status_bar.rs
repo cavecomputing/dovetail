@@ -299,7 +299,18 @@ pub fn menu(app: &App) -> Element<'_, Message> {
             line_numbers.to_string(),
             "Ctrl+Shift+L",
             Message::ToggleLineNumbers,
+        ))
+        .push(menu_item(
+            "Settings".to_string(),
+            "Ctrl+,",
+            Message::OpenSettings,
+        ))
+        .push(menu_item(
+            "Scratch".to_string(),
+            "Ctrl+0",
+            Message::OpenScratch,
         ));
+    // The recent files come last, so the commands above stay put however many there are.
     items = items.push(menu_heading("Recent"));
     let current = match &app.doc {
         Doc::File { path, .. } => Some(path),
@@ -317,17 +328,6 @@ pub fn menu(app: &App) -> Element<'_, Message> {
         let message = Message::OpenPath(path.clone());
         items = items.push(menu_item(file_name(path), "", message));
     }
-    items = items
-        .push(menu_item(
-            "Settings".to_string(),
-            "Ctrl+,",
-            Message::OpenSettings,
-        ))
-        .push(menu_item(
-            "Scratch".to_string(),
-            "Ctrl+0",
-            Message::OpenScratch,
-        ));
 
     let panel = container(items.width(300)).padding(4).style(raised_box);
     iced::widget::stack![
