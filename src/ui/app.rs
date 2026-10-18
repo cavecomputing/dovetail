@@ -456,13 +456,16 @@ impl App {
                         Err(error) => self.notice = Some(format!("Couldn't reload: {error}")),
                     }
                 }
+                // Clicking the button took the keyboard from the editor; give it back.
+                return iced::widget::operation::focus(editor::EDITOR_ID);
             }
             Message::KeepMine => {
                 if let Doc::File { path, .. } = &self.doc {
                     // Take the file on disk as seen, so the next save writes over it.
                     self.disk_stamp = DiskStamp::of(path);
                     self.disk_conflict = false;
-                    return self.save(Instant::now());
+                    let focus = iced::widget::operation::focus(editor::EDITOR_ID);
+                    return Task::batch([self.save(Instant::now()), focus]);
                 }
             }
 
