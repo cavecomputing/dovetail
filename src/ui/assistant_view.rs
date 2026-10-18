@@ -254,7 +254,7 @@ fn cards(app: &App, turn: usize) -> impl Iterator<Item = Element<'_, Message>> {
 }
 
 /// A waiting suggestion, as the call that made it with the line it's on and its size change,
-/// then the text it takes out (`−`, struck) and puts in (`+`), why, and accept, reject and try
+/// then the lines it takes out (`−`, struck) and puts in (`+`), why, and accept, reject and try
 /// shorter. A decided one shrinks to one line saying how it went.
 fn card_view<'a>(app: &'a App, card: &'a Card) -> Element<'a, Message> {
     let roles = Roles::of(&app.theme);
@@ -293,21 +293,27 @@ fn card_view<'a>(app: &'a App, card: &'a Card) -> Element<'a, Message> {
         line(size, subtle),
     ];
     let mut diff = column![];
-    if !suggestion.find.is_empty() {
+    // Each line its own, without a last line break.
+    let lines = |text: &'a str| match text.is_empty() {
+        true => Vec::new(),
+        false => text
+            .strip_suffix('\n')
+            .unwrap_or(text)
+            .split('\n')
+            .collect(),
+    };
+    for removed in lines(&suggestion.find) {
         diff = diff.push(
             rich_text([
                 span::<(), Font>("− ").color(roles.fg_muted),
-                span(suggestion.find.as_str())
-                    .color(roles.fg_muted)
-                    .strikethrough(true),
+                span(removed).color(roles.fg_muted).strikethrough(true),
             ])
             .size(SIZE)
             .line_height(LINE),
         );
     }
-    if !suggestion.replace.is_empty() {
-        let added = format!("+ {}", suggestion.replace);
-        diff = diff.push(line(added, |roles| roles.accent_aqua));
+    for added in lines(&suggestion.replace) {
+        diff = diff.push(line(format!("+ {added}"), |roles| roles.accent_aqua));
     }
     if !suggestion.why.trim().is_empty() {
         diff = diff.push(line(format!("# {}", suggestion.why.trim()), subtle));

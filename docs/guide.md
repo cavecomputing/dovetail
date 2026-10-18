@@ -308,8 +308,11 @@ the document and the selection, search the text, count words and tokens, and sug
 changes the text itself. Each suggestion shows in the text, the old words struck through and the new
 ones beside them, with Accept and Reject buttons. In the chat it shows as a little diff: the line
 it's on, `−` and the old words, `+` and the new ones, the reason, and `accept`, `reject` and `try
-shorter`, which asks for a shorter version (`accept all` and `reject all` when several wait). You
-can keep typing elsewhere meanwhile. Enter sends your question; while it answers, `stop` appears
+shorter`, which asks for a shorter version (`accept all` and `reject all` when several wait). It
+works on scripts and config files as well as prose: it's told what kind of file is open, a
+suggestion covers only the lines that change (not the lines around them the model copied), and in a
+JSON, YAML, TOML, INI or shell file it's told when an edit would make the file invalid, so it can
+correct it. You can keep typing elsewhere meanwhile. Enter sends your question; while it answers, `stop` appears
 beside the prompt. `new chat` starts over and rejects the suggestions still waiting. Closing the
 window forgets the conversation.
 
