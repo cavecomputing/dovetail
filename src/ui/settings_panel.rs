@@ -15,7 +15,7 @@ use crate::ui::assistant_actions::AssistantAction;
 use crate::ui::editor;
 use crate::ui::highlighter::{Highlight, highlight_format};
 use crate::ui::status_bar::{bar, dot, glyph_button, keys, small};
-use crate::ui::theme::{self, GLYPH_MENU, Roles, bold};
+use crate::ui::theme::{self, GLYPH_CLOSE, GLYPH_MENU, Roles, bold, icon_button};
 
 /// One edit made in the Settings panel.
 #[derive(Debug, Clone)]
@@ -272,8 +272,23 @@ pub fn view(app: &App) -> Element<'_, Message> {
         )],
     );
 
-    // The first line, like the comment at the top of a file. Esc is the only way back.
-    let header = comment("every change applies and saves at once · Esc goes back");
+    let close = button(text(GLYPH_CLOSE).size(13).center())
+        .width(28)
+        .height(24)
+        .padding(0)
+        .style(icon_button)
+        .on_press(Message::CloseMenu);
+    // The first line, like the comment at the top of a file. In a narrow window the words are
+    // cut off, not the close button.
+    let header = row![
+        container(comment(
+            "every change applies and saves at once · Esc goes back"
+        ))
+        .width(Fill)
+        .clip(true),
+        close
+    ]
+    .align_y(iced::Center);
 
     // A blank line between sections, as in a file.
     let mut page = column![header, appearance, editor, saving, assistant].spacing(LINE);
@@ -287,7 +302,8 @@ pub fn view(app: &App) -> Element<'_, Message> {
         right: 12.0,
         ..editor::PADDING
     });
-    // Settings takes the whole text area, edge to edge, over the text; Esc goes back. `opaque` keeps clicks and scrolling off the text underneath.
+    // Settings takes the whole text area, edge to edge, over the text; Esc or the close button
+    // goes back. `opaque` keeps clicks and scrolling off the text underneath.
     let page = container(scrollable(page).width(Fill).height(Fill))
         .width(Fill)
         .height(Fill)
