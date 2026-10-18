@@ -21,20 +21,15 @@ pub enum Theme {
 
 /// Full width (the default) lets text use the whole window; Comfort caps lines at `chars`
 /// characters. Either way the text starts at the top left, like any text editor.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "mode")]
 pub enum ReadingMode {
     Comfort {
         #[serde(default = "default_comfort_chars")]
         chars: u16,
     },
+    #[default]
     FullWidth,
-}
-
-impl Default for ReadingMode {
-    fn default() -> ReadingMode {
-        ReadingMode::FullWidth
-    }
 }
 
 fn default_comfort_chars() -> u16 {
