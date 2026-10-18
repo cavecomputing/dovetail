@@ -415,19 +415,30 @@ fn key_input<'a>(key: &str) -> Element<'a, Message> {
         .into()
 }
 
+/// The keyring by the name people know it by on this OS.
+const KEYRING: &str = if cfg!(target_os = "macos") {
+    "the Keychain"
+} else if cfg!(windows) {
+    "Credential Manager"
+} else {
+    "the system keyring"
+};
+
 /// Where the key is kept, in words: the keyring, or settings.toml when there is none.
 fn key_status<'a>(field: &KeyField) -> Element<'a, Message> {
     if let Some(error) = &field.error {
         return warning(error.clone());
     }
     let words = match (field.store, field.saving, field.text.trim().is_empty()) {
-        (None, _, _) => "checking for a keyring…",
-        (_, true, _) => "saving…",
-        (Some(KeyStore::Keyring), _, false) => "stored in the system keyring",
-        (Some(KeyStore::Keyring), _, true) => "none saved · a key goes in the system keyring",
-        (Some(KeyStore::SettingsFile), _, false) => "no keyring found, stored in settings.toml",
+        (None, _, _) => "checking for a keyring…".to_string(),
+        (_, true, _) => "saving…".to_string(),
+        (Some(KeyStore::Keyring), _, false) => format!("stored in {KEYRING}"),
+        (Some(KeyStore::Keyring), _, true) => format!("none saved · a key goes in {KEYRING}"),
+        (Some(KeyStore::SettingsFile), _, false) => {
+            "no keyring found, stored in settings.toml".to_string()
+        }
         (Some(KeyStore::SettingsFile), _, true) => {
-            "none saved · no keyring, a key goes in settings.toml"
+            "none saved · no keyring, a key goes in settings.toml".to_string()
         }
     };
     hint(words)
@@ -527,7 +538,7 @@ fn separator<'a>(mark: &'a str) -> Element<'a, Message> {
         .into()
 }
 
-fn hint<'a>(words: &'a str) -> Element<'a, Message> {
+fn hint<'a>(words: impl text::IntoFragment<'a>) -> Element<'a, Message> {
     container(text(words).size(12).style(subtle))
         .padding([0, 6])
         .into()
