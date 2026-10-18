@@ -139,15 +139,25 @@ impl TextModel {
     }
 
     /// Accepts `suggestions` (in text order, not overlapping) as one undo step: each puts its
-    /// text in place of its range. They are applied from the last back, so each range is still
-    /// right when its turn comes. Returns the changes to replay, in order.
+    /// text in place of its range. Returns the changes to replay, in order.
     pub fn accept(&mut self, suggestions: &[Suggestion]) -> Vec<Change> {
+        let edits: Vec<(Range<usize>, &str)> = suggestions
+            .iter()
+            .map(|suggestion| (suggestion.range.clone(), suggestion.text.as_str()))
+            .collect();
+        self.replace_each(&edits)
+    }
+
+    /// Puts each edit's text in place of its range (in text order, not overlapping) as one undo
+    /// step, as Replace all does. They are applied from the last back, so each range is still
+    /// right when its turn comes. Returns the changes to replay, in order.
+    pub fn replace_each(&mut self, edits: &[(Range<usize>, &str)]) -> Vec<Change> {
         let mut changes = Vec::new();
-        for suggestion in suggestions.iter().rev() {
+        for (range, text) in edits.iter().rev() {
             let change = Change {
-                at: suggestion.range.start,
-                removed: self.text[suggestion.range.clone()].to_string(),
-                inserted: suggestion.text.clone(),
+                at: range.start,
+                removed: self.text[range.clone()].to_string(),
+                inserted: text.to_string(),
             };
             self.apply(&change);
             changes.push(change);

@@ -131,7 +131,20 @@ fn key_binding(press: KeyPress, editable: bool, reviewing: bool) -> Option<Bindi
         && matches!(
             press.key.as_ref(),
             Key::Character(
-                "p" | "0" | "," | "l" | "w" | "W" | "s" | "S" | "o" | "n" | "f" | "=" | "+" | "-"
+                "p" | "0"
+                    | ","
+                    | "l"
+                    | "w"
+                    | "W"
+                    | "s"
+                    | "S"
+                    | "o"
+                    | "n"
+                    | "f"
+                    | "F"
+                    | "="
+                    | "+"
+                    | "-"
             )
         )
     {
@@ -532,6 +545,22 @@ impl Pane {
     pub fn redo(&mut self) -> bool {
         let changes = self.model.redo();
         self.replay(&changes)
+    }
+
+    /// Replace all: puts `text` in place of each of `ranges` (byte ranges of the model's text, in
+    /// order, not overlapping) as one undo step. Refused if a suggestion is on any of them.
+    pub fn replace_all(&mut self, ranges: &[Range<usize>], text: &str) -> Result<bool, String> {
+        let suggestions = self.suggestions();
+        if ranges
+            .iter()
+            .any(|range| suggestions.iter().any(|s| clashes(&s.range, range)))
+        {
+            return Err(IN_A_SUGGESTION.to_string());
+        }
+        let edits: Vec<(Range<usize>, &str)> =
+            ranges.iter().map(|range| (range.clone(), text)).collect();
+        let changes = self.model.replace_each(&edits);
+        Ok(self.replay(&changes))
     }
 
     /// Replaces `range` (byte offsets) with `text` as one undo step, such as a reload from disk.
@@ -1895,5 +1924,20 @@ mod tests {
         let stay = shown.find("Stay").unwrap();
         click(&mut pane, 0, stay + 1, Action::SelectWord);
         assert_eq!(pane.copied().as_deref(), Some("Stay"));
+    }
+
+    #[test]
+    fn replace_all_is_one_undo_step_and_spares_suggestions() {
+        let mut pane = Pane::new("cat and cat and cat");
+        assert_eq!(pane.replace_all(&[0..3, 8..11], "dog"), Ok(true));
+        assert_eq!(pane.content.text(), "dog and dog and cat");
+        assert!(pane.undo());
+        assert_eq!(pane.content.text(), "cat and cat and cat");
+        pane.suggest(16..19, "cow").unwrap();
+        assert_eq!(
+            pane.replace_all(&[0..3, 16..19], "dog"),
+            Err(IN_A_SUGGESTION.to_string())
+        );
+        assert_eq!(pane.model.text(), "cat and cat and cat");
     }
 }

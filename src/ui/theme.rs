@@ -24,6 +24,8 @@ pub const GLYPH_FILE: &str = "\u{ea7b}";
 pub const GLYPH_CLAUDE: &str = "\u{ea6b}";
 pub const GLYPH_UP: &str = "\u{eaa1}";
 pub const GLYPH_DOWN: &str = "\u{ea9a}";
+pub const GLYPH_CASE: &str = "\u{eab1}";
+pub const GLYPH_WHOLE_WORD: &str = "\u{eb7e}";
 
 /// The editor's mono font is about 0.6 of its size wide per character.
 pub const CHAR_WIDTH_RATIO: f32 = 0.6;

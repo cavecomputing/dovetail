@@ -166,13 +166,27 @@ pub fn glyph_button<'a>(glyph: &'a str, on_press: Option<Message>) -> Element<'a
 
 /// The assistant pane's speech-bubble toggle, highlighted while the pane is open.
 fn assistant_toggle<'a>(open: bool) -> Element<'a, Message> {
-    let toggle = button(text(GLYPH_CLAUDE).size(14).center())
+    let toggle = glyph_toggle(
+        GLYPH_CLAUDE,
+        open,
+        Message::Assistant(AssistantAction::Toggle),
+    );
+    let words = match open {
+        true => "Close the assistant (Ctrl+L)",
+        false => "Assistant: chat about this text (Ctrl+L)",
+    };
+    hint(toggle, keys(words))
+}
+
+/// A small glyph button for something that is on or off, highlighted while `on`.
+pub fn glyph_toggle<'a>(glyph: &'a str, on: bool, on_press: Message) -> Element<'a, Message> {
+    button(text(glyph).size(14).center())
         .width(22)
         .height(20)
         .padding(0)
         .style(move |theme: &Theme, status| {
             let roles = Roles::of(theme);
-            match open {
+            match on {
                 true => button::Style {
                     background: Some(Background::Color(roles.border)),
                     text_color: roles.accent_text,
@@ -181,16 +195,12 @@ fn assistant_toggle<'a>(open: bool) -> Element<'a, Message> {
                 false => icon_button(theme, status),
             }
         })
-        .on_press(Message::Assistant(AssistantAction::Toggle));
-    let words = match open {
-        true => "Close the assistant (Ctrl+L)",
-        false => "Assistant: chat about this text (Ctrl+L)",
-    };
-    hint(toggle, keys(words))
+        .on_press(on_press)
+        .into()
 }
 
 /// A small framed word button, such as "Keep mine".
-fn word_button<'a>(label: String, on_press: Option<Message>) -> Element<'a, Message> {
+pub fn word_button<'a>(label: String, on_press: Option<Message>) -> Element<'a, Message> {
     button(small(label))
         .padding([1, 8])
         .style(|theme: &Theme, status| {
@@ -269,6 +279,11 @@ pub fn menu(app: &App) -> Element<'_, Message> {
             "Find…".to_string(),
             "Ctrl+F",
             Message::Find(FindAction::Open),
+        ))
+        .push(menu_item(
+            "Replace…".to_string(),
+            "Ctrl+Shift+F",
+            Message::Find(FindAction::OpenReplace),
         ))
         .push(menu_item(
             line_numbers.to_string(),
