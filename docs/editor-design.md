@@ -40,6 +40,12 @@ How the editor holds text, undo and paint, and how paint is drawn. Phases are th
   just the selection. So `move_to(range)` then Paste or Delete is a full replace.
 - iced's `move_to` keeps the old selection when the cursor it is given has none, so our copy's
   `Content::move_to` ends it first; a cursor read with `cursor()` can then always be put back.
+- A double click (`Action::SelectWord`) or triple click (`Action::SelectLine`) makes a word or
+  line selection, which iced's `cursor()` reports as only the points clicked and dragged to
+  (`iced_graphics-0.14.0/src/text/editor.rs:277-302`); cosmic-text widens it to whole words or
+  lines only when drawing or copying it (`cosmic-text-0.15.0/src/edit/mod.rs:217-283`). So our
+  copy's `Content` remembers the unit until a click, edit or move ends it, and its `cursor()` widens
+  the same way, with the same word bounds (the `unicode-segmentation` crate cosmic-text uses).
 - There is no way to set scroll directly; only `Action::Scroll { lines }` (as `app.rs` already
   does).
 - In a `Binding::Sequence`, bindings publish their messages in order (`text_editor.rs:876`), and

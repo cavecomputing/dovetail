@@ -1809,4 +1809,66 @@ mod tests {
         assert_eq!(pane.content.cursor(), cursor);
         assert_eq!(pane.model.text(), "one two **three**");
     }
+
+    /// A double click (`Action::SelectWord`) or triple click (`Action::SelectLine`) at `line` and
+    /// `column`, as the widget makes it: the caret goes there, then the word or line is selected.
+    fn click(pane: &mut Pane, line: usize, column: usize, select: Action) {
+        pane.content.move_to(cursor_at(line, column));
+        pane.perform(select).unwrap();
+    }
+
+    #[test]
+    fn a_double_or_triple_click_selects_the_whole_word_or_line() {
+        let mut pane = Pane::new("make this bold");
+        click(&mut pane, 0, 7, Action::SelectWord);
+        assert_eq!(pane.selection(), Some(5..9));
+        assert_eq!(pane.toggle_marker(BOLD), Ok(true));
+        assert_eq!(pane.content.text(), "make **this** bold");
+        // At the end of the line, where iced's cursor is past the word's start.
+        let mut pane = Pane::new("make this bold");
+        click(&mut pane, 0, 14, Action::SelectWord);
+        assert_eq!(pane.toggle_marker(BOLD), Ok(true));
+        assert_eq!(pane.content.text(), "make this **bold**");
+        let mut pane = Pane::new("one line\ntwo");
+        click(&mut pane, 0, 2, Action::SelectLine);
+        assert_eq!(pane.toggle_marker(ITALIC), Ok(true));
+        assert_eq!(pane.content.text(), "_one line_\ntwo");
+        // Grown by Shift+→ (or a drag) after the double click, it still reaches whole words.
+        let mut pane = Pane::new("one two three");
+        click(&mut pane, 0, 5, Action::SelectWord);
+        for _ in 0..4 {
+            pane.perform(Action::Select(Motion::Right)).unwrap();
+        }
+        assert_eq!(pane.copied().as_deref(), Some("two three"));
+        // A click ends it.
+        pane.perform(Action::Move(Motion::Left)).unwrap();
+        assert_eq!(pane.selection(), None);
+    }
+
+    #[test]
+    fn backspace_and_enter_replace_a_double_or_triple_click_selection() {
+        let mut pane = Pane::new("a\n    indented line\nb");
+        click(&mut pane, 1, 2, Action::SelectLine);
+        assert_eq!(pane.backspace(4), Ok(true));
+        assert_eq!(pane.content.text(), "a\n\nb");
+        assert_eq!(pane.model.text(), pane.content.text());
+        let mut pane = Pane::new("a\n    indented line\nb");
+        click(&mut pane, 1, 2, Action::SelectLine);
+        assert_eq!(pane.new_line(), Ok(true));
+        assert_eq!(pane.content.text(), "a\n\n\nb");
+        let mut pane = Pane::new("- item one");
+        click(&mut pane, 0, 8, Action::SelectWord);
+        assert_eq!(pane.markdown_new_line(4), Ok(true));
+        assert_eq!(pane.content.text(), "- item \n- ");
+        assert_eq!(pane.model.text(), pane.content.text());
+    }
+
+    #[test]
+    fn copying_a_double_clicked_word_while_reviewing() {
+        let (mut pane, _, _) = reviewing_pane();
+        let shown = pane.content.text();
+        let stay = shown.find("Stay").unwrap();
+        click(&mut pane, 0, stay + 1, Action::SelectWord);
+        assert_eq!(pane.copied().as_deref(), Some("Stay"));
+    }
 }
