@@ -103,13 +103,13 @@ impl App {
         }
     }
 
-    /// The matches as the editor draws them while the bar is open: each lit up in yellow, the
-    /// selected one outlined too.
+    /// The matches as the editor draws them while the bar is open: each lit up in the text
+    /// colour, so it shows over any idea's paint, the selected one outlined in yellow too.
     pub fn find_runs(&self) -> Vec<PaintRun> {
         if !self.find.open {
             return Vec::new();
         }
-        let color = Roles::of(&self.theme).accent_text;
+        let roles = Roles::of(&self.theme);
         self.pane
             .widget_ranges(&self.find.matches)
             .into_iter()
@@ -117,9 +117,9 @@ impl App {
             .map(|(n, (start, end))| PaintRun {
                 start,
                 end,
-                color,
+                color: roles.fg,
                 look: PaintLook::Found {
-                    current: Some(n) == self.find.current,
+                    outline: (Some(n) == self.find.current).then_some(roles.accent_text),
                 },
             })
             .collect()
