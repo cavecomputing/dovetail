@@ -79,8 +79,8 @@ pub fn strip<'a>() -> Element<'a, Message> {
     .into()
 }
 
-/// Thin grab areas on the left, right and bottom edges (and the bottom corners) laid over `page`.
-/// While the controls are hidden the areas are left empty, keeping the layout's shape.
+/// Thin grab areas on the four edges and in the corners, laid over `page`. While the controls are
+/// hidden the areas are left empty, keeping the layout's shape.
 pub fn with_resize_edges(page: Element<'_, Message>, shown: bool) -> Element<'_, Message> {
     if NATIVE_FRAME {
         return page;
@@ -111,6 +111,15 @@ pub fn with_resize_edges(page: Element<'_, Message>, shown: bool) -> Element<'_,
             direction,
         )
     };
+    // The top corners reach only as far down as the edge, leaving the strip's buttons their clicks.
+    let top_corner = |cursor, direction| {
+        edge(
+            Length::Fixed(EDGE * 2.0),
+            Length::Fixed(EDGE),
+            cursor,
+            direction,
+        )
+    };
     stack![
         page,
         container(side(Direction::West)).align_left(Fill),
@@ -134,6 +143,21 @@ pub fn with_resize_edges(page: Element<'_, Message>, shown: bool) -> Element<'_,
         ))
         .align_right(Fill)
         .align_bottom(Fill),
+        edge(
+            Fill,
+            Length::Fixed(EDGE),
+            mouse::Interaction::ResizingVertically,
+            Direction::North
+        ),
+        top_corner(
+            mouse::Interaction::ResizingDiagonallyDown,
+            Direction::NorthWest
+        ),
+        container(top_corner(
+            mouse::Interaction::ResizingDiagonallyUp,
+            Direction::NorthEast
+        ))
+        .align_right(Fill),
     ]
     .into()
 }
