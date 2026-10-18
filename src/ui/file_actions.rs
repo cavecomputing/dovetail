@@ -69,8 +69,10 @@ impl App {
     pub fn new_file(&mut self) -> Task<Message> {
         self.menu_open = false;
         let dialog = self.save_dialog("New file", "untitled.txt".to_string());
-        Task::perform(dialog.save_file(), |picked| picked)
-            .and_then(|file| Task::done(Message::NewFilePicked(file.path().to_path_buf())))
+        let document = self.document;
+        Task::perform(dialog.save_file(), |picked| picked).and_then(move |file| {
+            Task::done(Message::NewFilePicked(document, file.path().to_path_buf()))
+        })
     }
 
     /// Starts the new file at `path` empty (the dialog has already agreed to replace anything
@@ -110,8 +112,10 @@ impl App {
             ),
         };
         let dialog = self.save_dialog("Save as", name);
-        Task::perform(dialog.save_file(), |picked| picked)
-            .and_then(|file| Task::done(Message::SaveAsPicked(file.path().to_path_buf())))
+        let document = self.document;
+        Task::perform(dialog.save_file(), |picked| picked).and_then(move |file| {
+            Task::done(Message::SaveAsPicked(document, file.path().to_path_buf()))
+        })
     }
 
     /// Makes `path` this window's file: the text is written there and the window carries on
