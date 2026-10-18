@@ -14,7 +14,11 @@ use std::path::{Path, PathBuf};
 use crate::core::opened::Doc;
 
 fn main() -> iced::Result {
-    let argument = std::env::args_os().nth(1).map(PathBuf::from);
+    let argument = std::env::args_os()
+        .nth(1)
+        // Finder may start a macOS app with a -psn_... process number, which isn't a file.
+        .filter(|arg| !(cfg!(target_os = "macos") && arg.to_string_lossy().starts_with("-psn_")))
+        .map(PathBuf::from);
     let doc = match argument {
         Some(flag) if flag == Path::new("--print-brand") => {
             print_brand();
@@ -27,6 +31,13 @@ fn main() -> iced::Result {
         },
         None => Doc::Scratch,
     };
+    // Explorer starts a program in the opened file's folder, and Windows won't let a folder be
+    // renamed or deleted while it is a program's current folder, so move to the home folder (the
+    // path above is already absolute).
+    #[cfg(windows)]
+    if let Some(base) = directories::BaseDirs::new() {
+        let _ = std::env::set_current_dir(base.home_dir());
+    }
     ui::app::run(doc)
 }
 
