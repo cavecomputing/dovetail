@@ -112,7 +112,7 @@ document is edited in one window at a time: a second window on the same file, or
 read-only and says why, and opening one that another window has open is refused.
 
 **The status bar**, left to right: the ☰ menu (New file, Open, Open recent, Save as, Find,
-Replace, Go to line, Line numbers, the recent files, Settings, Scratch), the save dot, any problem
+Replace, Go to line, Line numbers, Settings, Scratch, then the recent files), the save dot, any problem
 in orange (a failed save, a file that isn't valid JSON, say), and the file's path (or Scratch); on
 the right, words and tokens, the line and column if switched on, then the assistant button. Tokens are counted with OpenAI's o200k tokenizer (hover to
 see it), a close enough guide for other models.
