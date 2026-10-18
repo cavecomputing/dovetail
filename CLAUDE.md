@@ -227,7 +227,7 @@ src/
                          open, what Enter and Tab do in a list, and Ctrl+B and Ctrl+I's markers
     syntax.rs            which kind of text a file is (plain, Markdown, JSON, YAML, TOML, INI,
                          shell), by extension or `#!` line; the shared colour tokens; the
-                         validity check for each
+                         validity check for each; Ctrl+/'s comments
     shell.rs             shell scripts: which parts of a line to colour, whether a `#!` line
                          names sh or bash, and the `bash -n` check
     json.rs              which parts of a .json line to colour, whether the text is valid JSON,

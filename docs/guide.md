@@ -199,6 +199,7 @@ Shortcuts are written with Ctrl; on macOS use ⌘ (the app's menu and hints show
 | Ctrl+Shift+K | Delete the line, or every selected line |
 | Ctrl+D | Select the word at the cursor; press again to also select the next place it appears (matching case and whole words; with part of a word selected, anywhere), going round to the top after the end. Typing, pasting, Backspace, Delete and Enter then change every selected place at once, each press its own Ctrl+Z. Moving the cursor or Esc lets the extra places go |
 | Ctrl+B and Ctrl+I | In a Markdown file, bold (`**`) or italic (`_`, or `*` inside a word): put the markers around the selection, or with nothing selected a pair with the cursor between. Pressed again, they come off |
+| Ctrl+/ | In a shell script or a YAML, TOML or INI file, comment out the line, or every selected line, with `# ` at their shared indent. When they are all comments already, it takes the `#` off instead |
 | Ctrl+Z | Undo |
 | Ctrl+Shift+Z or Ctrl+Y | Redo |
 | Ctrl+A, C, X, V | Select all, copy, cut, paste |
