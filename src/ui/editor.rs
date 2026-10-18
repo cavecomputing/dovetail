@@ -1,6 +1,7 @@
-//! The text editing widget: the text column, Tab as spaces, undo and redo (its colours come from
-//! `highlighter`). A `Pane` pairs the widget's content with the text model behind it, and shows
-//! suggested edits inside the text until each is accepted or rejected (review mode).
+//! The text editing widget: the text column, Tab as spaces, Enter keeping the indent, undo and
+//! redo (its colours come from `highlighter`). A `Pane` pairs the widget's content with the text
+//! model behind it, and shows suggested edits inside the text until each is accepted or rejected
+//! (review mode).
 
 use std::ops::Range;
 use std::sync::Arc;
@@ -98,12 +99,13 @@ fn style(theme: &Theme, editable: bool) -> text_editor::Style {
     }
 }
 
-/// Tab indents (with spaces, never a tab character), Shift+Tab unindents, Ctrl+Z undoes,
-/// Ctrl+Shift+Z and Ctrl+Y redo, and the app's own Ctrl shortcuts are left for the app. A pane
-/// that isn't `editable` keeps only iced's own keys (moving, selecting, copying). While
-/// `reviewing`, Tab accepts the suggestion the caret is on and Esc rejects it (`App::update` turns
-/// a Tab anywhere else back into an indent), and Ctrl+C and Ctrl+X go through `Message::Clip`,
-/// since the widget's text has the suggestions in it.
+/// Tab indents (with spaces, never a tab character), Shift+Tab unindents, Enter (and Shift+Enter)
+/// starts a line indented like the caret's, Ctrl+Z undoes, Ctrl+Shift+Z and Ctrl+Y redo, and the
+/// app's own Ctrl shortcuts are left for the app. A pane that isn't `editable` keeps only iced's
+/// own keys (moving, selecting, copying). While `reviewing`, Tab accepts the suggestion the caret
+/// is on and Esc rejects it (`App::update` turns a Tab anywhere else back into an indent), and
+/// Ctrl+C and Ctrl+X go through `Message::Clip`, since the widget's text has the suggestions in
+/// it.
 fn key_binding(press: KeyPress, editable: bool, reviewing: bool) -> Option<Binding<Message>> {
     // A custom binding is used even when the editor isn't focused, so check first.
     if !matches!(press.status, Status::Focused { .. }) {
@@ -163,6 +165,7 @@ fn key_binding(press: KeyPress, editable: bool, reviewing: bool) -> Option<Bindi
             Some(Binding::Custom(Message::Unindent))
         }
         Key::Named(Named::Tab) => Some(Binding::Custom(Message::Indent)),
+        Key::Named(Named::Enter) => Some(Binding::Custom(Message::NewLine)),
         _ => Binding::from_key_press(press),
     }
 }
@@ -513,6 +516,33 @@ impl Pane {
         self.reindent(tab_spaces, false)
     }
 
+    /// Enter (and Shift+Enter): a new line in place of any selection, indented like the caret's
+    /// line up to the caret. When only spaces are before the caret they move down with it, so the
+    /// line left behind is empty rather than trailing spaces. Returns whether the text changed,
+    /// or why it can't.
+    pub fn new_line(&mut self) -> Result<bool, String> {
+        let cursor = self.content.cursor();
+        let caret = self.caret();
+        let range = self.selection().unwrap_or(caret..caret);
+        let text = self.model.text();
+        let line_start = text[..range.start].rfind('\n').map_or(0, |at| at + 1);
+        let before = &text[line_start..range.start];
+        let indent = &before[..before.len() - before.trim_start_matches([' ', '\t']).len()];
+        let typed = Action::Edit(Edit::Paste(Arc::new(format!("\n{indent}"))));
+        if indent.is_empty() || indent.len() < before.len() {
+            return self.perform(typed);
+        }
+        self.content.move_to(Cursor {
+            position: self.position(range.end, false),
+            selection: Some(self.position(line_start, true)),
+        });
+        let edited = self.perform(typed);
+        if edited.is_err() {
+            self.content.move_to(cursor);
+        }
+        edited
+    }
+
     /// Indents (`add`) or unindents the lines for `indent` and `unindent`, as one undo step, and
     /// keeps the caret and selection on the same text. A last line the selection only reaches
     /// the start of is left alone, as nothing on it is selected, and lines with a suggestion on
@@ -613,13 +643,26 @@ mod tests {
     use super::*;
     use crate::core::review::{BUTTON_ROOM, GHOST_START};
     use iced::keyboard::Modifiers;
-    use iced::keyboard::key::{Code, Physical};
+    use iced::keyboard::key::{Code, NativeCode, Physical};
 
     fn cursor_at(line: usize, column: usize) -> Cursor {
         Cursor {
             position: Position { line, column },
             selection: None,
         }
+    }
+
+    /// What `key_binding` makes of `key` with `modifiers`, in an editable pane not reviewing.
+    fn binding_for(key: Named, modifiers: Modifiers) -> Option<Binding<Message>> {
+        let press = KeyPress {
+            key: Key::Named(key),
+            modified_key: Key::Named(key),
+            physical_key: Physical::Unidentified(NativeCode::Unidentified),
+            modifiers,
+            text: None,
+            status: Status::Focused { is_hovered: false },
+        };
+        key_binding(press, true, false)
     }
 
     #[test]
@@ -1051,5 +1094,104 @@ mod tests {
         select_two_lines(&mut pane);
         assert_eq!(pane.unindent(4), Ok(true));
         assert_eq!(pane.content.text(), "alpha\nbeta\n    gamma\n");
+    }
+
+    #[test]
+    fn enter_keeps_the_indent_before_the_caret() {
+        let mut pane = Pane::new("    one two");
+        pane.content.move_to(cursor_at(0, 7));
+        assert_eq!(pane.new_line(), Ok(true));
+        assert_eq!(pane.content.text(), "    one\n     two");
+        assert_eq!(pane.content.cursor(), cursor_at(1, 4));
+        // At the start of an indented line, none of the indent is before the caret.
+        pane.content.move_to(cursor_at(1, 0));
+        assert_eq!(pane.new_line(), Ok(true));
+        assert_eq!(pane.content.text(), "    one\n\n     two");
+        // Tabs and multi-byte text: the indent is copied as it is.
+        let mut pane = Pane::new("\t  café");
+        pane.content.move_to(cursor_at(0, 8));
+        assert_eq!(pane.new_line(), Ok(true));
+        assert_eq!(pane.content.text(), "\t  café\n\t  ");
+        assert_eq!(pane.content.cursor(), cursor_at(1, 3));
+        let mut pane = Pane::new("");
+        assert_eq!(pane.new_line(), Ok(true));
+        assert_eq!(pane.content.text(), "\n");
+    }
+
+    #[test]
+    fn enter_and_shift_enter_start_an_indented_line() {
+        for modifiers in [Modifiers::empty(), Modifiers::SHIFT] {
+            assert!(matches!(
+                binding_for(Named::Enter, modifiers),
+                Some(Binding::Custom(Message::NewLine))
+            ));
+        }
+    }
+
+    #[test]
+    fn enter_twice_leaves_an_empty_line_not_trailing_spaces() {
+        let mut pane = Pane::new("    item");
+        pane.content.move_to(cursor_at(0, 8));
+        assert_eq!(pane.new_line(), Ok(true));
+        assert_eq!(pane.new_line(), Ok(true));
+        assert_eq!(pane.content.text(), "    item\n\n    ");
+        assert_eq!(pane.content.cursor(), cursor_at(2, 4));
+        assert_eq!(pane.model.text(), pane.content.text());
+        // Each Enter is one undo step.
+        pane.undo();
+        assert_eq!(pane.content.text(), "    item\n    ");
+        pane.undo();
+        assert_eq!(pane.content.text(), "    item");
+        // In the middle of an indent, the spaces before the caret go down with it.
+        let mut pane = Pane::new("        x");
+        pane.content.move_to(cursor_at(0, 4));
+        assert_eq!(pane.new_line(), Ok(true));
+        assert_eq!(pane.content.text(), "\n        x");
+        assert_eq!(pane.content.cursor(), cursor_at(1, 4));
+    }
+
+    #[test]
+    fn enter_replaces_a_selection() {
+        let mut pane = Pane::new("  one two\nthree");
+        pane.content.move_to(Cursor {
+            position: Position { line: 1, column: 2 },
+            selection: Some(Position { line: 0, column: 6 }),
+        });
+        assert_eq!(pane.new_line(), Ok(true));
+        assert_eq!(pane.content.text(), "  one \n  ree");
+        pane.undo();
+        assert_eq!(pane.content.text(), "  one two\nthree");
+        // Selected from the end of the indent, the indent goes down to the new line.
+        pane.select(2..5);
+        assert_eq!(pane.new_line(), Ok(true));
+        assert_eq!(pane.content.text(), "\n   two\nthree");
+    }
+
+    #[test]
+    fn enter_while_reviewing_moves_suggestions_or_is_refused() {
+        let mut pane = Pane::new("  Be quick.\n  Stay calm.");
+        pane.suggest(19..23, "steady").unwrap();
+        pane.put_caret(11);
+        assert_eq!(pane.new_line(), Ok(true));
+        assert_eq!(pane.model.text(), "  Be quick.\n  \n  Stay calm.");
+        assert_eq!(pane.suggestions()[0].range, 22..26);
+        // On a line of only spaces, they move down past the empty line left behind.
+        assert_eq!(pane.new_line(), Ok(true));
+        assert_eq!(pane.model.text(), "  Be quick.\n\n  \n  Stay calm.");
+        assert_eq!(pane.suggestions()[0].range, 23..27);
+        // Inside the text the suggestion changes, Enter is refused and the caret stays put.
+        pane.put_caret(25);
+        let (shown, cursor) = (pane.content.text(), pane.content.cursor());
+        assert_eq!(pane.new_line(), Err(IN_A_SUGGESTION.to_string()));
+        assert_eq!(pane.content.text(), shown);
+        assert_eq!(pane.content.cursor(), cursor);
+        // So is one that would take the spaces a suggestion changes down with it.
+        let mut pane = Pane::new("    x");
+        pane.suggest(0..2, "").unwrap();
+        pane.put_caret(4);
+        let cursor = pane.content.cursor();
+        assert_eq!(pane.new_line(), Err(IN_A_SUGGESTION.to_string()));
+        assert_eq!(pane.content.cursor(), cursor);
+        assert_eq!(pane.model.text(), "    x");
     }
 }

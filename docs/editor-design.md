@@ -38,6 +38,8 @@ How the editor holds text, undo and paint, and how paint is drawn. Phases are th
 - `Position.column` is a **byte** index within the line. So `core/` uses byte offsets everywhere.
 - `Edit::Paste` deletes the current selection first, and `Edit::Delete` with a selection deletes
   just the selection. So `move_to(range)` then Paste or Delete is a full replace.
+- iced's `move_to` keeps the old selection when the cursor it is given has none, so our copy's
+  `Content::move_to` ends it first; a cursor read with `cursor()` can then always be put back.
 - There is no way to set scroll directly; only `Action::Scroll { lines }` (as `app.rs` already
   does).
 - In a `Binding::Sequence`, bindings publish their messages in order (`text_editor.rs:876`), and
@@ -105,6 +107,10 @@ the caret at the end of the last change. Undo of a step applies its changes in r
   paint inside the lines is untouched. It is now plain text and is tested without iced.
 - Ctrl+Z goes to `Binding::Custom(Message::Undo)`, Ctrl+Shift+Z and Ctrl+Y to `Message::Redo`, in
   `key_binding`.
+- Enter goes to `Message::NewLine`. `Pane::new_line` works out the text (a newline and the line's
+  indent) and does it as a widget edit through `Pane::perform`: a paste, over a selection it makes
+  first when the spaces before the caret go down too. So it is recorded like typing, review mode
+  checks it, and a refused edit puts the caret back.
 - **Rewrite clear** (spec 7.4) is `replace(0..len, "")` on the scratch model, so Ctrl+Z restores it.
 - **Two panes** are two `{ content: Content, model: TextModel }` pairs, a small `Pane` struct in
   `app.rs`. v1 is read-only exactly as `editable` works today.

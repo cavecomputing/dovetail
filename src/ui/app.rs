@@ -86,6 +86,8 @@ pub enum Message {
     Edit(Action),
     Indent,
     Unindent,
+    /// Enter in the editor: a new line, indented like the caret's (`Pane::new_line`).
+    NewLine,
     Undo,
     Redo,
     /// Ctrl+X or Ctrl+C while reviewing: copy the selected text, without the suggestions, and
@@ -304,11 +306,15 @@ impl App {
                     return Task::batch([delete, iced::clipboard::write(text)]);
                 }
             }
-            Message::Indent | Message::Unindent if self.editable() => {
+            // The editing keys `editor::key_binding` binds. A read-only window takes none of them.
+            Message::Indent | Message::Unindent | Message::NewLine if self.editable() => {
                 let tab_spaces = usize::from(self.settings.tab_spaces);
                 let edited = match message {
                     Message::Indent => self.pane.indent(tab_spaces),
-                    _ => self.pane.unindent(tab_spaces),
+                    Message::Unindent => self.pane.unindent(tab_spaces),
+                    Message::NewLine => self.pane.new_line(),
+                    // The arm's pattern lets no other message in.
+                    _ => Ok(false),
                 };
                 match edited {
                     Ok(true) => self.text_changed(),
@@ -316,7 +322,7 @@ impl App {
                     Err(reason) => self.set_notice(Some(reason)),
                 }
             }
-            Message::Indent | Message::Unindent => {}
+            Message::Indent | Message::Unindent | Message::NewLine => {}
             Message::Undo | Message::Redo if self.editable() => {
                 let changed = match message {
                     Message::Undo => self.pane.undo(),
