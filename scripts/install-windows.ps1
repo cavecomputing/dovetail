@@ -34,7 +34,7 @@ $exe = "$installDir\$BIN_NAME.exe"
 $shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) "$APP_NAME.lnk"
 # "Open with": the app's own entry, and its name in the list Windows offers for each file type.
 $appKey = "HKCU:\Software\Classes\Applications\$BIN_NAME.exe"
-$fileTypes = '.txt', '.md', '.markdown', '.json', '.yaml', '.yml', '.toml', '.ini', '.cfg', '.conf'
+$fileTypes = '.txt', '.md', '.markdown', '.json', '.yaml', '.yml', '.toml', '.ini', '.cfg', '.conf', '.sh', '.bash'
 $openWithKeys = $fileTypes | ForEach-Object { "HKCU:\Software\Classes\$_\OpenWithList\$BIN_NAME.exe" }
 
 if ($Uninstall) {

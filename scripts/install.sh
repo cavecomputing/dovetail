@@ -38,7 +38,7 @@ Exec=$bin_dir/$BIN_NAME %f
 Icon=$APP_ID
 Terminal=false
 Categories=Utility;TextEditor;
-MimeType=text/plain;text/markdown;application/json;application/yaml;application/x-yaml;application/toml;text/x-ini;
+MimeType=text/plain;text/markdown;application/json;application/yaml;application/x-yaml;application/toml;text/x-ini;application/x-shellscript;
 StartupWMClass=$APP_ID
 DESKTOP
 

@@ -1,4 +1,5 @@
-//! How the editor colours its text: Markdown in .md files; JSON, YAML, TOML and INI files; XML
+//! How the editor colours its text: Markdown in .md files; JSON, YAML, TOML and INI files; shell
+//! scripts; XML
 //! tags and {{macros}}; and in review mode the struck and ghost text of suggestions. iced asks
 //! for the colours one line at a time.
 
@@ -11,6 +12,7 @@ use crate::core::config::{ini_ranges, toml_ranges, yaml_ranges};
 use crate::core::json::json_ranges;
 use crate::core::markdown::{Block, Markdown, markdown_ranges};
 use crate::core::markup::{Markup, markup_ranges};
+use crate::core::shell::{ShellOpen, shell_ranges};
 use crate::core::syntax::{Syntax, Token};
 use crate::ui::theme::{MONO, Roles, bold};
 
@@ -27,7 +29,7 @@ pub struct Colouring {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Highlight {
     Markdown(Markdown),
-    /// A part of a JSON, YAML, TOML or INI line.
+    /// A part of a JSON, YAML, TOML, INI or shell script line.
     Data(Token),
     Markup(Markup),
     /// Text a suggestion would replace: muted (the line through it is drawn as paint).
@@ -86,19 +88,22 @@ pub struct MarkupHighlighter {
 }
 
 /// What a line starts inside, from the lines above it: a Markdown code fence, a YAML block
-/// scalar (the indent of the line that opened it), or a TOML multi-line string (its closing
-/// quotes). Only the file's own syntax's part is used.
-#[derive(Debug, Clone, Copy)]
+/// scalar (the indent of the line that opened it), a TOML multi-line string (its closing
+/// quotes), or a shell script's string or here-document. Only the file's own syntax's part is
+/// used.
+#[derive(Debug, Clone)]
 struct Carry {
     block: Block,
     yaml_block: Option<usize>,
     toml_string: Option<&'static str>,
+    shell: Option<ShellOpen>,
 }
 
 const START: Carry = Carry {
     block: Block::Prose,
     yaml_block: None,
     toml_string: None,
+    shell: None,
 };
 
 impl Highlighter for MarkupHighlighter {
@@ -129,7 +134,7 @@ impl Highlighter for MarkupHighlighter {
     /// The file's syntax first, then tags and macros (so a {{macro}} inside a JSON or YAML string
     /// still shows), then suggestions, so suggestion looks win where they overlap.
     fn highlight_line(&mut self, text: &str) -> Self::Iterator<'_> {
-        let mut carry = self.carried[self.line];
+        let mut carry = self.carried[self.line].clone();
         let mut found: Vec<_> = match self.colouring.syntax {
             Syntax::Plain => Vec::new(),
             Syntax::Markdown => {
@@ -152,6 +157,11 @@ impl Highlighter for MarkupHighlighter {
                 data(found)
             }
             Syntax::Ini => data(ini_ranges(text)),
+            Syntax::Shell => {
+                let (found, next) = shell_ranges(text, carry.shell.take());
+                carry.shell = next;
+                data(found)
+            }
         };
         self.carried.push(carry);
         if self.colouring.markup {

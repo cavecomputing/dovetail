@@ -226,8 +226,11 @@ src/
     markup.rs            where XML tags and {{macros}} are, for colouring them
     markdown.rs          which parts of a Markdown (.md) line to colour, whether a code fence is
                          open, what Enter and Tab do in a list, and Ctrl+B and Ctrl+I's markers
-    syntax.rs            which kind of text a file is (plain, Markdown, JSON, YAML, TOML, INI),
-                         by extension; the shared colour tokens; the validity check for each
+    syntax.rs            which kind of text a file is (plain, Markdown, JSON, YAML, TOML, INI,
+                         shell), by extension or `#!` line; the shared colour tokens; the
+                         validity check for each
+    shell.rs             shell scripts: which parts of a line to colour, and whether a `#!`
+                         line names sh or bash
     json.rs              which parts of a .json line to colour, whether the text is valid JSON,
                          and Format and Minify (whitespace only, so key order and digits are kept)
     text_file.rs         reading and saving text files: line endings, outside-change check
@@ -240,8 +243,8 @@ src/
     theme.rs             Gruvbox palette roles, the font and its icon glyphs, shared styles
     editor.rs            the editor pane (widget + text model), key bindings, and review mode
                          (suggestions as ghost text, Accept and Reject)
-    highlighter.rs       how the editor colours its text: Markdown, JSON and config files, tags
-                         and macros, suggested edits
+    highlighter.rs       how the editor colours its text: Markdown, JSON, config files and shell
+                         scripts, tags and macros, suggested edits
     text_editor.rs       a copy of iced's text editor widget (draws find matches, suggested edits
                          and their buttons), changes marked `ours:`
     scroll_bar.rs        the editor's scroll bar, drawn like Settings' (the editor scrolls itself)

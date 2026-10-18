@@ -7,10 +7,10 @@ use std::time::SystemTime;
 
 use crate::core::save::atomic_write;
 
-/// The extensions the Open dialog offers: plain text, Markdown, and the data files the
-/// editor colours and checks (`Syntax::of`).
-pub const TEXT_EXTENSIONS: [&str; 10] = [
-    "txt", "md", "markdown", "json", "yaml", "yml", "toml", "ini", "cfg", "conf",
+/// The extensions the Open dialog offers: plain text, Markdown, and the data files and shell
+/// scripts the editor colours and checks (`Syntax::of`).
+pub const TEXT_EXTENSIONS: [&str; 12] = [
+    "txt", "md", "markdown", "json", "yaml", "yml", "toml", "ini", "cfg", "conf", "sh", "bash",
 ];
 
 /// The line ending a file used, so saving writes it back the same way.

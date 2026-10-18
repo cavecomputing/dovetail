@@ -631,7 +631,7 @@ impl App {
                 // so only .txt and .md could be picked; with no filter it allows any file.
                 if !cfg!(target_os = "macos") {
                     dialog = dialog
-                        .add_filter("Text and config files", &TEXT_EXTENSIONS)
+                        .add_filter("Text, config and script files", &TEXT_EXTENSIONS)
                         .add_filter("All files", &["*"]);
                 }
                 let dialog = dialog.pick_file();
@@ -987,11 +987,12 @@ impl App {
         self.syntax() == Syntax::Markdown
     }
 
-    /// The kind of text the document is, by its file's extension: coloured to match, and for a
-    /// data file (JSON, YAML, TOML, INI) checked as you type. Scratch is always plain.
+    /// The kind of text the document is, by its file's extension (or a script's `#!` line):
+    /// coloured to match, and for a data file (JSON, YAML, TOML, INI) or a shell script checked
+    /// as you type. Scratch is always plain.
     pub fn syntax(&self) -> Syntax {
         match &self.doc {
-            Doc::File { path, .. } => Syntax::of(path),
+            Doc::File { path, .. } => Syntax::of(path, self.pane.model.text()),
             Doc::Scratch => Syntax::Plain,
         }
     }
