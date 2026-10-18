@@ -156,6 +156,8 @@ pub enum Message {
     Setting(Change),
     /// Ctrl+= and Ctrl+-: the font a size bigger or smaller.
     Zoom(f32),
+    /// Ctrl+Shift+L and the menu: line numbers on or off.
+    ToggleLineNumbers,
     /// Once a second: rereads settings.toml if it changed, and takes down an old notice.
     PollSettings,
     SystemTheme(iced::theme::Mode),
@@ -575,6 +577,11 @@ impl App {
                 let size = self.settings.font_size + step;
                 return self.update(Message::Setting(Change::FontSize(size)));
             }
+            Message::ToggleLineNumbers => {
+                self.menu_open = false;
+                let on = !self.settings.line_numbers;
+                return self.update(Message::Setting(Change::LineNumbers(on)));
+            }
             Message::PollSettings => {
                 if let Some((_, shown)) = &self.notice
                     && shown.elapsed() >= NOTICE_TIME
@@ -832,6 +839,9 @@ fn shortcut(event: iced::Event, status: event::Status, _window: window::Id) -> O
         keyboard::Key::Character(",") => Some(Message::OpenSettings),
         keyboard::Key::Character("0") => Some(Message::OpenScratch),
         keyboard::Key::Character("p") => Some(Message::OpenSwitcher),
+        keyboard::Key::Character("l" | "L") if modifiers.shift() => {
+            Some(Message::ToggleLineNumbers)
+        }
         keyboard::Key::Character("l") => Some(Message::Assistant(AssistantAction::Toggle)),
         keyboard::Key::Character("w" | "W") => Some(Message::CloseRequested),
         keyboard::Key::Character("s" | "S") if modifiers.shift() => Some(Message::SaveAs),
@@ -851,13 +861,15 @@ fn shortcut(event: iced::Event, status: event::Status, _window: window::Id) -> O
 }
 
 /// The keys that still work while Settings is open: Esc closes it, Ctrl+W closes the window and
-/// ⌘M (macOS) minimizes it, and the zoom keys change a setting the panel shows. The rest would act
-/// on the document behind it.
+/// ⌘M (macOS) minimizes it, and the zoom keys and Ctrl+Shift+L change a setting the panel shows.
+/// The rest would act on the document behind it.
 fn settings_key(message: Message) -> Option<Message> {
     match message {
-        Message::CloseMenu | Message::CloseRequested | Message::Minimize | Message::Zoom(_) => {
-            Some(message)
-        }
+        Message::CloseMenu
+        | Message::CloseRequested
+        | Message::Minimize
+        | Message::Zoom(_)
+        | Message::ToggleLineNumbers => Some(message),
         _ => None,
     }
 }
@@ -921,6 +933,35 @@ mod tests {
         });
         second.perform(Action::Edit(Edit::Insert('!')));
         assert_eq!(second.text(), "café!");
+    }
+
+    #[test]
+    fn ctrl_shift_l_toggles_line_numbers_and_ctrl_l_the_assistant() {
+        use keyboard::key::{NativeCode, Physical};
+        // iced gives the key without Shift's change ("l"), and `modified_key` with it ("L").
+        let press = |modifiers| {
+            let event = iced::Event::Keyboard(keyboard::Event::KeyPressed {
+                key: keyboard::Key::Character("l".into()),
+                modified_key: keyboard::Key::Character("L".into()),
+                physical_key: Physical::Unidentified(NativeCode::Unidentified),
+                location: keyboard::Location::Standard,
+                modifiers,
+                text: None,
+                repeat: false,
+            });
+            shortcut(event, event::Status::Ignored, window::Id::unique())
+        };
+        let toggle = press(keyboard::Modifiers::COMMAND | keyboard::Modifiers::SHIFT);
+        assert!(matches!(toggle, Some(Message::ToggleLineNumbers)));
+        // It works with Settings open too, which shows the setting.
+        assert!(matches!(
+            toggle.and_then(settings_key),
+            Some(Message::ToggleLineNumbers)
+        ));
+        assert!(matches!(
+            press(keyboard::Modifiers::COMMAND),
+            Some(Message::Assistant(AssistantAction::Toggle))
+        ));
     }
 
     #[cfg(target_os = "linux")]

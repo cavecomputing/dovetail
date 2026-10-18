@@ -108,10 +108,10 @@ scroll position. It is a plain `scratch.txt` in the data folder (on Linux,
 is edited in one window at a time: a second window on the same file, or on scratch, opens read-only
 and says why.
 
-**The status bar**, left to right: the ☰ menu (New file, Open, Recent, Save as, Find, Settings,
-Scratch), the save dot, and the file's path (or Scratch); on the right, words and tokens, then the
-assistant button. Tokens are counted with OpenAI's o200k tokenizer (hover to see it), a close
-enough guide for other models.
+**The status bar**, left to right: the ☰ menu (New file, Open, Recent, Save as, Find, Line
+numbers, Settings, Scratch), the save dot, and the file's path (or Scratch); on the right, words
+and tokens, then the assistant button. Tokens are counted with OpenAI's o200k tokenizer (hover to
+see it), a close enough guide for other models.
 
 **Markdown** files (`.md` and `.markdown`) open like `.txt` files, and the Open, New file and Save
 as dialogs offer them alongside `.txt`: type `notes.md` as the name to make one. They are coloured
@@ -150,6 +150,7 @@ Shortcuts are written with Ctrl; on macOS use ⌘ (the app's menu and hints show
 | Ctrl+= and Ctrl+- | Bigger or smaller text. This is the Font size setting (9 to 40), so every window follows and it is remembered |
 | Ctrl+, | Settings |
 | Ctrl+L | Open or close the assistant pane |
+| Ctrl+Shift+L | Line numbers on or off. This is the Line numbers setting, so every window follows and it is remembered |
 | Esc | Close the menu, the switcher or Settings, or else the find bar, and put the keyboard back in the text (from the assistant's box, say) |
 | Tab | Insert spaces at the cursor, never a tab character (text selected within one line is replaced); with several lines selected, indent each. In a Markdown file, on a list item it indents the whole line instead, nesting the item |
 | Shift+Tab | Unindent the line, or each selected line |
@@ -165,7 +166,7 @@ Shortcuts are written with Ctrl; on macOS use ⌘ (the app's menu and hints show
 | Tab or Esc on a suggestion | Accept or reject the suggestion the cursor is on |
 | Enter, in the assistant's box | Send (Shift+Enter starts a new line) |
 
-While Settings is open, only Esc, Ctrl+W, Ctrl+= and Ctrl+- (and ⌘M on macOS) work.
+While Settings is open, only Esc, Ctrl+W, Ctrl+=, Ctrl+- and Ctrl+Shift+L (and ⌘M on macOS) work.
 
 macOS also has ⌘↑ and ⌘↓ (start and end of the text, with ⇧ to select), ⌘G and ⇧⌘G (next and
 previous match), ⌘M (minimise) and ⌘Q (closes the window, waiting for the save like any close).
@@ -265,7 +266,7 @@ Ctrl+, opens Settings over the window. Changes apply at once and are saved to `s
 | Section | Settings (default) |
 |---|---|
 | Appearance | Theme: dark (default), light or system. Font size (14). Reading mode: full width (default) or comfort, which caps lines at 80 characters (adjustable) |
-| Editor | Tab inserts 4 spaces (adjustable). Word wrap (on). Colour for XML tags and `{{macros}}` (on). Line and column in the status bar (off) |
+| Editor | Tab inserts 4 spaces (adjustable). Word wrap (on). Line numbers left of the text (off; Ctrl+Shift+L). Colour for XML tags and `{{macros}}` (on). Line and column in the status bar (off) |
 | Saving | Pause in typing before an autosave (500 ms) |
 | Assistant | Base URL (`https://api.openai.com/v1`). Model (none: the pane asks for one). Request format (responses). API key (none). Test connection |
 | Window | Window controls, the minimise, maximise and close buttons: auto (default) hides them under a tiling window manager (Hyprland, Sway, i3, niri, river) and shows them elsewhere; or show, or hide. Not on macOS, which keeps its own |

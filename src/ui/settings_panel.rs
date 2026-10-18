@@ -13,7 +13,7 @@ use crate::core::settings::{
 };
 use crate::ui::app::{App, Message};
 use crate::ui::assistant_actions::AssistantAction;
-use crate::ui::status_bar::dot;
+use crate::ui::status_bar::{dot, keys};
 use crate::ui::theme::{self, GLYPH_CLOSE, Roles, dialog_box, icon_button, subtle};
 
 /// One edit made in the Settings panel.
@@ -24,6 +24,7 @@ pub enum Change {
     ReadingMode(ReadingMode),
     TabSpaces(u8),
     WordWrap(bool),
+    LineNumbers(bool),
     ColourMarkup(bool),
     ShowLineCol(bool),
     AutosaveDelay(u64),
@@ -61,6 +62,7 @@ pub fn apply(change: Change, settings: &mut Settings) {
         Change::ReadingMode(mode) => settings.reading_mode = mode,
         Change::TabSpaces(spaces) => settings.tab_spaces = spaces,
         Change::WordWrap(on) => settings.word_wrap = on,
+        Change::LineNumbers(on) => settings.line_numbers = on,
         Change::ColourMarkup(on) => settings.colour_markup = on,
         Change::ShowLineCol(on) => settings.show_line_col = on,
         Change::AutosaveDelay(ms) => settings.autosave_delay_ms = ms,
@@ -162,6 +164,15 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 row![
                     on_off(settings.word_wrap, Change::WordWrap),
                     hint("off cuts long lines at the edge")
+                ]
+                .align_y(iced::Center)
+                .into(),
+            ),
+            setting_row(
+                "Line numbers",
+                row![
+                    on_off(settings.line_numbers, Change::LineNumbers),
+                    hint(keys("Ctrl+Shift+L"))
                 ]
                 .align_y(iced::Center)
                 .into(),

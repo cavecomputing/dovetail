@@ -56,6 +56,15 @@ pub fn view<'a>(
         markup: settings.colour_markup,
         review: pane.review_highlights(),
     };
+    // Line numbers widen the left padding, so the text keeps its width.
+    let gutter = match settings.line_numbers {
+        true => text_editor::gutter_width(pane.content.line_count(), settings.font_size),
+        false => 0.0,
+    };
+    let padding = Padding {
+        left: PADDING.left + gutter,
+        ..PADDING
+    };
     let editor = TextEditor::new(&pane.content)
         .id(EDITOR_ID)
         .key_binding(move |press| key_binding(press, editable, reviewing))
@@ -66,7 +75,8 @@ pub fn view<'a>(
         })
         .size(settings.font_size)
         .line_height(LINE_HEIGHT)
-        .padding(PADDING)
+        .padding(padding)
+        .line_numbers(settings.line_numbers)
         .height(Fill)
         .style(move |theme, _status| style(theme, editable))
         .on_action(Message::Edit)
@@ -83,7 +93,7 @@ pub fn view<'a>(
     let column = match settings.reading_mode {
         ReadingMode::Comfort { chars } => {
             let text_width = f32::from(chars) * settings.font_size * CHAR_WIDTH_RATIO;
-            container(editor).max_width(text_width + PADDING.left + PADDING.right)
+            container(editor).max_width(text_width + padding.left + padding.right)
         }
         ReadingMode::FullWidth => container(editor),
     };
@@ -1733,6 +1743,21 @@ mod tests {
         assert_eq!(pane.model.text(), "- one two\n    - three");
         assert_eq!(pane.suggestions()[0].range, 6..9);
         assert_eq!(pane.caret(), 18);
+    }
+
+    #[test]
+    fn ctrl_shift_l_is_left_for_the_app() {
+        // The app turns line numbers on and off with it, as Ctrl+L opens the assistant.
+        let press = |modifiers| KeyPress {
+            key: Key::Character("l".into()),
+            modified_key: Key::Character("L".into()),
+            physical_key: Physical::Unidentified(NativeCode::Unidentified),
+            modifiers,
+            text: None,
+            status: Status::Focused { is_hovered: false },
+        };
+        assert!(key_binding(press(Modifiers::COMMAND | Modifiers::SHIFT), true, false).is_none());
+        assert!(key_binding(press(Modifiers::COMMAND), true, false).is_none());
     }
 
     #[test]

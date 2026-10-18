@@ -51,6 +51,13 @@ How the editor holds text, undo and paint, and how paint is drawn. Phases are th
 - In a `Binding::Sequence`, bindings publish their messages in order (`text_editor.rs:876`), and
   `App` handles them in that order, so a `Custom` message placed before `Cut` sees the selection
   before it is deleted.
+- Line numbers are drawn from the same `layout_runs()`: a run whose first glyph starts past byte 0
+  is a wrapped line's later row, and gets no number. They sit in the left padding, which the caller
+  widens by `gutter_width`. tiny-skia ignores a cached text's own clip unless it pokes out of its
+  layer (`iced_tiny_skia-0.14.1/src/engine.rs`, `Text::Cached`), and works out what to repaint as
+  if a text's box starts at its position even when it is right-aligned
+  (`iced_graphics-0.14.0/src/text.rs:95`). So each number is drawn left-aligned at its width in the
+  mono font, clipped to its own box, in a layer the size of the gutter.
 - iced draws glyphs and hit-tests clicks without cosmic-text's horizontal scroll, which cosmic-text
   does update to follow the cursor (`buffer.rs:381-401`). That is why text is cut off today when word
   wrap is off.

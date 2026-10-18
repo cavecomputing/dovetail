@@ -15,6 +15,8 @@
 //!   looks of suggested edits (struck, ghost) and each suggestion's Accept and Reject buttons,
 //!   drawn and clicked inside the widget (`TextEditor::on_decide`). The widget uses iced's own
 //!   theme, for the palette roles.
+//! - Line numbers: with `TextEditor::line_numbers` on, each line's number is drawn in the left
+//!   padding, which the caller widens by `gutter_width`, on its first row (wrapped rows get none).
 use iced::advanced::clipboard::{self, Clipboard};
 use iced::advanced::graphics;
 use iced::advanced::graphics::text::cosmic_text;
@@ -44,8 +46,8 @@ use std::sync::Arc;
 
 // ours: word bounds for a double click's selection, as cosmic-text finds them.
 use unicode_segmentation::UnicodeSegmentation;
-// ours: the palette for the buttons.
-use crate::ui::theme::{Roles, bold};
+// ours: the palette for the buttons and line numbers, and the width of a character.
+use crate::ui::theme::{CHAR_WIDTH_RATIO, Roles, bold};
 
 pub use iced::advanced::text::editor::{
     Action, Cursor, Edit, Line, LineEnding, Motion, Position, Selection,
@@ -82,6 +84,8 @@ where
     // ours: what is drawn under the text, and who hears which suggestions are decided.
     paint: Vec<PaintRun>,
     on_decide: Option<Box<dyn Fn(u64, bool) -> Message + 'a>>,
+    // ours: draw each line's number left of the text.
+    line_numbers: bool,
 }
 
 /// ours: one painted range, in the editor's own positions (the column is a byte index).
@@ -135,6 +139,7 @@ where
             last_status: None,
             paint: Vec::new(),
             on_decide: None,
+            line_numbers: false,
         }
     }
 
@@ -251,6 +256,7 @@ where
             last_status: self.last_status,
             paint: self.paint,
             on_decide: self.on_decide,
+            line_numbers: self.line_numbers,
         }
     }
 
@@ -264,6 +270,13 @@ where
     /// the suggestion's id (from its `PaintLook::Buttons` run).
     pub fn on_decide(mut self, on_decide: impl Fn(u64, bool) -> Message + 'a) -> Self {
         self.on_decide = Some(Box::new(on_decide));
+        self
+    }
+
+    /// ours: draws each line's number in the left padding, right-aligned against the text. The
+    /// left padding must leave room for them: add `gutter_width` to it.
+    pub fn line_numbers(mut self, on: bool) -> Self {
+        self.line_numbers = on;
         self
     }
 
@@ -700,6 +713,16 @@ fn suggestion_buttons(
         }
     }
     buttons
+}
+
+// ours: line numbers, vim's `set number`.
+/// The gap between a line's number and its text, in characters.
+const GUTTER_GAP: f32 = 2.0;
+
+/// The room line numbers take left of the text: the widest number, then the gap.
+pub fn gutter_width(line_count: usize, text_size: f32) -> f32 {
+    let digits = line_count.max(1).to_string().len() as f32;
+    (digits + GUTTER_GAP) * text_size * CHAR_WIDTH_RATIO
 }
 
 impl<Renderer> Clone for Content<Renderer>
@@ -1289,6 +1312,57 @@ where
             );
         }
 
+        // ours: each visible line's number, on its first row only (a wrapped line's later rows
+        // start part way through it), right-aligned against the text in the left padding. The
+        // caret's line is in `fg`, the rest in `fg_subtle`. tiny-skia clips a text only to its
+        // layer, and only when the text's own clip pokes out of it, hence the layer and each
+        // number's own box as its clip. It also repaints a right-aligned text's box as if it
+        // started where it ends, so each number is placed by its width in the mono font.
+        if self.line_numbers {
+            let size = self.text_size.unwrap_or_else(|| renderer.default_size());
+            let gutter = Rectangle {
+                x: bounds.x,
+                width: text_bounds.x - bounds.x,
+                ..text_bounds
+            };
+            let char_width = size.0 * CHAR_WIDTH_RATIO;
+            let right = text_bounds.x - GUTTER_GAP * char_width;
+            let caret_line = internal.editor.cursor().position.line;
+            let roles = Roles::of(theme);
+            renderer.with_layer(gutter, |renderer| {
+                for row in internal.editor.buffer().layout_runs() {
+                    if row.glyphs.first().is_some_and(|glyph| glyph.start > 0) {
+                        continue;
+                    }
+                    let number = (row.line_i + 1).to_string();
+                    let left = right - number.len() as f32 * char_width;
+                    let number_box = Rectangle::new(
+                        Point::new(left, text_bounds.y + row.line_top),
+                        Size::new(right - left, row.line_height),
+                    );
+                    renderer.fill_text(
+                        Text {
+                            content: number,
+                            bounds: number_box.size(),
+                            size,
+                            line_height: self.line_height,
+                            font,
+                            align_x: text::Alignment::Left,
+                            align_y: alignment::Vertical::Top,
+                            shaping: text::Shaping::Basic,
+                            wrapping: Wrapping::None,
+                        },
+                        number_box.position(),
+                        match row.line_i == caret_line {
+                            true => roles.fg,
+                            false => roles.fg_subtle,
+                        },
+                        number_box,
+                    );
+                }
+            });
+        }
+
         // ours: each suggestion's Accept and Reject buttons, in the room left for them after it,
         // in a layer of their own so they sit over the text and stay inside it.
         let size = self.text_size.unwrap_or_else(|| renderer.default_size());
@@ -1604,6 +1678,16 @@ mod tests {
         content.move_to(caret(1, 0));
         content.perform(Action::Edit(Edit::Backspace));
         assert_eq!(changed_from(&content), Some(0));
+    }
+
+    #[test]
+    fn the_gutter_fits_the_widest_line_number_and_a_gap() {
+        let chars =
+            |line_count| (gutter_width(line_count, 10.0) / (10.0 * CHAR_WIDTH_RATIO)).round();
+        assert_eq!(chars(0), 3.0, "empty text is still line 1");
+        assert_eq!(chars(9), 3.0);
+        assert_eq!(chars(10), 4.0);
+        assert_eq!(chars(120), 5.0);
     }
 
     #[test]

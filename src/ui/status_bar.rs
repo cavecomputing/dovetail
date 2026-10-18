@@ -260,11 +260,20 @@ pub fn menu(app: &App) -> Element<'_, Message> {
             Message::SaveAs,
         )),
     };
+    let line_numbers = match app.settings.line_numbers {
+        true => "Hide line numbers",
+        false => "Show line numbers",
+    };
     items = items
         .push(menu_item(
             "Find…".to_string(),
             "Ctrl+F",
             Message::Find(FindAction::Open),
+        ))
+        .push(menu_item(
+            line_numbers.to_string(),
+            "Ctrl+Shift+L",
+            Message::ToggleLineNumbers,
         ))
         .push(menu_heading("Recent"));
     let current = match &app.doc {

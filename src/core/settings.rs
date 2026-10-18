@@ -72,6 +72,8 @@ pub struct Settings {
     /// How many spaces the Tab key inserts. It never writes a tab character.
     pub tab_spaces: u8,
     pub word_wrap: bool,
+    /// Each line's number left of the text, like vim's `set number`.
+    pub line_numbers: bool,
     /// Colour XML tags and `{{macros}}`.
     pub colour_markup: bool,
     /// How long typing must pause before an autosave starts.
@@ -97,6 +99,7 @@ impl Default for Settings {
             reading_mode: ReadingMode::default(),
             tab_spaces: 4,
             word_wrap: true,
+            line_numbers: false,
             colour_markup: true,
             autosave_delay_ms: 500,
             base_url: DEFAULT_BASE_URL.to_string(),
@@ -142,6 +145,7 @@ impl Settings {
             reading_mode: key(&table, "reading_mode", defaults.reading_mode, &mut bad_keys),
             tab_spaces: key(&table, "tab_spaces", defaults.tab_spaces, &mut bad_keys),
             word_wrap: key(&table, "word_wrap", defaults.word_wrap, &mut bad_keys),
+            line_numbers: key(&table, "line_numbers", defaults.line_numbers, &mut bad_keys),
             colour_markup: key(
                 &table,
                 "colour_markup",
@@ -277,6 +281,7 @@ mod tests {
         let settings = Settings::default();
         assert_eq!(settings.tab_spaces, 4);
         assert!(settings.word_wrap);
+        assert!(!settings.line_numbers);
         assert!(settings.colour_markup);
         assert!(!settings.show_line_col);
         assert_eq!(settings.theme, Theme::Dark);
@@ -305,6 +310,7 @@ mod tests {
             theme: Theme::Light,
             reading_mode: ReadingMode::FullWidth,
             tab_spaces: 2,
+            line_numbers: true,
             ..Settings::default()
         };
         settings.save(&path).unwrap();
@@ -329,10 +335,11 @@ mod tests {
 
     #[test]
     fn hand_written_values_parse() {
-        let text = "theme = \"system\"\nwindow_controls = \"hide\"\n[reading_mode]\nmode = \"comfort\"\nchars = 100\n";
+        let text = "theme = \"system\"\nwindow_controls = \"hide\"\nline_numbers = true\n[reading_mode]\nmode = \"comfort\"\nchars = 100\n";
         let settings: Settings = toml::from_str(text).unwrap();
         assert_eq!(settings.theme, Theme::System);
         assert_eq!(settings.window_controls, WindowControls::Hide);
+        assert!(settings.line_numbers);
         assert_eq!(settings.reading_mode, ReadingMode::Comfort { chars: 100 });
     }
 
