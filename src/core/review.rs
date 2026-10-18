@@ -93,12 +93,15 @@ impl Review {
         std::mem::take(&mut self.suggestions)
     }
 
-    /// Moves the suggestions to follow a change to the text (an accepted suggestion, an undo).
-    /// One the change overlaps is dropped, since the text it was about has gone.
-    pub fn shift(&mut self, change: &Change) {
+    /// Moves the suggestions to follow a change to the text (typing around them, an accepted
+    /// suggestion, an undo). One the change overlaps is dropped, since the text it was about has
+    /// gone. A pure insert right where the change is stays before it, unless `ahead`: the change
+    /// was typed just before the insert's ghost text, so the insert moves along after it.
+    pub fn shift(&mut self, change: &Change, ahead: bool) {
         let removed_end = change.at + change.removed.len();
         self.suggestions.retain_mut(|s| {
-            if s.range.end <= change.at {
+            let pushed = ahead && s.range == (change.at..change.at);
+            if s.range.end <= change.at && !pushed {
                 true
             } else if s.range.start >= removed_end {
                 s.range.start = s.range.start - removed_end + change.at + change.inserted.len();
@@ -358,11 +361,14 @@ mod tests {
         let text = "one two three four";
         let mut review = review_of(text, &[(0..3, "1"), (8..13, "3"), (14..18, "4")]);
         // "two" becomes "2": the two suggestions after it move back by 2.
-        review.shift(&Change {
-            at: 4,
-            removed: "two".into(),
-            inserted: "2".into(),
-        });
+        review.shift(
+            &Change {
+                at: 4,
+                removed: "two".into(),
+                inserted: "2".into(),
+            },
+            false,
+        );
         let ranges: Vec<Range<usize>> = review
             .suggestions()
             .iter()
@@ -370,11 +376,14 @@ mod tests {
             .collect();
         assert_eq!(ranges, [0..3, 6..11, 12..16]);
         // A change inside "three" drops that suggestion only.
-        review.shift(&Change {
-            at: 7,
-            removed: "h".into(),
-            inserted: "H".into(),
-        });
+        review.shift(
+            &Change {
+                at: 7,
+                removed: "h".into(),
+                inserted: "H".into(),
+            },
+            false,
+        );
         let ranges: Vec<Range<usize>> = review
             .suggestions()
             .iter()
@@ -382,21 +391,39 @@ mod tests {
             .collect();
         assert_eq!(ranges, [0..3, 12..16]);
         // Typing right at a suggestion's start pushes it along; right at its end leaves it.
-        review.shift(&Change {
-            at: 12,
-            removed: "".into(),
-            inserted: "xx".into(),
-        });
-        review.shift(&Change {
-            at: 3,
-            removed: "".into(),
-            inserted: "y".into(),
-        });
+        review.shift(
+            &Change {
+                at: 12,
+                removed: "".into(),
+                inserted: "xx".into(),
+            },
+            false,
+        );
+        review.shift(
+            &Change {
+                at: 3,
+                removed: "".into(),
+                inserted: "y".into(),
+            },
+            false,
+        );
         let ranges: Vec<Range<usize>> = review
             .suggestions()
             .iter()
             .map(|s| s.range.clone())
             .collect();
         assert_eq!(ranges, [0..3, 15..19]);
+        // A pure insert stays before typing right where it sits, unless that was typed ahead of
+        // its ghost text.
+        let mut review = review_of("ab", &[(1..1, "X")]);
+        let typed = Change {
+            at: 1,
+            removed: "".into(),
+            inserted: "!".into(),
+        };
+        review.shift(&typed, false);
+        assert_eq!(review.suggestions()[0].range, 1..1);
+        review.shift(&typed, true);
+        assert_eq!(review.suggestions()[0].range, 2..2);
     }
 }
