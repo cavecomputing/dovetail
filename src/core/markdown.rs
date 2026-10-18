@@ -214,6 +214,33 @@ pub fn list_enter(text: &str, caret: usize) -> Option<ListEnter> {
     ))
 }
 
+/// Enter at byte `caret` of `text`, at the end of a line that opens a fenced code block (```` ``` ````
+/// or `~~~`, with any info string) that nothing below closes: what to type, a new line and then
+/// the closing fence on the line after, each with the line's indent and quote markers, and where
+/// the caret goes, on the empty line between. `None` anywhere else.
+pub fn fence_enter(text: &str, caret: usize) -> Option<(String, usize)> {
+    let (start, line) = prose_line(text, caret)?;
+    let end = start + line.len();
+    if !text[caret..end].trim().is_empty() {
+        return None;
+    }
+    let opened = block_after(line, Block::Prose);
+    let Block::Code { fence, length } = opened else {
+        return None;
+    };
+    let mut block = opened;
+    for below in text[end..].lines() {
+        block = block_after(below, block);
+        if block == Block::Prose {
+            return None;
+        }
+    }
+    let prefix = &line[..line.len() - line.trim_start_matches([' ', '\t', '>']).len()];
+    let closing = char::from(fence).to_string().repeat(length);
+    let typed = format!("\n{prefix}\n{prefix}{closing}");
+    Some((typed, caret + 1 + prefix.len()))
+}
+
 /// Whether the line byte `at` of `text` is on is a list item (a quote's items aren't counted),
 /// outside fenced code.
 pub fn is_list_item(text: &str, at: usize) -> bool {
@@ -548,6 +575,28 @@ mod tests {
             vec![("* * *", Rule)],
             "a break, not a list"
         );
+    }
+
+    #[test]
+    fn enter_after_an_opening_fence_closes_it() {
+        let enter = |text: &str| {
+            let caret = text.find('|').expect("a caret");
+            let plain = text.replace('|', "");
+            fence_enter(&plain, caret).map(|(typed, at)| {
+                let mut result = plain.clone();
+                result.insert_str(caret, &typed);
+                result.insert(at, '|');
+                result
+            })
+        };
+        assert_eq!(enter("intro\n```rust|").unwrap(), "intro\n```rust\n|\n```");
+        assert_eq!(enter("  ~~~~|\nmore").unwrap(), "  ~~~~\n  |\n  ~~~~\nmore");
+        assert_eq!(enter("> ```|").unwrap(), "> ```\n> |\n> ```");
+        // Already closed below, mid-line, inside code, or not a fence: a plain Enter.
+        assert_eq!(enter("```|\ncode\n```"), None);
+        assert_eq!(enter("``|`"), None);
+        assert_eq!(enter("```\n```|"), None);
+        assert_eq!(enter("```x```|"), None);
     }
 
     #[test]
