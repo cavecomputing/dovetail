@@ -11,6 +11,8 @@ pub const BOLD: &str = "**";
 /// The marker Ctrl+I puts around text, for italic: an underscore, as GitHub's editor uses, so it
 /// never runs into a bold `**`.
 pub const ITALIC: &str = "_";
+/// Ctrl+I's marker against a letter or digit, where Markdown reads a `_` as part of the word.
+const ITALIC_IN_A_WORD: &str = "*";
 
 /// Whether `path` is a Markdown file: its extension is .md or .markdown, in any case.
 pub fn is_markdown(path: &Path) -> bool {
@@ -245,7 +247,8 @@ fn next_marker(marker: &str) -> String {
 
 /// Ctrl+B and Ctrl+I: puts `marker` around `selection` (a byte range of `text`, empty for just
 /// the caret), or takes it off when the selection already has it, just outside or at its ends.
-/// With just the caret, only an empty pair around it comes off, not the end of one span and the
+/// Italic is a `*` instead when a letter or digit is right outside the selection, and comes off
+/// as either. With just the caret, only an empty pair around it comes off, not the end of one span and the
 /// start of the next. Returns the range of `text` to replace, what to put there, and what to
 /// select afterwards: the same text, or the caret between a new pair.
 pub fn toggle_marker(
@@ -253,19 +256,36 @@ pub fn toggle_marker(
     selection: Range<usize>,
     marker: &str,
 ) -> (Range<usize>, String, Range<usize>) {
-    let (start, end, length) = (selection.start, selection.end, marker.len());
+    let (start, end) = (selection.start, selection.end);
     let selected = &text[selection.clone()];
-    if text[..start].ends_with(marker)
-        && text[end..].starts_with(marker)
-        && (start < end || opens_a_pair(text, start, marker))
-    {
-        let outer = start - length..end + length;
-        return (outer, selected.to_string(), start - length..end - length);
+    let markers = match marker {
+        ITALIC => &[ITALIC, ITALIC_IN_A_WORD][..],
+        _ => &[marker][..],
+    };
+    for &marker in markers {
+        let length = marker.len();
+        if ends_with_marker(&text[..start], marker)
+            && starts_with_marker(&text[end..], marker)
+            && (start < end || opens_a_pair(text, start, marker))
+        {
+            let outer = start - length..end + length;
+            return (outer, selected.to_string(), start - length..end - length);
+        }
+        if selected.len() >= 2 * length
+            && starts_with_marker(selected, marker)
+            && ends_with_marker(selected, marker)
+        {
+            let inside = selected[length..selected.len() - length].to_string();
+            return (selection, inside, start..end - 2 * length);
+        }
     }
-    if selected.len() >= 2 * length && selected.starts_with(marker) && selected.ends_with(marker) {
-        let inside = selected[length..selected.len() - length].to_string();
-        return (selection, inside, start..end - 2 * length);
-    }
+    let in_a_word =
+        is_word(text[..start].chars().next_back()) || is_word(text[end..].chars().next());
+    let marker = match marker == ITALIC && in_a_word {
+        true => ITALIC_IN_A_WORD,
+        false => marker,
+    };
+    let length = marker.len();
     let wrapped = format!("{marker}{selected}{marker}");
     (selection, wrapped, start + length..end + length)
 }
@@ -275,12 +295,33 @@ pub fn toggle_marker(
 /// snake_case, isn't a marker.
 fn opens_a_pair(text: &str, at: usize, marker: &str) -> bool {
     let line = &text[text[..at].rfind('\n').map_or(0, |newline| newline + 1)..at];
-    let word = |c: Option<char>| c.is_some_and(char::is_alphanumeric);
     let markers = line.match_indices(marker).filter(|&(found, _)| {
         let (before, after) = (&line[..found], &line[found + marker.len()..]);
-        marker != ITALIC || !(word(before.chars().next_back()) && word(after.chars().next()))
+        marker != ITALIC || !(is_word(before.chars().next_back()) && is_word(after.chars().next()))
     });
     markers.count() % 2 == 1
+}
+
+/// Whether `text` ends with `marker`. Italic's `*` counts only as the last of an odd run of them,
+/// so bold's `**` is never taken for it.
+fn ends_with_marker(text: &str, marker: &str) -> bool {
+    match marker {
+        ITALIC_IN_A_WORD => (text.len() - text.trim_end_matches('*').len()) % 2 == 1,
+        _ => text.ends_with(marker),
+    }
+}
+
+/// Whether `text` starts with `marker`, as `ends_with_marker` reads its end.
+fn starts_with_marker(text: &str, marker: &str) -> bool {
+    match marker {
+        ITALIC_IN_A_WORD => (text.len() - text.trim_start_matches('*').len()) % 2 == 1,
+        _ => text.starts_with(marker),
+    }
+}
+
+/// Whether `c` is a letter or digit, which a `_` next to it joins into a word.
+fn is_word(c: Option<char>) -> bool {
+    c.is_some_and(char::is_alphanumeric)
 }
 
 /// Code spans, bold, italic, struck text and links in `line`, from byte `from`.
@@ -757,7 +798,30 @@ mod tests {
             toggled("**word**", 2..6, ITALIC),
             pair("**_word_**", "word")
         );
-        assert_eq!(toggled("é日本🙂", 2..8, ITALIC), pair("é_日本_🙂", "日本"));
+        // Against a letter or digit italic is a `*`, which Markdown reads inside a word too, and
+        // it comes off as `_` or `*`, never taking a star from bold.
+        assert_eq!(toggled("é日本🙂", 2..8, ITALIC), pair("é*日本*🙂", "日本"));
+        assert_eq!(
+            toggled("foobarbaz", 3..6, ITALIC),
+            pair("foo*bar*baz", "bar")
+        );
+        assert_eq!(marked("foo*bar*baz"), vec![("*bar*", Italic)]);
+        assert_eq!(
+            toggled("foo*bar*baz", 4..7, ITALIC),
+            pair("foobarbaz", "bar")
+        );
+        assert_eq!(toggled("a *b* c", 2..5, ITALIC), pair("a b c", "b"));
+        assert_eq!(toggled("***b***", 3..4, ITALIC), pair("**b**", "b"));
+        assert_eq!(toggled("***b***", 3..4, BOLD), pair("*b*", "b"));
+        assert_eq!(toggled("x*b*", 2..3, BOLD), pair("x***b***", "b"));
+        assert_eq!(
+            toggle_marker("ab", 1..1, ITALIC),
+            (1..1, "**".to_string(), 2..2)
+        );
+        assert_eq!(
+            toggle_marker("a**b", 2..2, ITALIC),
+            (1..3, String::new(), 1..1)
+        );
         // Nothing selected: a pair goes in around the caret, and comes out again.
         assert_eq!(
             toggle_marker("ab", 1..1, BOLD),

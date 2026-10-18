@@ -593,10 +593,10 @@ impl Pane {
         }
     }
 
-    /// Ctrl+B and Ctrl+I in a Markdown file: puts `marker` (`**` or `_`) around the selection and
-    /// keeps the same text selected, or with nothing selected puts in a pair with the caret
-    /// between. When the markers are already there, just outside the selection or at its ends,
-    /// it takes them off instead. Returns whether the text changed, or why it can't.
+    /// Ctrl+B and Ctrl+I in a Markdown file: puts `marker` (`**`, or `_` or inside a word `*`
+    /// for italic) around the selection and keeps the same text selected, or with nothing
+    /// selected puts in a pair with the caret between. When the markers are already there, just
+    /// outside the selection or at its ends, it takes them off instead. Returns whether the text changed, or why it can't.
     pub fn toggle_marker(&mut self, marker: &str) -> Result<bool, String> {
         let cursor = self.content.cursor();
         let caret = self.caret();
