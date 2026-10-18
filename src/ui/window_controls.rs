@@ -137,3 +137,32 @@ pub fn with_resize_edges(page: Element<'_, Message>, shown: bool) -> Element<'_,
     ]
     .into()
 }
+
+/// macOS's Quit (⌘Q, or the app menu) would end the process at once, skipping the wait for the
+/// latest save. This points it at closing the window instead, which waits; each window is its own
+/// process, so that still quits. Needs the titled window from `app::window_settings`, which
+/// answers `performClose:`.
+#[cfg(target_os = "macos")]
+pub fn quit_closes_window() {
+    use objc2::{MainThreadMarker, sel};
+    use objc2_app_kit::NSApplication;
+
+    let Some(main_thread) = MainThreadMarker::new() else {
+        return;
+    };
+    let app_menu = NSApplication::sharedApplication(main_thread)
+        .mainMenu()
+        .and_then(|menu_bar| menu_bar.itemAtIndex(0))
+        .and_then(|item| item.submenu());
+    let Some(app_menu) = app_menu else {
+        return;
+    };
+    for index in 0..app_menu.numberOfItems() {
+        if let Some(item) = app_menu.itemAtIndex(index)
+            && item.action() == Some(sel!(terminate:))
+        {
+            // SAFETY: performClose: is NSWindow's own action, taking a sender as terminate: does.
+            unsafe { item.setAction(Some(sel!(performClose:))) };
+        }
+    }
+}
