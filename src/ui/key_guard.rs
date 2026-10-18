@@ -1,8 +1,10 @@
 //! Keeps the app's Ctrl+digit and Ctrl+punctuation shortcuts (Ctrl+=, Ctrl+-, Ctrl+0, Ctrl+,)
 //! from typing into text boxes. iced's text inputs type a key's character whatever the
 //! modifiers; Ctrl+letter comes as a control character they skip, but Ctrl+= still comes as "=".
-//! Wrapped around a whole window, this takes those key presses before any widget sees them. The
-//! app-wide shortcut handler still gets them (`event::listen_with` sees captured events too).
+//! On macOS ⌘ plus a letter comes as that letter too, so ⌘W would type a "w".
+//! Wrapped around a whole window, this takes the text out of those key presses before any widget
+//! sees them. The widgets still get the key, so their own shortcuts (copy, paste, undo) work, and
+//! so does the app-wide shortcut handler.
 
 use iced::advanced::layout::{self, Layout};
 use iced::advanced::widget::{Operation, Tree, Widget};
@@ -22,19 +24,25 @@ pub fn guard<'a>(content: impl Into<Element<'a, Message>>) -> KeyGuard<'a> {
     }
 }
 
-/// Whether `event` is a shortcut whose character a text box would type: Ctrl (Cmd on macOS)
-/// with a key that isn't a letter.
-fn types_its_character(event: &Event) -> bool {
-    match event {
-        Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
-            let character = match key.as_ref() {
-                keyboard::Key::Character(text) => text.chars().next(),
-                _ => None,
-            };
-            modifiers.command() && character.is_some_and(|c| !c.is_alphabetic())
-        }
-        _ => false,
+/// `event` without its text, if it is a shortcut whose character a text box would type: Ctrl
+/// (Cmd on macOS) with a key that isn't a letter, and on macOS with a letter too.
+fn without_text(event: &Event) -> Option<Event> {
+    let Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) = event else {
+        return None;
+    };
+    let character = match key.as_ref() {
+        keyboard::Key::Character(text) => text.chars().next(),
+        _ => None,
+    };
+    let types = character.is_some_and(|c| cfg!(target_os = "macos") || !c.is_alphabetic());
+    if !(modifiers.command() && types) {
+        return None;
     }
+    let mut shortcut = event.clone();
+    if let Event::Keyboard(keyboard::Event::KeyPressed { text, .. }) = &mut shortcut {
+        *text = None;
+    }
+    Some(shortcut)
 }
 
 impl Widget<Message, Theme, Renderer> for KeyGuard<'_> {
@@ -84,13 +92,10 @@ impl Widget<Message, Theme, Renderer> for KeyGuard<'_> {
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
-        if types_its_character(event) {
-            shell.capture_event();
-            return;
-        }
+        let shortcut = without_text(event);
         self.content.as_widget_mut().update(
             &mut tree.children[0],
-            event,
+            shortcut.as_ref().unwrap_or(event),
             layout,
             cursor,
             renderer,
@@ -159,5 +164,36 @@ impl Widget<Message, Theme, Renderer> for KeyGuard<'_> {
 impl<'a> From<KeyGuard<'a>> for Element<'a, Message> {
     fn from(guard: KeyGuard<'a>) -> Self {
         Element::new(guard)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use keyboard::key::{NativeCode, Physical};
+
+    fn press(character: &str, modifiers: keyboard::Modifiers) -> Event {
+        Event::Keyboard(keyboard::Event::KeyPressed {
+            key: keyboard::Key::Character(character.into()),
+            modified_key: keyboard::Key::Character(character.into()),
+            physical_key: Physical::Unidentified(NativeCode::Unidentified),
+            location: keyboard::Location::Standard,
+            modifiers,
+            text: Some(character.into()),
+            repeat: false,
+        })
+    }
+
+    #[test]
+    fn shortcuts_reach_text_boxes_with_their_key_but_no_text() {
+        let zoom = without_text(&press("=", keyboard::Modifiers::COMMAND));
+        let Some(Event::Keyboard(keyboard::Event::KeyPressed { key, text, .. })) = zoom else {
+            panic!("Ctrl+= would type");
+        };
+        assert_eq!((key.as_ref(), text), (keyboard::Key::Character("="), None));
+        // ⌘W types a "w" on macOS; Ctrl+W elsewhere types nothing, so it is left alone there.
+        let close = without_text(&press("w", keyboard::Modifiers::COMMAND));
+        assert_eq!(close.is_some(), cfg!(target_os = "macos"));
+        assert!(without_text(&press("w", keyboard::Modifiers::SHIFT)).is_none());
     }
 }
