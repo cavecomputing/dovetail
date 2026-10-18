@@ -1,6 +1,6 @@
-//! Markdown in a .md or .markdown file: which parts of each line to colour. Nothing is rendered;
-//! the text stays exactly as typed. Lines are read one at a time, each starting in the `Block`
-//! the line above left it in: prose, or inside a fenced code block.
+//! Markdown in a .md or .markdown file: which parts of each line to colour, and what Enter types
+//! in a list. Nothing is rendered; the text stays exactly as typed. Lines are read one at a time,
+//! each starting in the `Block` the line above left it in: prose, or inside a fenced code block.
 
 use std::ops::Range;
 use std::path::Path;
@@ -108,7 +108,7 @@ pub fn markdown_ranges(line: &str, block: Block) -> (Vec<(Range<usize>, Markdown
     }
     let mut found = Vec::new();
     let mut from = 0;
-    if let Some(marker) = list_marker(line) {
+    if let Some(marker) = list_marker(line, 0) {
         from = marker.end;
         found.push((marker, Markdown::ListMarker));
     }
@@ -133,10 +133,10 @@ fn is_rule(body: &str) -> bool {
     count >= 3
 }
 
-/// Where a list item's marker is: `-`, `*`, `+`, or a number with `.` or `)`, followed by a
-/// space, and a task box (`[ ]`, `[x]`) after it, if there is one.
-fn list_marker(line: &str) -> Option<Range<usize>> {
-    let start = line.len() - line.trim_start_matches([' ', '\t']).len();
+/// Where a list item's marker is, after any spaces from byte `from`: `-`, `*`, `+`, or a number
+/// with `.` or `)`, followed by a space, and a task box (`[ ]`, `[x]`) after it, if there is one.
+fn list_marker(line: &str, from: usize) -> Option<Range<usize>> {
+    let start = line.len() - line[from..].trim_start_matches([' ', '\t']).len();
     let rest = &line.as_bytes()[start..];
     let digits = rest.iter().take_while(|byte| byte.is_ascii_digit()).count();
     let marker = match rest.first()? {
@@ -155,6 +155,79 @@ fn list_marker(line: &str) -> Option<Range<usize>> {
         .any(|task| after.starts_with(*task))
         && matches!(after.get(3), None | Some(b' '));
     Some(start..start + marker + if boxed { 4 } else { 0 })
+}
+
+/// What Enter does on a Markdown list item or quote line (see `list_enter`).
+#[derive(Debug, PartialEq)]
+pub enum ListEnter {
+    /// Start the next item: type a newline and this prefix (the same indentation and `>` quote
+    /// markers, the same bullet or the next number, and an empty task box if there was one).
+    Continue(String),
+    /// The item is empty and indented: unindent it one step, as Shift+Tab does.
+    Unindent,
+    /// The item is empty: delete these bytes of the text, its marker and task box (or, on a quote
+    /// line with nothing else, its quote markers).
+    Delete(Range<usize>),
+}
+
+/// What Enter does at byte `caret` of `text`, a Markdown file, when the caret's line is a list
+/// item or a `>` quote and the caret is after the line's prefix (its indentation, quote markers,
+/// list marker and task box). `None` means a plain new line: on any other line, with the caret
+/// in the prefix, or in fenced code.
+pub fn list_enter(text: &str, caret: usize) -> Option<ListEnter> {
+    let (line_start, line) = prose_line(text, caret)?;
+    let indent = line.len() - line.trim_start_matches([' ', '\t']).len();
+    let mut lead = indent;
+    while line[lead..].starts_with('>') {
+        lead = line.len() - line[lead + 1..].trim_start_matches([' ', '\t']).len();
+    }
+    // `* * *` is a thematic break, not a list.
+    let marker = list_marker(line, lead).filter(|_| !is_rule(&line[lead..]));
+    let prefix_end = marker
+        .as_ref()
+        .map_or(lead, |marker| (marker.end + 1).min(line.len()));
+    if caret - line_start < prefix_end || (marker.is_none() && lead == indent) {
+        return None;
+    }
+    if !line[prefix_end..].trim().is_empty() {
+        let next = marker.map_or(String::new(), |marker| next_marker(&line[marker]));
+        return Some(ListEnter::Continue(format!("{}{next}", &line[..lead])));
+    }
+    let peeled = match marker {
+        // Indented with spaces, which Shift+Tab can take off (it leaves a tab alone).
+        Some(_) if lead == indent && line.starts_with(' ') => return Some(ListEnter::Unindent),
+        Some(_) => lead..line.len(),
+        None => indent..line.len(),
+    };
+    Some(ListEnter::Delete(
+        line_start + peeled.start..line_start + peeled.end,
+    ))
+}
+
+/// The line byte `at` of `text` is on, and where it starts, unless it is inside fenced code.
+fn prose_line(text: &str, at: usize) -> Option<(usize, &str)> {
+    let start = text[..at].rfind('\n').map_or(0, |newline| newline + 1);
+    let end = text[at..]
+        .find('\n')
+        .map_or(text.len(), |newline| at + newline);
+    let block = text[..start]
+        .lines()
+        .fold(Block::Prose, |block, line| block_after(line, block));
+    (block == Block::Prose).then(|| (start, &text[start..end]))
+}
+
+/// The marker for the item after one marked `marker` (such as `-`, `9.` or `- [x]`): the same
+/// bullet or the next number, an empty task box if it had one, and a space.
+fn next_marker(marker: &str) -> String {
+    let (bullet, task) = match marker.split_once(' ') {
+        Some((bullet, _)) => (bullet, "[ ] "),
+        None => (marker, ""),
+    };
+    let digits = bullet.trim_end_matches(['.', ')']);
+    match digits.parse::<u64>() {
+        Ok(number) => format!("{}{} {task}", number + 1, &bullet[digits.len()..]),
+        Err(_) => format!("{bullet} {task}"),
+    }
 }
 
 /// Code spans, bold, italic, struck text and links in `line`, from byte `from`.
@@ -517,5 +590,71 @@ mod tests {
         assert_eq!(marked("# 見出し"), vec![("# 見出し", Heading)]);
         assert_eq!(marked(""), vec![]);
         assert_eq!(read(&["```", ""]), vec![vec![("```", Fence)], vec![]]);
+    }
+
+    /// What Enter does with the caret at the `|` in `text`.
+    fn enter_at(text: &str) -> Option<ListEnter> {
+        let caret = text.find('|').expect("a caret");
+        list_enter(&text.replace('|', ""), caret)
+    }
+
+    #[test]
+    fn enter_continues_a_list_item_or_quote() {
+        let next = |text| match enter_at(text) {
+            Some(ListEnter::Continue(prefix)) => prefix,
+            other => panic!("{text:?}: {other:?}"),
+        };
+        assert_eq!(next("- item|"), "- ");
+        assert_eq!(next("* a|b"), "* ");
+        assert_eq!(next("+ x|"), "+ ");
+        assert_eq!(next("1. one|"), "2. ");
+        assert_eq!(next("9) nine|"), "10) ");
+        assert_eq!(next("- [x] done|"), "- [ ] ");
+        assert_eq!(next("3. [ ] to do|"), "4. [ ] ");
+        assert_eq!(next("    - nested|"), "    - ");
+        assert_eq!(next("> quoted|"), "> ");
+        assert_eq!(next(">> deeper|"), ">> ");
+        assert_eq!(next("  > - in a quote|"), "  > - ");
+        assert_eq!(next("> 1) x|"), "> 2) ");
+        assert_eq!(next("- café 🙂 日本|"), "- ");
+        assert_eq!(next("- |text"), "- ", "at the start of the item's text");
+        assert_eq!(next("a\n- b|\nc"), "- ");
+        assert_eq!(next("```\nx\n```\n- after a fence|"), "- ");
+    }
+
+    #[test]
+    fn enter_on_an_empty_item_takes_off_one_layer() {
+        assert_eq!(enter_at("  - |"), Some(ListEnter::Unindent));
+        assert_eq!(enter_at("a\n- |"), Some(ListEnter::Delete(2..4)));
+        assert_eq!(enter_at("1. [ ]   |"), Some(ListEnter::Delete(0..9)));
+        assert_eq!(enter_at("- [x]|"), Some(ListEnter::Delete(0..5)));
+        // In a quote, the marker goes and the quote stays; then the quote goes.
+        assert_eq!(enter_at("> - |\nb"), Some(ListEnter::Delete(2..4)));
+        assert_eq!(enter_at(">> |"), Some(ListEnter::Delete(0..3)));
+        assert_eq!(enter_at("  >|"), Some(ListEnter::Delete(2..3)));
+        // Shift+Tab can't take off a tab, so the marker goes instead.
+        assert_eq!(enter_at("\t- |"), Some(ListEnter::Delete(1..3)));
+    }
+
+    #[test]
+    fn enter_is_plain_in_the_prefix_in_code_and_on_other_lines() {
+        for text in [
+            "|- item",
+            "-| item",
+            "  |  - item",
+            "- [|x] done",
+            ">| quote",
+            "plain text|",
+            "# heading|",
+            "* * *|",
+            "- - -|",
+            "-item|",
+            "1.5 litres|",
+            "|",
+            "```\n- in code|\n```",
+            "~~~\n> quoted code|",
+        ] {
+            assert_eq!(enter_at(text), None, "{text:?}");
+        }
     }
 }
