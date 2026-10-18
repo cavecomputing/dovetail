@@ -6,12 +6,14 @@
 //! goes with the newest question.
 
 use std::ops::Range;
+use std::path::Path;
 
 use serde_json::Value;
 
 use crate::ai::tools::{self, Suggestion};
 use crate::brand::APP_NAME;
 use crate::core::counts::{Counts, word_count};
+use crate::core::syntax::Syntax;
 use crate::core::text_model::position;
 
 /// A selection longer than this (in bytes) is not copied into the note; the model reads it with
@@ -37,6 +39,16 @@ pub struct Snapshot {
     pub waiting: Vec<Range<usize>>,
 }
 
+impl Snapshot {
+    /// The kind of text open, as the editor colours and checks it. Scratch is plain.
+    pub fn syntax(&self) -> Syntax {
+        match &self.doc {
+            DocKind::Scratch => Syntax::Plain,
+            DocKind::TextFile { name } => Syntax::of(Path::new(name), &self.text),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub enum DocKind {
     #[default]
@@ -50,9 +62,9 @@ pub enum DocKind {
 /// what is open.
 pub fn instructions(snapshot: &Snapshot) -> String {
     let mut text = format!(
-        "You are the writing assistant built into {APP_NAME}, a text editor for writing and \
-rewriting text, mostly prompts for AI models. You talk with the user about whatever they have open \
-and help them improve it.
+        "You are the assistant built into {APP_NAME}, a text editor for writing and rewriting \
+text (mostly prompts for AI models), and for scripts and config files. You talk with the user about \
+whatever they have open and help them improve it.
 
 How you work:
 - You never change the document yourself. To suggest a change, call propose_edit. It shows in the \
@@ -63,6 +75,9 @@ into propose_edit's find exactly, spaces and punctuation included. Leave find em
 the end, such as in an empty document.
 - One propose_edit per passage; several calls are fine. Keep the user's voice and formatting, \
 including XML tags and {{{{macros}}}}, unless they ask otherwise.
+- In a script or config file, keep its indentation, quoting and style exactly. An edit \
+that would leave a JSON, YAML, TOML, INI or shell file invalid still shows, but propose_edit's \
+result says what breaks, so you can correct it.
 - When no edit is wanted, just answer. Keep replies short and plain: the chat pane is narrow.
 - Word and token counts come from count_tokens (OpenAI's o200k tokenizer).
 "
@@ -87,7 +102,18 @@ fn summary(snapshot: &Snapshot) -> String {
         DocKind::Scratch => {
             "the scratch space, a quick notepad that isn't a named file.".to_string()
         }
-        DocKind::TextFile { name } => format!("the plain text file \"{name}\"."),
+        DocKind::TextFile { name } => {
+            let kind = match snapshot.syntax() {
+                Syntax::Plain => "plain text file",
+                Syntax::Markdown => "Markdown file",
+                Syntax::Json => "JSON file",
+                Syntax::Yaml => "YAML file",
+                Syntax::Toml => "TOML file",
+                Syntax::Ini => "INI config file",
+                Syntax::Shell => "shell script",
+            };
+            format!("the {kind} \"{name}\".")
+        }
     }
 }
 
@@ -185,6 +211,13 @@ pub(crate) mod tests {
             ..scratch("")
         };
         assert!(instructions(&file).ends_with("the plain text file \"notes.txt\"."));
+        let script = Snapshot {
+            doc: DocKind::TextFile {
+                name: "deploy".to_string(),
+            },
+            ..scratch("#!/bin/bash\necho hi\n")
+        };
+        assert!(instructions(&script).ends_with("the shell script \"deploy\"."));
     }
 
     #[test]

@@ -134,7 +134,7 @@ pub fn describe(call: &ToolCall, output: &str) -> String {
             arguments["text"].as_str().unwrap_or("")
         ),
         "count_tokens" => "Counted tokens".to_string(),
-        "propose_edit" if output == SUGGESTED => "Suggested an edit".to_string(),
+        "propose_edit" if output.starts_with(SUGGESTED) => "Suggested an edit".to_string(),
         "propose_edit" => "Couldn't suggest an edit".to_string(),
         name => format!("Used {name}"),
     }
@@ -273,6 +273,26 @@ fn count(text: &str) -> Value {
     }
 }
 
+/// `find` and `replace` without the whole lines at their start and end that both have, and how
+/// many bytes were left off the start. A model often copies a few lines around what it changes
+/// in a script or config file; the suggestion is only what really changes.
+fn changed_lines<'a>(find: &'a str, replace: &'a str) -> (usize, &'a str, &'a str) {
+    let old: Vec<&str> = find.split_inclusive('\n').collect();
+    let new: Vec<&str> = replace.split_inclusive('\n').collect();
+    let first = old.iter().zip(&new).take_while(|(a, b)| a == b).count();
+    let last = old[first..]
+        .iter()
+        .rev()
+        .zip(new[first..].iter().rev())
+        .take_while(|(a, b)| a == b)
+        .count();
+    let length = |lines: &[&str]| lines.iter().map(|line| line.len()).sum::<usize>();
+    let head = length(&old[..first]);
+    let find_end = find.len() - length(&old[old.len() - last..]);
+    let replace_end = replace.len() - length(&new[new.len() - last..]);
+    (head, &find[head..find_end], &replace[head..replace_end])
+}
+
 fn propose_edit(snapshot: &Snapshot, arguments: &Value) -> (String, Option<Suggestion>) {
     let refuse = |reason: String| (reason, None);
     let text = &snapshot.text;
@@ -307,7 +327,10 @@ fn propose_edit(snapshot: &Snapshot, arguments: &Value) -> (String, Option<Sugge
             ));
         }
     };
-    let range = at..at + find.len();
+    // The suggestion covers only the lines that change, so the document and the chat show just
+    // those; the validity check below looks at the whole edit, which is the same.
+    let (skipped, find_part, replace_part) = changed_lines(find, replace);
+    let range = at + skipped..at + skipped + find_part.len();
     if snapshot.waiting.iter().any(|other| clashes(other, &range)) {
         return refuse(
             "That overlaps another suggestion still waiting for the user. Change different \
@@ -316,17 +339,34 @@ fn propose_edit(snapshot: &Snapshot, arguments: &Value) -> (String, Option<Sugge
         );
     }
     let suggestion = Suggestion {
-        at,
-        find: find.to_string(),
-        replace: replace.to_string(),
+        at: range.start,
+        find: find_part.to_string(),
+        replace: replace_part.to_string(),
         why: arguments["why"].as_str().unwrap_or("").to_string(),
     };
-    (SUGGESTED.to_string(), Some(suggestion))
+    // In a file the editor checks (JSON, YAML, TOML, INI, a shell script) that is valid now, say
+    // if the edit alone would break it. It still shows: another edit may complete it.
+    let syntax = snapshot.syntax();
+    let mut edited = text.clone();
+    edited.replace_range(range, replace_part);
+    let broken = match syntax.problem(text) {
+        None => syntax.problem(&edited),
+        Some(_) => None,
+    };
+    let output = match broken {
+        None => SUGGESTED.to_string(),
+        Some(problem) => format!(
+            "{SUGGESTED} But on its own it would leave the file invalid: {problem}. If no other \
+             edit of yours fixes that, suggest a corrected one."
+        ),
+    };
+    (output, Some(suggestion))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ai::context::DocKind;
     use crate::ai::context::tests::scratch;
 
     fn call(name: &str, arguments: Value) -> ToolCall {
@@ -539,6 +579,57 @@ mod tests {
             &snapshot,
         );
         assert!(said.starts_with("This window is read-only"));
+    }
+
+    #[test]
+    fn a_suggestion_covers_only_the_lines_that_change() {
+        let yaml = "web:\n  image: nginx\n  restart: always\n";
+        let arguments = json!({
+            "find": "  image: nginx\n  restart: always\n",
+            "replace": "  image: nginx\n  ports: [80]\n  restart: always\n",
+            "why": "x",
+        });
+        let (_, suggestion) = run(&call("propose_edit", arguments), &scratch(yaml));
+        let suggestion = suggestion.expect("suggested");
+        assert_eq!(suggestion.at, yaml.find("  restart").unwrap());
+        assert_eq!(suggestion.find, "");
+        assert_eq!(suggestion.replace, "  ports: [80]\n");
+        assert_eq!(changed_lines("very big", "huge"), (0, "very big", "huge"));
+        assert_eq!(changed_lines("a\nb\nc", "a\nB\nc"), (2, "b\n", "B\n"));
+        assert_eq!(changed_lines("x\n", "x"), (0, "x\n", "x"));
+    }
+
+    #[test]
+    fn propose_edit_says_when_an_edit_would_break_a_checked_file() {
+        let json = Snapshot {
+            doc: DocKind::TextFile {
+                name: "data.json".to_string(),
+            },
+            ..scratch("{\"a\": 1, \"b\": 2}")
+        };
+        let edit = |find: &str, replace: &str| {
+            let arguments = json!({ "find": find, "replace": replace, "why": "x" });
+            run(&call("propose_edit", arguments), &json)
+        };
+        let (output, suggestion) = edit("\"b\": 2", "\"b\": 3");
+        assert_eq!(output, SUGGESTED);
+        assert!(suggestion.is_some());
+        let (output, suggestion) = edit(", \"b\": 2", ", \"b\" 2");
+        assert!(output.starts_with(SUGGESTED), "it still shows");
+        assert!(
+            output.contains("invalid: Invalid JSON at line 1"),
+            "{output}"
+        );
+        assert!(suggestion.is_some());
+        // Plain text has nothing to break.
+        let (output, _) = run(
+            &call(
+                "propose_edit",
+                json!({ "find": "{", "replace": "[", "why": "x" }),
+            ),
+            &scratch("{"),
+        );
+        assert_eq!(output, SUGGESTED);
     }
 
     #[test]
