@@ -289,7 +289,7 @@ can answer but not suggest edits.
 
 ## Settings
 
-Ctrl+, opens Settings in place of the text; Esc or its close button goes back. It is laid out like
+Ctrl+, opens Settings in place of the text; Esc goes back. It is laid out like
 `settings.toml`: one setting a line under its key name, the current value coloured and the other
 choices dimmed (click one to pick it, or − and + to change a number), with a comment after.
 Changes apply at once and are saved to `settings.toml`, whose path the status bar shows meanwhile.
