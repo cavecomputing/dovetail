@@ -1340,10 +1340,12 @@ where
 
         // ours: each visible line's number, on its first row only (a wrapped line's later rows
         // start part way through it), right-aligned against the text in the left padding. The
-        // caret's line is in `fg`, the rest in `fg_subtle`. tiny-skia clips a text only to its
-        // layer, and only when the text's own clip pokes out of it, hence the layer and each
-        // number's own box as its clip. It also repaints a right-aligned text's box as if it
-        // started where it ends, so each number is placed by its width in the mono font.
+        // caret's line is in `accent_text` (vim's CursorLineNr), the rest in `fg_subtle`, and a
+        // divider down the middle of the gap keeps the numbers apart from the text. tiny-skia
+        // clips a text only to its layer, and only when the text's own clip pokes out of it,
+        // hence the layer and each number's own box as its clip. It also repaints a
+        // right-aligned text's box as if it started where it ends, so each number is placed by
+        // its width in the mono font.
         if self.line_numbers {
             let size = self.text_size.unwrap_or_else(|| renderer.default_size());
             let gutter = Rectangle {
@@ -1356,6 +1358,18 @@ where
             let caret_line = internal.editor.cursor().position.line;
             let roles = Roles::of(theme);
             renderer.with_layer(gutter, |renderer| {
+                let divider = Rectangle {
+                    x: (right + GUTTER_GAP / 2.0 * char_width).round(),
+                    width: 1.0,
+                    ..gutter
+                };
+                renderer.fill_quad(
+                    renderer::Quad {
+                        bounds: divider,
+                        ..renderer::Quad::default()
+                    },
+                    roles.fg_subtle.scale_alpha(0.6),
+                );
                 for row in internal.editor.buffer().layout_runs() {
                     if row.glyphs.first().is_some_and(|glyph| glyph.start > 0) {
                         continue;
@@ -1380,7 +1394,7 @@ where
                         },
                         number_box.position(),
                         match row.line_i == caret_line {
-                            true => roles.fg,
+                            true => roles.accent_text,
                             false => roles.fg_subtle,
                         },
                         number_box,
