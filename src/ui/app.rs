@@ -55,8 +55,9 @@ pub struct App {
     pub disk_stamp: Option<DiskStamp>,
     /// A save was refused because the file changed on disk; the status bar offers a way out.
     pub disk_conflict: bool,
-    /// A short-lived message for the status bar, such as why a new window didn't open.
-    pub notice: Option<String>,
+    /// A short-lived message for the status bar, such as why a new window didn't open, and when
+    /// it went up (see `set_notice`).
+    pub notice: Option<(String, Instant)>,
     pub autosaver: Autosaver,
     pub saving_since: Option<Instant>,
     pub now: Instant,
@@ -127,6 +128,7 @@ pub enum Message {
     Setting(Change),
     /// Ctrl+= and Ctrl+-: the font a size bigger or smaller.
     Zoom(f32),
+    /// Once a second: rereads settings.toml if it changed, and takes down an old notice.
     PollSettings,
     SystemTheme(iced::theme::Mode),
 
@@ -183,6 +185,9 @@ fn window_settings() -> window::Settings {
         ..Default::default()
     }
 }
+
+/// How long a notice stays in the status bar: long enough to read, gone before it goes stale.
+const NOTICE_TIME: Duration = Duration::from_secs(6);
 
 /// The app icon at 64x64, as raw RGBA bytes (made from assets/icon/icon.svg, see its README).
 const APP_ICON_RGBA: &[u8] = include_bytes!("../../assets/icon/icon-64.rgba");
@@ -405,7 +410,7 @@ impl App {
             Message::OpenPath(path) => {
                 self.menu_open = false;
                 self.switcher = None;
-                self.notice = open_in_new_window(Some(path)).err();
+                self.set_notice(open_in_new_window(Some(path)).err());
             }
             Message::OpenSettings => {
                 self.menu_open = false;
@@ -423,11 +428,11 @@ impl App {
                 if matches!(self.doc, Doc::Scratch) {
                     return Task::none();
                 }
-                self.notice = if scratch_open_elsewhere(&self.paths.data_dir) {
+                self.set_notice(if scratch_open_elsewhere(&self.paths.data_dir) {
                     Some("Scratch is already open in another window".to_string())
                 } else {
                     open_in_new_window(None).err()
-                };
+                });
             }
             Message::OpenSwitcher
             | Message::SwitcherQuery(_)
@@ -453,7 +458,7 @@ impl App {
                             self.saving_since = None;
                             self.disk_conflict = false;
                         }
-                        Err(error) => self.notice = Some(format!("Couldn't reload: {error}")),
+                        Err(error) => self.set_notice(Some(format!("Couldn't reload: {error}"))),
                     }
                 }
                 // Clicking the button took the keyboard from the editor; give it back.
@@ -484,6 +489,11 @@ impl App {
                 return self.update(Message::Setting(Change::FontSize(size)));
             }
             Message::PollSettings => {
+                if let Some((_, shown)) = &self.notice
+                    && shown.elapsed() >= NOTICE_TIME
+                {
+                    self.notice = None;
+                }
                 let modified = modified_time(&self.paths);
                 if modified != self.settings_modified {
                     self.settings_modified = modified;
@@ -501,6 +511,11 @@ impl App {
             Message::Find(action) => return self.update_find(action),
         }
         Task::none()
+    }
+
+    /// Puts `notice` up in the status bar for `NOTICE_TIME` (`None` takes the last one down).
+    pub fn set_notice(&mut self, notice: Option<String>) {
+        self.notice = notice.map(|words| (words, Instant::now()));
     }
 
     fn text_changed(&mut self) {

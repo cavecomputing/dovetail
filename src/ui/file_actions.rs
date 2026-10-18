@@ -25,10 +25,10 @@ impl App {
     /// Starts the new file at `path` empty (the dialog has already agreed to replace anything
     /// there) and opens it in its own window.
     pub fn start_new_file(&mut self, path: PathBuf) -> Task<Message> {
-        self.notice = match empty_file(&self.paths.data_dir, &self.doc, &path) {
+        self.set_notice(match empty_file(&self.paths.data_dir, &self.doc, &path) {
             Ok(()) => open_in_new_window(Some(path)).err(),
             Err(reason) => Some(reason),
-        };
+        });
         Task::none()
     }
 
@@ -94,14 +94,14 @@ impl App {
             let _ = save_text(current, text, line_ending, bom, self.disk_stamp);
         }
         match save_as(data_dir, &self.doc, &path, text, line_ending, bom) {
-            Err(reason) => self.notice = Some(reason),
+            Err(reason) => self.set_notice(Some(reason)),
             Ok((lock, stamp)) => {
-                self.notice = match self.doc {
+                self.set_notice(match self.doc {
                     Doc::Scratch if self.editable() => clear_scratch(data_dir, text)
                         .err()
                         .map(|error| failure_reason(&error)),
                     _ => None,
-                };
+                });
                 self._doc_lock = lock;
                 self.doc = Doc::File {
                     path,
