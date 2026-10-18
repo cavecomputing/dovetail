@@ -9,7 +9,7 @@ use iced::widget::{column, container, responsive, space, stack};
 use iced::window::{self, Direction};
 use iced::{Element, Size, Subscription, Task, Theme, event, keyboard};
 
-use crate::core::counts::{Counts, load_tokenizer_in_background, word_count};
+use crate::core::counts::{Counts, load_tokenizer_in_background, token_count, word_count};
 use crate::core::opened::{Doc, open_doc};
 use crate::core::paths::Paths;
 use crate::core::recent::existing_recent_files;
@@ -63,8 +63,10 @@ pub struct App {
     pub now: Instant,
     closing: bool,
 
-    /// The text's word and token counts.
+    /// The text's word and token counts. The token count lags behind typing (see `TOKEN_PAUSE`).
     pub counts: Counts,
+    /// When the latest edit the token count doesn't include yet was made.
+    uncounted_edit: Option<Instant>,
     /// The recent files, for the menu.
     pub recent: Vec<PathBuf>,
     pub menu_open: bool,
@@ -95,6 +97,7 @@ pub enum Message {
     Tick(Instant),
     Saved(u64, Result<Option<DiskStamp>, String>),
     TokenizerReady,
+    TokensCounted(Option<usize>),
 
     WindowOpened,
     CursorToMiddle(Size),
@@ -190,6 +193,10 @@ fn window_settings() -> window::Settings {
     }
 }
 
+/// How long typing must pause before the token count is redone. Counting a long text takes a
+/// while (about 25 ms for 1 MB), too long to do on every key.
+const TOKEN_PAUSE: Duration = Duration::from_millis(300);
+
 /// How long a notice stays in the status bar: long enough to read, gone before it goes stale.
 const NOTICE_TIME: Duration = Duration::from_secs(6);
 
@@ -229,6 +236,7 @@ impl App {
                 words: word_count(&opened.text),
                 tokens: None,
             },
+            uncounted_edit: None,
             last_comfort_chars: match settings.reading_mode {
                 ReadingMode::Comfort { chars } => chars,
                 ReadingMode::FullWidth => 80,
@@ -325,9 +333,18 @@ impl App {
             Message::Tick(now) => {
                 self.now = now;
                 self.assistant.finish_slide(now);
-                if self.autosaver.should_save_now(now) {
-                    return self.save(now);
+                let mut tasks = Vec::new();
+                if self
+                    .uncounted_edit
+                    .is_some_and(|edited| now.duration_since(edited) >= TOKEN_PAUSE)
+                {
+                    self.uncounted_edit = None;
+                    tasks.push(self.count_tokens());
                 }
+                if self.autosaver.should_save_now(now) {
+                    tasks.push(self.save(now));
+                }
+                return Task::batch(tasks);
             }
             Message::Saved(generation, result) => {
                 let failed = result.is_err();
@@ -349,9 +366,8 @@ impl App {
                     return self.continue_closing();
                 }
             }
-            Message::TokenizerReady => {
-                self.counts = Counts::of(self.pane.model.text());
-            }
+            Message::TokenizerReady => return self.count_tokens(),
+            Message::TokensCounted(tokens) => self.counts.tokens = tokens,
 
             Message::WindowOpened => {
                 #[cfg(target_os = "macos")]
@@ -537,7 +553,8 @@ impl App {
         let now = Instant::now();
         self.autosaver.edited(now);
         self.saving_since.get_or_insert(now);
-        self.counts = Counts::of(self.pane.model.text());
+        self.counts.words = word_count(self.pane.model.text());
+        self.uncounted_edit = Some(now);
         if self.find.open {
             self.find_again(self.pane.caret());
         }
@@ -581,6 +598,13 @@ impl App {
             ThemeSetting::System => self.system_is_dark,
         };
         self.theme = theme::gruvbox(dark);
+    }
+
+    /// Counts the text's tokens in the background, as it takes a while on a long text;
+    /// `TokensCounted` brings the number back.
+    fn count_tokens(&self) -> Task<Message> {
+        let text = self.pane.model.text().to_string();
+        Task::perform(async move { token_count(&text) }, Message::TokensCounted)
     }
 
     /// Writes the current text in the background; `Saved` reports back.
@@ -659,8 +683,9 @@ impl App {
             iced::time::every(Duration::from_secs(1)).map(|_| Message::PollSettings),
             iced::system::theme_changes().map(Message::SystemTheme),
         ];
-        // While anything is waiting to be saved: check the autosave delay and animate the dot.
-        if self.autosaver.state() != SaveState::Saved {
+        // While anything is waiting to be saved or counted: check the autosave delay and the
+        // token count's pause, and animate the dot.
+        if self.autosaver.state() != SaveState::Saved || self.uncounted_edit.is_some() {
             subscriptions.push(iced::time::every(Duration::from_millis(50)).map(Message::Tick));
         }
         // While the assistant pane's slide plays: about 60 frames a second.
