@@ -56,9 +56,10 @@ pub enum Markdown {
     LinkUrl,
 }
 
-/// The block the line after `line` starts in, when `line` starts in `block`.
+/// The block the line after `line` starts in, when `line` starts in `block`. A fence may be in a
+/// `>` quote.
 pub fn block_after(line: &str, block: Block) -> Block {
-    let trimmed = line.trim_start_matches([' ', '\t']);
+    let trimmed = line.trim_start_matches([' ', '\t', '>']);
     let mark = match trimmed.as_bytes().first() {
         Some(&mark @ (b'`' | b'~')) => mark,
         _ => return block,
@@ -595,6 +596,16 @@ mod tests {
         );
         // A backtick fence's can't, so this is a code span.
         assert_eq!(marked("```x``` y"), vec![("```x```", Code)]);
+        // A fence in a quote.
+        assert_eq!(
+            read(&["> ```", "> - *x*", ">> ```", "*after*"]),
+            vec![
+                vec![("> ```", Fence)],
+                vec![("> - *x*", Code)],
+                vec![(">> ```", Fence)],
+                vec![("*after*", Italic)],
+            ]
+        );
     }
 
     #[test]
@@ -770,6 +781,7 @@ mod tests {
             "|",
             "```\n- in code|\n```",
             "~~~\n> quoted code|",
+            "> ```\n> - in quoted code|",
         ] {
             assert_eq!(enter_at(text), None, "{text:?}");
         }
