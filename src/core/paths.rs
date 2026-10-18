@@ -9,10 +9,12 @@ use crate::brand::CONFIG_DIR_NAME;
 /// The folders the app reads and writes.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Paths {
-    /// `~/.config/<app>`: holds `settings.toml`.
+    /// `~/.config/<app>` on Linux, `~/Library/Application Support/<app>` on macOS,
+    /// `%APPDATA%\<app>` on Windows: holds `settings.toml`.
     pub config_dir: PathBuf,
-    /// `~/.local/share/<app>`: holds the scratch space, the recent list and the locks. On Windows
-    /// it is in Local AppData rather than Roaming, since these name files on this machine.
+    /// `~/.local/share/<app>` on Linux, the same folder as `config_dir` on macOS,
+    /// `%LOCALAPPDATA%\<app>` on Windows: holds the scratch space, the recent list and the locks.
+    /// Windows keeps it in Local AppData, not Roaming, since these name files on this machine.
     pub data_dir: PathBuf,
     /// `~/Documents`: where the save dialogs (Save as, New file) start when there is no open file
     /// to start beside.
@@ -27,7 +29,7 @@ impl Paths {
         if let Some(root) = std::env::var_os(home_override_var()) {
             return Paths::under(Path::new(&root));
         }
-        let base = BaseDirs::new().expect("the home directory is always known on Linux");
+        let base = BaseDirs::new().expect("every desktop OS gives the user a home folder");
         let documents_dir = UserDirs::new()
             .and_then(|dirs| dirs.document_dir().map(Path::to_path_buf))
             .unwrap_or_else(|| base.home_dir().join("Documents"));
