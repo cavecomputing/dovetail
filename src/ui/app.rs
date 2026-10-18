@@ -151,6 +151,9 @@ pub enum Message {
     SwitcherQuery(String),
     SwitcherMove(i32),
     SwitcherOpen,
+    /// Open the switcher's row with this number: Ctrl+1 to Ctrl+9 (Ctrl+0 is `OpenScratch`, its
+    /// row 0), or a click.
+    SwitcherPick(usize),
 
     ReloadFromDisk,
     KeepMine,
@@ -535,7 +538,8 @@ impl App {
             Message::OpenSwitcher
             | Message::SwitcherQuery(_)
             | Message::SwitcherMove(_)
-            | Message::SwitcherOpen => return self.update_switcher(message),
+            | Message::SwitcherOpen
+            | Message::SwitcherPick(_) => return self.update_switcher(message),
             Message::ReloadFromDisk => {
                 if let Doc::File {
                     path,
@@ -885,6 +889,12 @@ fn shortcut(event: iced::Event, status: event::Status, _window: window::Id) -> O
     if !modifiers.command() {
         return None;
     }
+    // Ctrl+1 to Ctrl+9 open the switcher's numbered rows (ignored while it's closed).
+    if let keyboard::Key::Character(digit) = key.as_ref()
+        && let Ok(row @ 1..=9) = digit.parse::<usize>()
+    {
+        return Some(Message::SwitcherPick(row));
+    }
     match key.as_ref() {
         keyboard::Key::Character(",") => Some(Message::OpenSettings),
         keyboard::Key::Character("0") => Some(Message::OpenScratch),
@@ -1108,6 +1118,54 @@ mod tests {
         assert_eq!(app.pane.model.text(), "!# notes\n");
         assert_eq!(std::fs::read_to_string(&notes).unwrap(), "theirs");
         assert!(app.notice.is_some());
+    }
+
+    #[test]
+    fn a_number_opens_its_switcher_row_until_something_is_typed() {
+        let (_dir, _paths, mut app, notes) = scratch_window("");
+        std::fs::write(
+            app.paths.data_dir.join("recent.txt"),
+            notes.display().to_string(),
+        )
+        .unwrap();
+        let _ = app.update(Message::OpenSwitcher);
+        let _ = app.update(Message::SwitcherQuery("n".to_string()));
+        let _ = app.update(Message::SwitcherQuery("n1".to_string()));
+        assert!(matches!(app.doc, Doc::Scratch), "typed, so it searches");
+        let _ = app.update(Message::SwitcherQuery(String::new()));
+        let _ = app.update(Message::SwitcherQuery("1".to_string()));
+        assert!(matches!(&app.doc, Doc::File { path, .. } if *path == notes));
+        assert!(app.switcher.is_none());
+        // Ctrl+number works with a search typed; row 0 is scratch.
+        let _ = app.update(Message::OpenSwitcher);
+        let _ = app.update(Message::SwitcherQuery("zzz".to_string()));
+        let _ = app.update(Message::SwitcherPick(0));
+        assert!(matches!(app.doc, Doc::Scratch));
+    }
+
+    #[test]
+    fn ctrl_and_a_digit_picks_a_switcher_row_and_ctrl_0_is_scratch() {
+        let press = |digit: &str, modifiers| {
+            let event = iced::Event::Keyboard(keyboard::Event::KeyPressed {
+                key: keyboard::Key::Character(digit.into()),
+                modified_key: keyboard::Key::Character(digit.into()),
+                physical_key: keyboard::key::Physical::Unidentified(
+                    keyboard::key::NativeCode::Unidentified,
+                ),
+                location: keyboard::Location::Standard,
+                modifiers,
+                text: None,
+                repeat: false,
+            });
+            shortcut(event, event::Status::Ignored, window::Id::unique())
+        };
+        let command = keyboard::Modifiers::COMMAND;
+        assert!(matches!(
+            press("3", command),
+            Some(Message::SwitcherPick(3))
+        ));
+        assert!(matches!(press("0", command), Some(Message::OpenScratch)));
+        assert!(press("3", keyboard::Modifiers::empty()).is_none());
     }
 
     #[test]
