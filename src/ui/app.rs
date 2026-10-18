@@ -39,6 +39,9 @@ pub struct App {
     main_window: window::Id,
 
     pub doc: Doc,
+    /// Counts the documents this window has shown (`show`), so an answer meant for an earlier
+    /// one, such as a save dialog's, is dropped.
+    pub document: u64,
     /// The text being edited.
     pub pane: Pane,
     /// The Ctrl+P switcher, while it is open.
@@ -139,11 +142,13 @@ pub enum Message {
         shift: bool,
     },
     NewFile,
-    NewFilePicked(PathBuf),
+    /// The New file dialog's answer, for the document with this number (`App::document`).
+    NewFilePicked(u64, PathBuf),
     OpenDialog,
     Save,
     SaveAs,
-    SaveAsPicked(PathBuf),
+    /// The Save as dialog's answer, for the document with this number (`App::document`).
+    SaveAsPicked(u64, PathBuf),
     OpenPath(PathBuf),
     OpenSettings,
     OpenScratch,
@@ -268,6 +273,7 @@ impl App {
             settings_error,
             main_window,
             doc: opened.doc,
+            document: 0,
             pane,
             switcher: None,
             settings_open: false,
@@ -300,6 +306,7 @@ impl App {
     /// and save state. The find bar closes, and the assistant starts a new chat (its pane stays as
     /// it was), since both were about the old text.
     pub fn show(&mut self, opened: OpenedDoc) -> Task<Message> {
+        self.document += 1;
         self.pane = pane_for(&opened);
         self.counts = Counts {
             words: word_count(&opened.text),
@@ -503,10 +510,17 @@ impl App {
                 }
             }
             Message::NewFile => return self.new_file(),
-            Message::NewFilePicked(path) => return self.start_new_file(path),
+            // A dialog answered after the window moved on would act on the wrong document.
+            Message::NewFilePicked(document, _) | Message::SaveAsPicked(document, _)
+                if document != self.document =>
+            {
+                let words = "That dialog was for the document this window showed before";
+                self.set_notice(Some(words.to_string()));
+            }
+            Message::NewFilePicked(_, path) => return self.start_new_file(path),
             Message::Save => return self.save_now(),
             Message::SaveAs => return self.pick_save_path(),
-            Message::SaveAsPicked(path) => return self.save_as(path),
+            Message::SaveAsPicked(_, path) => return self.save_as(path),
             Message::OpenDialog => {
                 self.menu_open = false;
                 let mut dialog = rfd::AsyncFileDialog::new();
@@ -1166,6 +1180,33 @@ mod tests {
         ));
         assert!(matches!(press("0", command), Some(Message::OpenScratch)));
         assert!(press("3", keyboard::Modifiers::empty()).is_none());
+    }
+
+    #[test]
+    fn a_save_dialog_answered_after_a_switch_is_dropped() {
+        // Save as asked in scratch, answered once notes.md has taken its place.
+        let (dir, paths, mut app, notes) = scratch_window("from scratch");
+        let asked = app.document;
+        let _ = app.update(Message::OpenPath(notes.clone()));
+        let picked = dir.path().join("picked.txt");
+        let _ = app.update(Message::SaveAsPicked(asked, picked.clone()));
+        assert!(!picked.exists());
+        assert!(matches!(&app.doc, Doc::File { path, .. } if *path == notes));
+        // Asked in notes.md, answered back in scratch: scratch isn't moved or emptied.
+        let asked = app.document;
+        let _ = app.update(Message::OpenScratch);
+        let _ = app.update(Message::SaveAsPicked(asked, picked.clone()));
+        let _ = app.update(Message::NewFilePicked(asked, picked.clone()));
+        assert!(!picked.exists());
+        assert!(matches!(app.doc, Doc::Scratch));
+        assert_eq!(app.pane.model.text(), "from scratch");
+        assert_eq!(
+            ScratchState::load(&paths.data_dir).unwrap().text,
+            "from scratch"
+        );
+        // An answer for the document shown still works.
+        let _ = app.update(Message::SaveAsPicked(app.document, picked.clone()));
+        assert_eq!(std::fs::read_to_string(&picked).unwrap(), "from scratch");
     }
 
     #[test]
