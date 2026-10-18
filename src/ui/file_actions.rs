@@ -7,20 +7,29 @@ use std::time::Instant;
 
 use iced::Task;
 
-use crate::core::opened::{Doc, save_as};
+use crate::core::opened::{Doc, empty_file, save_as};
 use crate::core::save::failure_reason;
 use crate::core::scratch::clear_scratch;
 use crate::core::text_file::{LineEnding, save_text, suggested_file_name};
-use crate::ui::app::{App, Message};
+use crate::ui::app::{App, Message, open_in_new_window};
 
 impl App {
-    /// Ctrl+N: asks where the new .txt goes, then opens it in its own window (created empty, or
-    /// just opened if it is already there).
+    /// Ctrl+N: asks where the new .txt goes; `NewFilePicked` brings the answer.
     pub fn new_file(&mut self) -> Task<Message> {
         self.menu_open = false;
         let dialog = self.save_dialog("New file", "untitled.txt".to_string());
         Task::perform(dialog.save_file(), |picked| picked)
-            .and_then(|file| Task::done(Message::OpenPath(file.path().to_path_buf())))
+            .and_then(|file| Task::done(Message::NewFilePicked(file.path().to_path_buf())))
+    }
+
+    /// Starts the new file at `path` empty (the dialog has already agreed to replace anything
+    /// there) and opens it in its own window.
+    pub fn start_new_file(&mut self, path: PathBuf) -> Task<Message> {
+        self.notice = match empty_file(&self.paths.data_dir, &path) {
+            Ok(()) => open_in_new_window(Some(path)).err(),
+            Err(reason) => Some(reason),
+        };
+        Task::none()
     }
 
     /// Ctrl+S. Everything autosaves, so in a .txt or a project this writes now instead of after
@@ -64,8 +73,14 @@ impl App {
                 path: current,
                 line_ending,
             } => {
+                // Its own file: save, even with nothing new, so a file moved or deleted
+                // outside the app is written again.
                 if same_file(current, &path) {
-                    return self.save_now();
+                    let can_save = self.editable() && !self.busy && !self.autosaver.is_saving();
+                    return match can_save {
+                        true => self.save(Instant::now()),
+                        false => Task::none(),
+                    };
                 }
                 *line_ending
             }
@@ -123,10 +138,9 @@ impl App {
     }
 }
 
-/// Whether `a` and `b` are the same file on disk (through any links).
+/// Whether `a` and `b` are the same file on disk (through any links), or the same path when one
+/// is missing.
 fn same_file(a: &Path, b: &Path) -> bool {
-    match (fs::canonicalize(a), fs::canonicalize(b)) {
-        (Ok(a), Ok(b)) => a == b,
-        _ => false,
-    }
+    let real = |path: &Path| fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    real(a) == real(b)
 }

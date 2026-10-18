@@ -1,7 +1,7 @@
 //! What launching on a document means: which text to show, where the cursor goes, and whether
 //! the window may edit it (and if not, why not).
 
-use std::fs::{File, TryLockError};
+use std::fs::{self, File, TryLockError};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
@@ -9,9 +9,11 @@ use crate::core::lock::{claim_lock, file_lock_path};
 use crate::core::paths::Paths;
 use crate::core::recent::remember;
 use crate::core::save::{atomic_write, check_writable, failure_reason};
-use crate::core::scratch::{ScratchState, claim_scratch, take_cleared};
+use crate::core::scratch::{
+    ScratchState, claim_scratch, scratch_lock_path, scratch_text_path, take_cleared,
+};
 use crate::core::text_file::{DiskStamp, LineEnding, read_text};
-use crate::project::DRAFT_FILE;
+use crate::project::{DRAFT_FILE, is_project};
 
 /// What a window is showing.
 #[derive(Debug, Clone)]
@@ -114,7 +116,7 @@ pub fn open_doc(doc: Doc, paths: &Paths) -> OpenedDoc {
     if let Doc::File { path, .. } | Doc::Project(path) = &opened.doc
         && opened.read_only_reason.is_none()
     {
-        opened.lock = match claim_lock(&file_lock_path(&paths.data_dir, path)) {
+        opened.lock = match claim_lock(&lock_for(&paths.data_dir, path)) {
             Err(TryLockError::WouldBlock) => {
                 opened.read_only_reason = Some("Open in another window".to_string());
                 None
@@ -135,10 +137,8 @@ pub fn save_as(
     text: &str,
     line_ending: LineEnding,
 ) -> Result<(Option<File>, Option<DiskStamp>), String> {
-    let lock = match claim_lock(&file_lock_path(data_dir, path)) {
-        Err(TryLockError::WouldBlock) => {
-            return Err("That file is open in another window".to_string());
-        }
+    let lock = match claim_lock(&lock_for(data_dir, path)) {
+        Err(TryLockError::WouldBlock) => return Err(OPEN_ELSEWHERE.to_string()),
         // Without a lock file there is nothing to guard with, so carry on.
         Err(TryLockError::Error(_)) => None,
         Ok(lock) => Some(lock),
@@ -147,6 +147,40 @@ pub fn save_as(
         .map_err(|error| failure_reason(&error))?;
     let _ = remember(data_dir, path);
     Ok((lock, DiskStamp::of(path)))
+}
+
+/// Empties `path` for Ctrl+N, when the save dialog has agreed to replace a file there, unless
+/// another window has it open.
+pub fn empty_file(data_dir: &Path, path: &Path) -> Result<(), String> {
+    match claim_lock(&lock_for(data_dir, path)) {
+        Err(TryLockError::WouldBlock) => Err(OPEN_ELSEWHERE.to_string()),
+        _ => atomic_write(path, b"").map_err(|error| failure_reason(&error)),
+    }
+}
+
+const OPEN_ELSEWHERE: &str = "That file is open in another window";
+
+/// The lock that guards writing `path`. A project's draft is guarded by its project's lock and
+/// scratch's text by scratch's own, so no window can open or save over either while it's open.
+fn lock_for(data_dir: &Path, path: &Path) -> PathBuf {
+    let real = |path: &Path| fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    if real(path) == real(&scratch_text_path(data_dir)) {
+        return scratch_lock_path(data_dir);
+    }
+    let manifest = match path.file_name() {
+        Some(name) if name == DRAFT_FILE => manifest_beside(path),
+        _ => None,
+    };
+    file_lock_path(data_dir, manifest.as_deref().unwrap_or(path))
+}
+
+/// The project manifest in the same folder as `path`, if there is one.
+fn manifest_beside(path: &Path) -> Option<PathBuf> {
+    fs::read_dir(path.parent()?)
+        .ok()?
+        .flatten()
+        .map(|entry| entry.path())
+        .find(|path| is_project(path))
 }
 
 /// Why `path` can't be saved, or `None` if it can.
@@ -195,6 +229,41 @@ mod tests {
         let refused = save_as(&paths.data_dir, &path, "mine", LineEnding::Lf);
         assert_eq!(refused.unwrap_err(), "That file is open in another window");
         assert_eq!(fs::read_to_string(&path).unwrap(), "theirs");
+    }
+
+    #[test]
+    fn a_project_draft_and_scratch_text_are_guarded_by_their_windows() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::under(dir.path());
+        let project = crate::project::create_project(&paths.projects_dir, "Nyx").unwrap();
+        atomic_write(&project.draft_path(), b"draft").unwrap();
+        let _project_window = open_doc(Doc::Project(project.manifest_path()), &paths);
+        let _scratch_window = open_doc(Doc::Scratch, &paths);
+        let scratch_text = scratch_text_path(&paths.data_dir);
+        for path in [project.draft_path(), scratch_text.clone()] {
+            let refused = save_as(&paths.data_dir, &path, "mine", LineEnding::Lf);
+            assert_eq!(refused.unwrap_err(), OPEN_ELSEWHERE);
+            assert_eq!(
+                empty_file(&paths.data_dir, &path).unwrap_err(),
+                OPEN_ELSEWHERE
+            );
+            let other = open_doc(file_doc(&path), &paths);
+            assert_eq!(
+                other.read_only_reason.as_deref(),
+                Some("Open in another window")
+            );
+        }
+        assert_eq!(fs::read_to_string(project.draft_path()).unwrap(), "draft");
+    }
+
+    #[test]
+    fn empty_file_empties_a_file_no_window_has_open() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::under(dir.path());
+        let path = dir.path().join("old.txt");
+        fs::write(&path, "old text").unwrap();
+        empty_file(&paths.data_dir, &path).unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "");
     }
 
     #[test]

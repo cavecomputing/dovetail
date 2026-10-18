@@ -110,9 +110,10 @@ pub enum PaintLook {
         id: u64,
         stripe: bool,
     },
-    /// A find match: the fill and no gutter stripe; the `current` one is also outlined.
+    /// A find match: a fill over any paint at full height (never sharing a lane), no gutter
+    /// stripe, and an outline in this colour for the selected one.
     Found {
-        current: bool,
+        outline: Option<Color>,
     },
 }
 
@@ -491,6 +492,7 @@ fn horizontal_scroll(editor: &graphics::text::Editor, wrapping: Wrapping) -> f32
 // ours: drawing paint, suggestions and gutter stripes.
 const PAINT_ALPHA: f32 = 0.22;
 const GHOST_ALPHA: f32 = 0.12;
+const FOUND_ALPHA: f32 = 0.24;
 const PAINT_RADIUS: f32 = 3.0;
 /// The gutter is this wide and ends this far left of the text.
 const GUTTER_WIDTH: f32 = 10.0;
@@ -605,10 +607,7 @@ fn draw_paint<R: renderer::Renderer>(
                 .filter(|(x, w, run)| {
                     matches!(
                         run.look,
-                        PaintLook::Fill
-                            | PaintLook::Missing(_)
-                            | PaintLook::Ghost
-                            | PaintLook::Found { .. }
+                        PaintLook::Fill | PaintLook::Missing(_) | PaintLook::Ghost
                     ) && *x <= left
                         && x + w >= right
                 })
@@ -637,12 +636,13 @@ fn draw_paint<R: renderer::Renderer>(
         for (x, width, run) in &pieces {
             let square = border::Radius::default();
             match run.look {
-                PaintLook::Fill
-                | PaintLook::Buttons { .. }
-                | PaintLook::Found { current: false } => {}
-                PaintLook::Found { current: true } => {
+                PaintLook::Fill | PaintLook::Buttons { .. } => {}
+                PaintLook::Found { outline: color } => {
                     let outline =
                         Rectangle::new(Point::new(*x, top), Size::new(*width, box_height));
+                    let lit = run.color.scale_alpha(FOUND_ALPHA);
+                    fill(outline, border::Radius::new(PAINT_RADIUS), lit, text_bounds);
+                    let Some(color) = color else { continue };
                     let sides = [
                         Rectangle::new(outline.position(), Size::new(outline.width, 1.0)),
                         Rectangle::new(
@@ -656,7 +656,7 @@ fn draw_paint<R: renderer::Renderer>(
                         ),
                     ];
                     for side in sides {
-                        fill(side, square, run.color, text_bounds);
+                        fill(side, square, color, text_bounds);
                     }
                 }
                 PaintLook::Cut(color) | PaintLook::Struck(color) => {
