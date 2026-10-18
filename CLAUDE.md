@@ -229,8 +229,8 @@ src/
     syntax.rs            which kind of text a file is (plain, Markdown, JSON, YAML, TOML, INI,
                          shell), by extension or `#!` line; the shared colour tokens; the
                          validity check for each
-    shell.rs             shell scripts: which parts of a line to colour, and whether a `#!`
-                         line names sh or bash
+    shell.rs             shell scripts: which parts of a line to colour, whether a `#!` line
+                         names sh or bash, and the `bash -n` check
     json.rs              which parts of a .json line to colour, whether the text is valid JSON,
                          and Format and Minify (whitespace only, so key order and digits are kept)
     text_file.rs         reading and saving text files: line endings, outside-change check

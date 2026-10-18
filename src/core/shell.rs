@@ -1,9 +1,11 @@
 //! Shell scripts (.sh, .bash, or a file with no extension whose `#!` line names sh or bash):
-//! which parts of a line to colour. Lines are coloured one at a time; a quoted string or a
+//! which parts of a line to colour, and whether `bash -n` finds a syntax error. Lines are coloured one at a time; a quoted string or a
 //! here-document (`<<EOF`) can run on below the line that opens it, so each line also says what
 //! the next one starts in.
 
+use std::io::Write;
 use std::ops::Range;
+use std::process::{Command, Stdio};
 
 use crate::core::syntax::Token;
 
@@ -44,6 +46,39 @@ pub fn is_shell_script(text: &str) -> bool {
         program = words.find(|word| !word.starts_with('-')).map(name);
     }
     matches!(program.as_deref(), Some("sh" | "bash" | "dash"))
+}
+
+/// The first syntax error `bash -n` finds in `text`, with its line, or `None` if there is none,
+/// or bash can't be run. `-n` reads the script without running any of it.
+pub fn shell_problem(text: &str) -> Option<String> {
+    // On Windows `bash` is usually WSL's, which would start a whole Linux for each check, so
+    // scripts aren't checked there. Linux and macOS have bash.
+    if cfg!(windows) {
+        return None;
+    }
+    let mut bash = Command::new("bash")
+        .arg("-n")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .ok()?;
+    // bash stops reading at the first error, so a failed write is fine: the error is in stderr.
+    let _ = bash.stdin.take()?.write_all(text.as_bytes());
+    let output = bash.wait_with_output().ok()?;
+    if output.status.success() {
+        return None;
+    }
+    // "bash: line 4: syntax error near unexpected token `fi'"
+    let errors = String::from_utf8_lossy(&output.stderr);
+    let first = errors.lines().next()?;
+    let error = first.strip_prefix("bash: ").unwrap_or(first);
+    Some(
+        match error.strip_prefix("line ").and_then(|e| e.split_once(": ")) {
+            Some((line, reason)) => format!("Shell syntax error at line {line}: {reason}"),
+            None => format!("Shell syntax error: {error}"),
+        },
+    )
 }
 
 /// Where a string whose opening `quote` is just before `from` ends: just after its closing
@@ -355,6 +390,24 @@ mod tests {
         let (_, open) = shell_ranges("  EOF", open);
         assert!(open.is_some());
         assert_eq!(parts("x <<< 'y' >> log 2>&1 < in", None), [("'y'", String)]);
+    }
+
+    // `bash -n` runs only on Linux and macOS.
+    #[cfg(unix)]
+    #[test]
+    fn bash_n_finds_the_first_syntax_error() {
+        assert_eq!(shell_problem("if true; then\n  echo hi\nfi\n"), None);
+        assert_eq!(
+            shell_problem("if true; then\n  echo hi\nfi\nfi\n").as_deref(),
+            Some("Shell syntax error at line 4: syntax error near unexpected token `fi'")
+        );
+        // macOS's bash 3.2 may count the line of an unclosed quote differently.
+        let unclosed = shell_problem("echo \"open\n").expect("an unclosed quote");
+        assert!(
+            unclosed.starts_with("Shell syntax error at line "),
+            "{unclosed}"
+        );
+        assert!(unclosed.ends_with("unexpected EOF while looking for matching `\"'"));
     }
 
     #[test]
