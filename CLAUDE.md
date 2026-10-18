@@ -132,8 +132,9 @@ What each OS needs before the first build:
 - **Windows**: Rust (rustup-init.exe, which picks the MSVC toolchain) and Visual Studio Build Tools
   with the "Desktop development with C++" workload, for the linker and the Windows SDK;
   rustup-init offers to install them. No NASM or CMake is needed. On ARM64 Windows also add the
-  "C++ Clang Compiler for Windows" component. A debug build (`cargo run`) opens a console window
-  beside the app for its error messages; the release build doesn't.
+  "C++ Clang Compiler for Windows" component. A debug build writes its error messages to the
+  terminal it was started from (`cargo run`), or opens a console window for them when started from
+  Explorer; the release build has no console.
 
 Installing for daily use, from a checkout. Each script builds the release binary and takes every
 name from `brand.rs` through `<bin> --print-brand`:

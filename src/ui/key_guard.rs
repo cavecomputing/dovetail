@@ -17,7 +17,7 @@ pub struct KeyGuard<'a> {
     content: Element<'a, Message>,
 }
 
-/// `content`, with Ctrl+digit and Ctrl+punctuation kept from its text boxes.
+/// `content`, with the text taken out of shortcut presses (see the module comment).
 pub fn guard<'a>(content: impl Into<Element<'a, Message>>) -> KeyGuard<'a> {
     KeyGuard {
         content: content.into(),
