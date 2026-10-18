@@ -1,11 +1,14 @@
-//! The assistant pane beside the document: its header and the chips saying what it sees, the
-//! chat (with each reply's tool use and suggestion cards), and the composer.
+//! The assistant pane beside the document, drawn like a terminal transcript: `#` comment lines
+//! saying which model it is and what it sees, your questions after a `>`, each reply's tool use
+//! and suggested edits (as a `−`/`+` diff with accept, reject and try shorter), and the composer
+//! as a `>` prompt.
 
 use iced::keyboard::{Key, key::Named};
 use iced::widget::text::Wrapping;
 use iced::widget::text_editor::{Binding, KeyPress, Status};
 use iced::widget::{
-    button, column, container, opaque, row, scrollable, space, stack, text, text_editor,
+    button, column, container, opaque, rich_text, row, scrollable, space, span, stack, text,
+    text_editor,
 };
 use iced::{Background, Border, Color, Element, Fill, Font, Padding, Theme};
 
@@ -16,15 +19,20 @@ use crate::core::opened::Doc;
 use crate::ui::app::{App, Message};
 use crate::ui::assistant_actions::{AssistantAction, COMPOSER_ID, Card, CardState};
 use crate::ui::editor::Decision;
-use crate::ui::status_bar::{dot, title};
-use crate::ui::theme::{MONO, Roles, bold, fill, muted};
+use crate::ui::status_bar::title;
+use crate::ui::theme::{CHAR_WIDTH_RATIO, Roles, fill};
 
 pub const PANE_WIDTH: f32 = 380.0;
 /// At or below this window width the pane takes the whole width, as in the mockup.
 const NARROW: f32 = 760.0;
-/// The longest chip label, in characters.
-const CHIP_CHARS: usize = 40;
-/// The longest model name the header shows, in characters, so "suggests only" and New chat fit.
+/// The pane's one text size, and its line height as a multiple of it.
+const SIZE: f32 = 13.0;
+const LINE: f32 = 1.6;
+/// The width of one character, for indents.
+const CH: f32 = SIZE * CHAR_WIDTH_RATIO;
+/// The longest file or focus name a header line shows, in characters.
+const SEES_CHARS: usize = 36;
+/// The longest model name the header shows, in characters, so "suggests only" and new chat fit.
 const NAME_CHARS: usize = 16;
 
 /// The document `width` pixels wide, with the pane on the right while it shows (or slides). The
@@ -59,105 +67,96 @@ pub fn beside(app: &App, width: f32) -> Element<'_, Message> {
 
 fn pane(app: &App) -> Element<'_, Message> {
     let model = app.settings.model.trim();
-    let name = if model.is_empty() { "Assistant" } else { model };
+    let name = if model.is_empty() { "assistant" } else { model };
     let conversation = &app.assistant.conversation;
     let new_chat = (!conversation.items.is_empty() || conversation.busy)
         .then_some(Message::Assistant(AssistantAction::NewChat));
-    let title = row![
-        text(shorten(name, NAME_CHARS))
-            .size(13)
-            .font(bold())
-            .wrapping(Wrapping::None),
-        muted("suggests only"),
+    let mut head = column![row![
+        line(
+            format!("# {} · suggests only", shorten(name, NAME_CHARS)),
+            subtle
+        ),
         space::horizontal(),
-        chat_button("New chat", Look::Quiet, new_chat),
-    ]
-    .spacing(8)
-    .align_y(iced::Center);
-    let head = container(column![title, chips(app)].spacing(10)).padding(Padding {
+        word("new chat", fg_muted, new_chat),
+    ]];
+    let sees = match &app.doc {
+        Doc::Scratch => "scratch".to_string(),
+        doc => title(doc),
+    };
+    head = head.push(line(
+        format!("# sees {}", shorten(&sees, SEES_CHARS)),
+        subtle,
+    ));
+    // What the assistant is focused on, in the accent.
+    if let Some(focus) = context::focus(app.pane.model.text(), app.pane.selection()) {
+        let focus = format!("# focus: {}", shorten(&focus, SEES_CHARS));
+        head = head.push(line(focus, |roles| roles.accent_text));
+    }
+    let head = container(head).padding(Padding {
         top: 14.0,
+        right: 16.0,
+        bottom: 0.0,
+        left: 16.0,
+    });
+
+    let mut bottom = column![].padding(Padding {
+        top: 0.0,
         right: 16.0,
         bottom: 12.0,
         left: 16.0,
-    });
-    let rule = container(space().width(Fill).height(1))
-        .style(|theme: &Theme| fill(Roles::of(theme).bg_raised));
-
-    let mut bottom = column![].spacing(8).padding(Padding {
-        top: 0.0,
-        right: 12.0,
-        bottom: 12.0,
-        left: 12.0,
     });
     let waiting = app.pane.suggestions().len();
     if waiting > 1 {
         bottom = bottom.push(
             row![
-                muted(format!("{waiting} suggestions")),
+                line(format!("# {waiting} suggestions"), subtle),
                 space::horizontal(),
-                chat_button(
-                    "Accept all",
-                    Look::Quiet,
+                word(
+                    "accept all",
+                    accent_text,
                     Some(Message::Decide(Decision::AcceptAll))
                 ),
-                chat_button(
-                    "Reject all",
-                    Look::Quiet,
+                word(
+                    "reject all",
+                    fg_muted,
                     Some(Message::Decide(Decision::RejectAll))
                 ),
             ]
-            .spacing(4)
-            .padding([0, 4])
-            .align_y(iced::Center),
+            .spacing(CH),
         );
     }
     bottom = bottom.push(composer(app));
-    column![head, rule, chat(app), bottom].height(Fill).into()
+    column![head, chat(app), bottom].height(Fill).into()
 }
 
-/// What the assistant is focused on (accent) and what it can see.
-fn chips(app: &App) -> Element<'_, Message> {
-    let mut chips = row![].spacing(6);
-    if let Some(focus) = context::focus(app.pane.model.text(), app.pane.selection()) {
-        chips = chips.push(chip(format!("Focus: {focus}"), true));
-    }
-    let sees = match &app.doc {
-        Doc::Scratch => "Sees scratch".to_string(),
-        doc => format!("Sees {}", title(doc)),
-    };
-    chips = chips.push(chip(sees, false));
-    chips.wrap().vertical_spacing(6).into()
+/// One line of the pane's text in a colour from the palette, wrapping when it's long.
+fn line<'a>(words: impl text::IntoFragment<'a>, color: fn(&Roles) -> Color) -> text::Text<'a> {
+    text(words)
+        .size(SIZE)
+        .line_height(LINE)
+        .style(move |theme: &Theme| text::Style {
+            color: Some(color(Roles::of(theme))),
+        })
 }
 
-fn chip<'a>(words: String, focus: bool) -> Element<'a, Message> {
-    container(
-        text(shorten(&words, CHIP_CHARS))
-            .size(11)
-            .wrapping(Wrapping::None),
-    )
-    .padding([3, 8])
-    .style(move |theme: &Theme| {
-        let roles = Roles::of(theme);
-        let (color, border) = match focus {
-            true => (roles.accent_text, roles.accent_text.scale_alpha(0.5)),
-            false => (roles.fg_muted, roles.border),
-        };
-        container::Style {
-            background: Some(Background::Color(roles.bg_inset)),
-            text_color: Some(color),
-            border: Border::default().rounded(999).width(1).color(border),
-            ..container::Style::default()
-        }
-    })
-    .into()
+fn subtle(roles: &Roles) -> Color {
+    roles.fg_subtle
 }
 
-/// The conversation: the user's messages as bubbles on the right, replies as plain text, each
-/// reply's tool use as small muted lines, and the cards for the edits each question brought.
+fn fg_muted(roles: &Roles) -> Color {
+    roles.fg_muted
+}
+
+fn accent_text(roles: &Roles) -> Color {
+    roles.accent_text
+}
+
+/// The conversation: each question after a `>`, replies as plain text, each reply's tool use as
+/// subtle lines, and the edits each question brought.
 fn chat(app: &App) -> Element<'_, Message> {
     let conversation = &app.assistant.conversation;
     let mut entries: Vec<Element<'_, Message>> = Vec::new();
-    // Tool lines in a row are one entry, so they sit close together.
+    // Tool lines in a row are one entry, so they sit together.
     let mut steps: Vec<Element<'_, Message>> = Vec::new();
     if conversation.items.is_empty() && !conversation.busy {
         entries.push(empty_chat(app));
@@ -171,44 +170,37 @@ fn chat(app: &App) -> Element<'_, Message> {
                 flush(&mut entries, &mut steps);
                 entries.extend(cards(app, turn));
                 turn += 1;
-                entries.push(bubble(text));
+                entries.push(prompt(text));
             }
             Item::Assistant { text, tool_calls } => {
                 if !text.is_empty() {
                     flush(&mut entries, &mut steps);
-                    entries.push(prose(text));
+                    entries.push(line(text.as_str(), |roles| roles.fg).into());
                 }
                 calls = tool_calls;
             }
             Item::ToolResult { call_id, output } => {
                 if let Some(call) = calls.iter().find(|call| &call.call_id == call_id) {
-                    steps.push(step(describe(call, output)));
+                    steps.push(line(describe(call, output), subtle).into());
                 }
             }
         }
     }
     if !conversation.reply.is_empty() {
         flush(&mut entries, &mut steps);
-        entries.push(prose(&conversation.reply));
+        entries.push(line(conversation.reply.as_str(), |roles| roles.fg).into());
     } else if conversation.busy {
-        steps.push(step("Working…".to_string()));
+        steps.push(line("working…", subtle).into());
     }
     flush(&mut entries, &mut steps);
     entries.extend(cards(app, turn));
     if let Some(error) = &conversation.error {
-        entries.push(
-            text(error.as_str())
-                .size(13)
-                .style(|theme: &Theme| text::Style {
-                    color: Some(Roles::of(theme).accent_warm),
-                })
-                .into(),
-        );
+        entries.push(line(error.as_str(), |roles| roles.accent_warm).into());
     }
-    scrollable(column(entries).spacing(20).padding(Padding {
-        top: 20.0,
+    scrollable(column(entries).spacing(SIZE * LINE).padding(Padding {
+        top: SIZE * LINE,
         right: 16.0,
-        bottom: 24.0,
+        bottom: SIZE * LINE,
         left: 16.0,
     }))
     .anchor_bottom()
@@ -218,7 +210,7 @@ fn chat(app: &App) -> Element<'_, Message> {
 
 fn flush<'a>(entries: &mut Vec<Element<'a, Message>>, steps: &mut Vec<Element<'a, Message>>) {
     if !steps.is_empty() {
-        entries.push(column(std::mem::take(steps)).spacing(4).into());
+        entries.push(column(std::mem::take(steps)).into());
     }
 }
 
@@ -226,59 +218,30 @@ fn flush<'a>(entries: &mut Vec<Element<'a, Message>>, steps: &mut Vec<Element<'a
 fn empty_chat(app: &App) -> Element<'_, Message> {
     if app.settings.model.trim().is_empty() {
         return column![
-            muted_prose("Set a model in Settings to start. Any OpenAI-compatible server works."),
-            chat_button("Open Settings", Look::Framed, Some(Message::OpenSettings)),
+            line(
+                "# set a model in Settings to start; any OpenAI-compatible server works",
+                subtle
+            ),
+            word("open settings", accent_text, Some(Message::OpenSettings)),
         ]
-        .spacing(10)
         .into();
     }
-    muted_prose(
-        "Ask about the text. It can read and search it, count tokens and suggest edits, which \
-         show in the text for you to accept or reject.",
+    line(
+        "# ask about the text: it can read and search it, count tokens and suggest edits, which \
+         show in the text for you to accept or reject",
+        subtle,
     )
-}
-
-fn bubble(words: &str) -> Element<'_, Message> {
-    container(
-        container(text(words).size(14))
-            .padding([8, 12])
-            .max_width(PANE_WIDTH * 0.8)
-            .style(|theme: &Theme| {
-                let roles = Roles::of(theme);
-                container::Style {
-                    background: Some(Background::Color(roles.bg_raised)),
-                    text_color: Some(roles.fg),
-                    border: Border::default().rounded(10),
-                    ..container::Style::default()
-                }
-            }),
-    )
-    .align_right(Fill)
     .into()
 }
 
-fn prose(words: &str) -> Element<'_, Message> {
-    text(words).size(14).line_height(1.6).into()
-}
-
-fn muted_prose(words: &str) -> Element<'_, Message> {
-    text(words)
-        .size(13)
-        .line_height(1.6)
-        .style(|theme: &Theme| text::Style {
-            color: Some(Roles::of(theme).fg_muted),
-        })
-        .into()
-}
-
-/// A tool the model used, as one small muted line.
-fn step<'a>(words: String) -> Element<'a, Message> {
-    text(words)
-        .size(12)
-        .style(|theme: &Theme| text::Style {
-            color: Some(Roles::of(theme).fg_subtle),
-        })
-        .into()
+/// A question, after a `>` in the accent.
+fn prompt(words: &str) -> Element<'_, Message> {
+    row![
+        line(">", accent_text),
+        line(words, |roles| roles.fg).width(Fill)
+    ]
+    .spacing(CH)
+    .into()
 }
 
 /// The cards for the edits question `turn` brought, after its answer.
@@ -290,10 +253,11 @@ fn cards(app: &App, turn: usize) -> impl Iterator<Item = Element<'_, Message>> {
         .map(move |card| card_view(app, card))
 }
 
-/// A waiting suggestion: "Edit", its size change, the new text, and Accept, Reject and Try
-/// shorter. A decided one shrinks to one muted line saying how it went.
+/// A waiting suggestion, as the call that made it with the line it's on and its size change,
+/// then the text it takes out (`−`, struck) and puts in (`+`), why, and accept, reject and try
+/// shorter. A decided one shrinks to one line saying how it went.
 fn card_view<'a>(app: &'a App, card: &'a Card) -> Element<'a, Message> {
-    let color = Roles::of(&app.theme).accent_cool;
+    let roles = Roles::of(&app.theme);
     let suggestion = &card.suggestion;
     let id = match &card.state {
         CardState::Waiting(id) => *id,
@@ -304,90 +268,93 @@ fn card_view<'a>(app: &'a App, card: &'a Card) -> Element<'a, Message> {
                 CardState::Gone(reason) => reason.as_str(),
                 CardState::Waiting(_) => "",
             };
-            // Wraps, so a long reason is read in full.
-            let line = muted(format!("Edit · {outcome}")).wrapping(Wrapping::WordOrGlyph);
-            return row![dot(color), line]
-                .spacing(8)
-                .align_y(iced::Center)
-                .into();
+            return line(format!("propose_edit · {outcome}"), subtle).into();
         }
     };
+    let text_now = app.pane.model.text();
+    let place = app
+        .pane
+        .suggestions()
+        .iter()
+        .find(|waiting| waiting.id == id)
+        .map(|waiting| {
+            let line = text_now[..waiting.range.start].matches('\n').count() + 1;
+            format!("(line {line})")
+        })
+        .unwrap_or_default();
     let mut size = format!("{:+} words", card.words);
     if let Some(tokens) = card.tokens {
         size.push_str(&format!(" · {tokens:+} tokens"));
     }
-    let new_text = match suggestion.replace.is_empty() {
-        true => format!("deletes \u{201c}{}\u{201d}", suggestion.find),
-        false => format!("\u{201c}{}\u{201d}", suggestion.replace),
-    };
-    let italic = Font {
-        style: iced::font::Style::Italic,
-        ..MONO
-    };
-    let mut body = column![
-        row![
-            dot(color),
-            container(text("Edit").size(12)).width(Fill),
-            muted(size),
-        ]
-        .spacing(8)
-        .align_y(iced::Center),
-        text(new_text).size(14).font(italic),
-    ]
-    .spacing(10);
+    let call = row![
+        line("propose_edit", |roles| roles.accent_cool),
+        line(place, subtle),
+        space::horizontal(),
+        line(size, subtle),
+    ];
+    let mut diff = column![];
+    if !suggestion.find.is_empty() {
+        diff = diff.push(
+            rich_text([
+                span::<(), Font>("− ").color(roles.fg_muted),
+                span(suggestion.find.as_str())
+                    .color(roles.fg_muted)
+                    .strikethrough(true),
+            ])
+            .size(SIZE)
+            .line_height(LINE),
+        );
+    }
+    if !suggestion.replace.is_empty() {
+        let added = format!("+ {}", suggestion.replace);
+        diff = diff.push(line(added, |roles| roles.accent_aqua));
+    }
     if !suggestion.why.trim().is_empty() {
-        body = body.push(step(suggestion.why.clone()));
+        diff = diff.push(line(format!("# {}", suggestion.why.trim()), subtle));
     }
     let shorter = app
         .can_ask()
         .then_some(Message::Assistant(AssistantAction::TryShorter(id)));
-    body = body.push(
-        row![
-            chat_button(
-                "Accept",
-                Look::Primary,
-                Some(Message::Decide(Decision::Accept(Some(id))))
-            ),
-            chat_button(
-                "Reject",
-                Look::Framed,
-                Some(Message::Decide(Decision::Reject(Some(id))))
-            ),
-            chat_button("Try shorter", Look::Quiet, shorter),
-        ]
-        .spacing(8),
-    );
-    container(body)
-        .padding(12)
-        .width(Fill)
-        .style(|theme: &Theme| {
-            let roles = Roles::of(theme);
-            container::Style {
-                background: Some(Background::Color(roles.bg_raised)),
-                text_color: Some(roles.fg),
-                border: Border::default().rounded(10).width(1).color(roles.border),
-                ..container::Style::default()
-            }
-        })
-        .into()
+    let buttons = row![
+        word(
+            "accept",
+            accent_text,
+            Some(Message::Decide(Decision::Accept(Some(id))))
+        ),
+        word(
+            "reject",
+            fg_muted,
+            Some(Message::Decide(Decision::Reject(Some(id))))
+        ),
+        word("try shorter", fg_muted, shorter),
+    ]
+    .spacing(CH);
+    // Indented two characters, the buttons' text lined up with the diff's inside their padding.
+    column![
+        call,
+        container(diff).padding(Padding::default().left(2.0 * CH)),
+        container(buttons).padding(Padding::default().left(2.0 * CH - 4.0)),
+    ]
+    .into()
 }
 
-/// The message box and Send (Stop while a reply is coming). Enter sends; Shift+Enter starts a
-/// new line.
+/// The composer: a `>` prompt and the message box, and stop while a reply is coming. Enter
+/// sends; Shift+Enter starts a new line.
 fn composer(app: &App) -> Element<'_, Message> {
     let assistant = &app.assistant;
     let placeholder = if app.settings.model.trim().is_empty() {
-        "Set a model in Settings first"
+        "set a model in Settings first"
     } else {
-        "Ask about this text…"
+        "ask about this text · Enter sends"
     };
     let input = text_editor(&assistant.composer)
         .id(COMPOSER_ID)
         .placeholder(placeholder)
         .on_action(|action| Message::Assistant(AssistantAction::Composer(action)))
         .key_binding(composer_keys)
-        .size(14)
-        .padding([5, 0])
+        .size(SIZE)
+        .line_height(LINE)
+        .padding(0)
         .max_height(160.0)
         .style(|theme: &Theme, _status| {
             let roles = Roles::of(theme);
@@ -399,34 +366,16 @@ fn composer(app: &App) -> Element<'_, Message> {
                 selection: roles.accent_cool.scale_alpha(0.35),
             }
         });
-    let action = match assistant.conversation.busy {
-        true => chat_button(
-            "Stop",
-            Look::Framed,
+    let mut prompt = row![line(">", accent_text), input].spacing(CH);
+    if assistant.conversation.busy {
+        prompt = prompt.push(word(
+            "stop",
+            accent_text,
             Some(Message::Assistant(AssistantAction::Stop)),
-        ),
-        false => chat_button(
-            "Send",
-            Look::Primary,
-            app.can_ask()
-                .then_some(Message::Assistant(AssistantAction::Send)),
-        ),
-    };
-    container(row![input, action].spacing(8).align_y(iced::Bottom))
-        .padding(Padding {
-            top: 6.0,
-            right: 6.0,
-            bottom: 6.0,
-            left: 12.0,
-        })
-        .style(|theme: &Theme| {
-            let roles = Roles::of(theme);
-            container::Style {
-                background: Some(Background::Color(roles.bg_raised)),
-                border: Border::default().rounded(10).width(1).color(roles.border),
-                ..container::Style::default()
-            }
-        })
+        ));
+    }
+    container(prompt)
+        .padding(Padding::default().top(SIZE * LINE))
         .into()
 }
 
@@ -443,56 +392,38 @@ fn composer_keys(press: KeyPress) -> Option<Binding<Message>> {
     }
 }
 
-/// How a chat button looks: filled (the main action), framed, or just muted words.
-#[derive(Clone, Copy)]
-enum Look {
-    Primary,
-    Framed,
-    Quiet,
-}
-
-/// A button in the pane; `None` draws it disabled.
-fn chat_button<'a>(label: &'a str, look: Look, on_press: Option<Message>) -> Element<'a, Message> {
-    button(text(label).size(13).wrapping(Wrapping::None))
-        .padding([5, 12])
-        .style(move |theme: &Theme, status| {
-            let roles = Roles::of(theme);
-            let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
-            let disabled = status == button::Status::Disabled;
-            let (background, text_color, border) = match look {
-                Look::Primary => (Some(roles.btn_bg), roles.btn_fg, Color::TRANSPARENT),
-                Look::Framed => (
-                    Some(if hovered {
-                        roles.bg_inset
-                    } else {
-                        roles.bg_raised
-                    }),
-                    roles.fg,
-                    roles.border,
-                ),
-                Look::Quiet => (
-                    hovered.then_some(roles.bg_inset),
-                    roles.fg_muted,
-                    Color::TRANSPARENT,
-                ),
-            };
-            button::Style {
-                background: background.map(|color| {
-                    Background::Color(if disabled {
-                        color.scale_alpha(0.5)
-                    } else {
-                        color
-                    })
-                }),
-                text_color: if disabled {
-                    text_color.scale_alpha(0.6)
-                } else {
-                    text_color
-                },
-                border: Border::default().rounded(6).width(1).color(border),
-                ..button::Style::default()
-            }
-        })
-        .on_press_maybe(on_press)
-        .into()
+/// A word that is a button, as Settings' values are: in `color`, framed while hovered, and
+/// dimmed when `on_press` is `None`.
+fn word<'a>(
+    label: &'a str,
+    color: fn(&Roles) -> Color,
+    on_press: Option<Message>,
+) -> Element<'a, Message> {
+    button(
+        text(label)
+            .size(SIZE)
+            .line_height(LINE)
+            .wrapping(Wrapping::None),
+    )
+    .padding([0, 4])
+    .style(move |theme: &Theme, status| {
+        let roles = Roles::of(theme);
+        let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
+        let text_color = match status {
+            button::Status::Disabled => roles.fg_subtle.scale_alpha(0.6),
+            _ => color(roles),
+        };
+        button::Style {
+            background: None,
+            text_color,
+            border: Border::default().rounded(4).width(1).color(if hovered {
+                roles.border
+            } else {
+                Color::TRANSPARENT
+            }),
+            ..button::Style::default()
+        }
+    })
+    .on_press_maybe(on_press)
+    .into()
 }

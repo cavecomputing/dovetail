@@ -798,7 +798,7 @@ impl App {
         ));
     }
 
-    /// Accepts or rejects suggestions (from their buttons, Tab or Esc, a card, or New chat), and
+    /// Accepts or rejects suggestions (from their buttons, Tab or Esc, the chat, or new chat), and
     /// marks their cards.
     pub fn decide(&mut self, decision: Decision) {
         if !self.editable() {

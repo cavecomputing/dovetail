@@ -1,8 +1,7 @@
 //! The Gruvbox palette as named roles (from docs/design-tokens.json), the bundled font, and the
 //! few widget styles more than one file uses. Colours anywhere else come from `Roles`, never hex.
 
-use iced::widget::text::Wrapping;
-use iced::widget::{button, container, text};
+use iced::widget::{button, container};
 use iced::{Background, Border, Color, Font, Theme, color};
 
 pub const FONT_REGULAR: &[u8] =
@@ -152,16 +151,6 @@ pub fn bold() -> Font {
         weight: iced::font::Weight::Bold,
         ..MONO
     }
-}
-
-/// Small muted words on one line, such as counts beside a heading.
-pub fn muted<'a>(words: impl text::IntoFragment<'a>) -> text::Text<'a> {
-    text(words)
-        .size(12)
-        .wrapping(Wrapping::None)
-        .style(|theme: &Theme| text::Style {
-            color: Some(Roles::of(theme).fg_muted),
-        })
 }
 
 /// A row of a menu or panel: filled only while hovered.
