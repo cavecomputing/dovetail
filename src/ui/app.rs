@@ -151,7 +151,8 @@ pub fn run(doc: Doc) -> iced::Result {
 #[cfg_attr(target_os = "macos", allow(clippy::needless_update))]
 fn window_settings() -> window::Settings {
     window::Settings {
-        size: Size::new(960.0, 720.0),
+        // Fits a 1080p laptop screen at Windows' usual 150% scale: 720 high, less the taskbar.
+        size: Size::new(960.0, 640.0),
         min_size: Some(Size::new(360.0, 240.0)),
         // macOS keeps its own title bar, see-through and untitled: its buttons sit in our top
         // strip, and it resizes the window itself (see `window_controls`).
