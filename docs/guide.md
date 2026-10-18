@@ -42,13 +42,13 @@ scripts look for the build in the repository's own `target/` folder, so unset `C
 
 - **Linux**: the binary goes to `~/.local/bin/dovetail`, the icon under
   `~/.local/share/icons/hicolor/`, and a `.desktop` entry in `~/.local/share/applications/`, so app
-  launchers find Dovetail and file managers offer it for text, Markdown and config files.
+  launchers find Dovetail and file managers offer it for text, Markdown and config files and shell scripts.
 - **macOS**: you get `~/Applications/Dovetail.app` (signed ad hoc, so no Apple developer account is
   needed) and a `dovetail` command in `~/.local/bin`. The app can't be a file's "Open With" app
   yet, so open files from the terminal or from inside the app.
 - **Windows**: `dovetail.exe` goes to `%LOCALAPPDATA%\Programs\Dovetail\`, with a Start Menu entry,
   and Dovetail joins the "Open with" list for `.txt`, Markdown and config files (`.json`, `.yaml`,
-  `.yml`, `.toml`, `.ini`, `.cfg`, `.conf`).
+  `.yml`, `.toml`, `.ini`, `.cfg`, `.conf`) and shell scripts (`.sh`, `.bash`).
 
 To run `dovetail` from a terminal, its folder must be on your `PATH`: `~/.local/bin` on Linux and
 macOS, `%LOCALAPPDATA%\Programs\Dovetail` on Windows. The scripts tell you if it isn't. On Linux
@@ -143,6 +143,12 @@ the status bar says where and why, as for JSON. INI has no single standard, so t
 that each line is a `[section]`, a `key = value` (or `key: value`), a `;` or `#` comment, or
 indented to carry on the value above it. There's no Format for these: rewriting them would lose
 your comments and layout.
+
+**Shell scripts** (`.sh`, `.bash`, or a file with no extension whose first line is a `#!` naming
+`sh`, `bash` or `dash`, such as `#!/usr/bin/env bash`) are coloured too: keywords like `if`,
+`then`, `for`, `do`, `case` and `local` orange, `$variables` and `${…}` blue (also inside `"…"`
+strings), strings green, assignments (`NAME=`) and function names blue, and comments grey. A
+here-document (`cat <<EOF`) is coloured as text down to its closing word.
 
 Files must be UTF-8, which almost every editor writes today. Any other file opens empty and
 read-only, and the status bar says why; the file itself is never touched. A file keeps its line

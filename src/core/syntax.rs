@@ -1,11 +1,13 @@
-//! Which kind of text a document is (plain, Markdown, JSON, YAML, TOML or INI, by its file's
-//! extension), the parts of a data file's line that get coloured, and whether its text is valid.
+//! Which kind of text a document is (plain, Markdown, JSON, YAML, TOML, INI or a shell script,
+//! by its file's extension), the parts of a data file's line that get coloured, and whether its
+//! text is valid.
 
 use std::path::Path;
 
 use crate::core::config::{ini_problem, toml_problem, yaml_problem};
 use crate::core::json::json_problem;
 use crate::core::markdown::is_markdown;
+use crate::core::shell::is_shell_script;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Syntax {
@@ -16,11 +18,14 @@ pub enum Syntax {
     Yaml,
     Toml,
     Ini,
+    /// A .sh or .bash file, or one with no extension whose `#!` line names sh or bash.
+    Shell,
 }
 
 impl Syntax {
-    /// The syntax of the file at `path`, by its extension in any case.
-    pub fn of(path: &Path) -> Syntax {
+    /// The syntax of the file at `path`, by its extension in any case, or for a file with no
+    /// extension by the `#!` line at the top of its `text`.
+    pub fn of(path: &Path, text: &str) -> Syntax {
         if is_markdown(path) {
             return Syntax::Markdown;
         }
@@ -30,6 +35,8 @@ impl Syntax {
             Some("yaml" | "yml") => Syntax::Yaml,
             Some("toml") => Syntax::Toml,
             Some("ini" | "cfg" | "conf") => Syntax::Ini,
+            Some("sh" | "bash") => Syntax::Shell,
+            None if is_shell_script(text) => Syntax::Shell,
             _ => Syntax::Plain,
         }
     }
@@ -38,7 +45,7 @@ impl Syntax {
     /// Markdown have nothing to check.
     pub fn problem(self, text: &str) -> Option<String> {
         match self {
-            Syntax::Plain | Syntax::Markdown => None,
+            Syntax::Plain | Syntax::Markdown | Syntax::Shell => None,
             Syntax::Json => json_problem(text),
             Syntax::Yaml => yaml_problem(text),
             Syntax::Toml => toml_problem(text),
@@ -81,7 +88,7 @@ mod tests {
 
     #[test]
     fn a_files_syntax_comes_from_its_extension() {
-        let syntax = |name| Syntax::of(Path::new(name));
+        let syntax = |name| Syntax::of(Path::new(name), "");
         assert_eq!(syntax("notes.txt"), Syntax::Plain);
         assert_eq!(syntax("notes.MD"), Syntax::Markdown);
         assert_eq!(syntax("export.json"), Syntax::Json);
@@ -91,6 +98,19 @@ mod tests {
         assert_eq!(syntax("php.ini"), Syntax::Ini);
         assert_eq!(syntax("setup.cfg"), Syntax::Ini);
         assert_eq!(syntax("toml"), Syntax::Plain);
+        assert_eq!(syntax("deploy.sh"), Syntax::Shell);
+        assert_eq!(syntax("init.BASH"), Syntax::Shell);
+    }
+
+    #[test]
+    fn a_file_with_no_extension_can_be_a_shell_script_by_its_first_line() {
+        let script = "#!/usr/bin/env bash\necho hi\n";
+        assert_eq!(Syntax::of(Path::new("bin/deploy"), script), Syntax::Shell);
+        assert_eq!(Syntax::of(Path::new("notes.txt"), script), Syntax::Plain);
+        assert_eq!(
+            Syntax::of(Path::new("bin/deploy"), "echo hi"),
+            Syntax::Plain
+        );
     }
 
     #[test]

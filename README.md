@@ -11,7 +11,7 @@ into a scratchpad that remembers exactly where you left off. Each launch gets it
 opening another file from inside one swaps it in, once the one you're leaving is saved. Everything
 saves itself as you type, so there's no "save changes?" prompt, ever.
 
-Markdown, JSON, YAML, TOML and INI files are coloured as you type (the text stays exactly as you
+Markdown, JSON, YAML, TOML, INI and shell script files are coloured as you type (the text stays exactly as you
 wrote it), and the data and config files are checked too: the status bar says where one stops
 being valid. JSON files can be formatted or minified from the command palette.
 
