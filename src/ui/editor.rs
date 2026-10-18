@@ -10,6 +10,7 @@ use iced::advanced::text::highlighter::{self, Highlighter};
 use iced::keyboard::{Key, key::Named};
 use iced::widget::container;
 use iced::widget::text::Wrapping;
+use iced::widget::text_editor::Motion;
 use iced::{Background, Border, Color, Element, Fill, Font, Padding, Theme};
 
 use crate::core::markup::{Markup, markup_ranges};
@@ -119,6 +120,19 @@ fn key_binding(
         )
     {
         return None;
+    }
+    // macOS: ⌘↑ and ⌘↓ go to the start and end of the text, as ⌘← and ⌘→ go to the line's.
+    if press.modifiers.macos_command()
+        && let Key::Named(arrow @ (Named::ArrowUp | Named::ArrowDown)) = press.key.as_ref()
+    {
+        let motion = match arrow {
+            Named::ArrowUp => Motion::DocumentStart,
+            _ => Motion::DocumentEnd,
+        };
+        return Some(match press.modifiers.shift() {
+            true => Binding::Select(motion),
+            false => Binding::Move(motion),
+        });
     }
     if reviewing
         && let Some(Binding::<Message>::Cut | Binding::Copy) =
@@ -617,7 +631,6 @@ mod tests {
     use crate::core::review::{BUTTON_ROOM, GHOST_START};
     use iced::keyboard::Modifiers;
     use iced::keyboard::key::{Code, Physical};
-    use iced::widget::text_editor::Motion;
 
     fn cursor_at(line: usize, column: usize) -> Cursor {
         Cursor {
@@ -840,6 +853,27 @@ mod tests {
             selection: Some(pane.position(4, true)),
         });
         assert_eq!(pane.copied().as_deref(), Some("uick. St"));
+    }
+
+    #[test]
+    fn command_up_goes_to_the_start_of_the_text_on_macos() {
+        let command_up = KeyPress {
+            key: Key::Named(Named::ArrowUp),
+            modified_key: Key::Named(Named::ArrowUp),
+            physical_key: Physical::Code(Code::ArrowUp),
+            modifiers: Modifiers::LOGO,
+            text: None,
+            status: Status::Focused { is_hovered: false },
+        };
+        let Some(Binding::Move(motion)) = key_binding(command_up, 4, true, false) else {
+            panic!("⌘↑ doesn't move the caret");
+        };
+        let start = if cfg!(target_os = "macos") {
+            Motion::DocumentStart
+        } else {
+            Motion::Up
+        };
+        assert_eq!(motion, start);
     }
 
     #[test]
