@@ -41,7 +41,7 @@ Matt writes prompts by putting two Typora windows side by side: the old version 
 - `Ctrl+,` opens Settings, a panel over the window (Matt, 2026-10-18: not a separate window). See §10.
 - `Ctrl+L` opens and closes the assistant pane.
 - The usual editor keys too (Matt, 2026-10-18): `Ctrl+N` new file (asks where, opens in its own window), `Ctrl+O` open, `Ctrl+S` save (see §4), `Ctrl+Shift+S` save as, `Ctrl+W` close the window, `Ctrl+F` find, `Ctrl+=` / `Ctrl+-` font size.
-- On macOS each `Ctrl` shortcut is `⌘` instead, and the menu and hints write shortcuts the macOS way (`⇧⌘S`). macOS also gets its usual `⌘↑` / `⌘↓` (start and end of the text), `⌘M` (minimize) and `⌘G` / `⇧⌘G` (next and previous match), and `Ctrl+A` / `Ctrl+E` keep their macOS meaning of line start and end. `⌘Q` closes the window, so it waits for the save like any close (§4).
+- On macOS each `Ctrl` shortcut is `⌘` instead, and the menu and hints write shortcuts the macOS way (`⇧⌘S`). macOS also gets its usual `⌘↑` / `⌘↓` (start and end of the text), `⌘M` (minimize) and `⌘G` / `⇧⌘G` (next and previous match). `⌘Q` closes the window, so it waits for the save like any close (§4).
 - **Find** (`Ctrl+F`): a bar just above the status bar. Matches ignore case and are lit up in the text, the current one outlined; Enter and Shift+Enter step through them, Esc closes the bar and leaves the match selected. On the `rewrite` branch, in a project it searches the draft.
 - Startup has to be near-instant: launch, jot, close. This is a key reason to prefer pure Rust over a webview.
 - Launch from the app menu or a short terminal command.
@@ -52,7 +52,7 @@ Matt writes prompts by putting two Typora windows side by side: the old version 
 - **Everything autosaves**, scratch included. There's never a "save changes?" prompt.
 - `Ctrl+S` still does something useful (Matt, 2026-10-18). In a `.txt` (or a project, on the `rewrite` branch) it writes now instead of after the pause. Scratch has no file, so there it asks where to save: the window becomes that `.txt`, and scratch is cleared with its text kept for the next scratch window's undo (as after a Rewrite, on the `rewrite` branch).
 - `Ctrl+Shift+S` (Save as) moves a `.txt` to a new file and keeps editing there; the old file keeps its last save. On the `rewrite` branch, projects live in their own folder, so they have no Save as.
-- **Closing waits for the save.** The window only closes once the latest autosave has been written. If a save fails, the window stays open and says why. Known gap on macOS: Quit from the Dock and logging out end the app without waiting (`⌘Q` and the app menu's Quit do wait).
+- **Closing waits for the save.** The window only closes once the latest autosave has been written. If a save fails, the window stays open and says why. Known gap: logging out, shutting down or restarting the computer (every OS; on Windows that includes Windows Update's restarts), and Quit from the Dock on macOS, end the app without waiting (`⌘Q` and the app menu's Quit do wait).
 - The scratch space persists between launches as a single document.
 - Plain docs are ordinary `.txt` files.
 

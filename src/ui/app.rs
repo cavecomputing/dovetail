@@ -158,8 +158,9 @@ fn window_settings() -> window::Settings {
         // strip, and it resizes the window itself (see `window_controls`).
         decorations: cfg!(target_os = "macos"),
         exit_on_close_request: false,
-        // X11 shows this in task bars and Windows in the title bar. Wayland finds the icon through
-        // the .desktop file, and macOS, which has no window icons, through the app bundle.
+        // X11 and Windows show this on the taskbar (Windows also in Alt+Tab, scaled up from its
+        // small icon). Wayland finds the icon through the .desktop file, and macOS, which has no
+        // window icons, through the app bundle.
         icon: window::icon::from_rgba(APP_ICON_RGBA.to_vec(), 64, 64).ok(),
         platform_specific: window::settings::PlatformSpecific {
             // Each OS has its own fields here, and only Linux has an app id.
