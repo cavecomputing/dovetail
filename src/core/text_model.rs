@@ -690,7 +690,11 @@ mod tests {
         assert_eq!(model.text(), "one\ntwo\none\ntwo\nthree");
         model.undo();
         model.duplicate_lines(2..=2);
-        assert_eq!(model.text(), "one\ntwo\nthree\nthree", "the last line, with no newline");
+        assert_eq!(
+            model.text(),
+            "one\ntwo\nthree\nthree",
+            "the last line, with no newline"
+        );
     }
 
     #[test]
@@ -700,10 +704,17 @@ mod tests {
         assert_eq!(model.text(), "three");
         model.undo();
         model.delete_lines(2..=2);
-        assert_eq!(model.text(), "one\ntwo", "the last line takes the newline before it");
+        assert_eq!(
+            model.text(),
+            "one\ntwo",
+            "the last line takes the newline before it"
+        );
         model.delete_lines(0..=1);
         assert_eq!(model.text(), "");
-        assert!(model.delete_lines(0..=0).is_empty(), "nothing left to delete");
+        assert!(
+            model.delete_lines(0..=0).is_empty(),
+            "nothing left to delete"
+        );
         model.undo();
         assert_eq!(model.text(), "one\ntwo");
     }

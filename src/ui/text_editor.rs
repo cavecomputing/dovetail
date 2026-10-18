@@ -109,6 +109,8 @@ pub enum PaintLook {
     Buttons { id: u64 },
     /// A find match: a fill, and an outline in this colour for the selected one.
     Found { outline: Option<Color> },
+    /// A caret at `start` (one of Ctrl+D's other places), in its colour.
+    Caret,
 }
 
 impl<'a, Message, Theme, Renderer> TextEditor<'a, highlighter::PlainText, Message, Theme, Renderer>
@@ -627,6 +629,14 @@ fn draw_paint<R: renderer::Renderer>(
             if run.start.line > row.line_i || run.end.line < row.line_i {
                 continue;
             }
+            if run.look == PaintLook::Caret {
+                if let Some(x) = caret_x(&row, run.start) {
+                    let x = text_bounds.x + x - scroll_x;
+                    let caret = Rectangle::new(Point::new(x, top), Size::new(1.0, box_height));
+                    fill(caret, square, run.color);
+                }
+                continue;
+            }
             let start = cosmic_text::Cursor::new(run.start.line, run.start.column);
             let end = cosmic_text::Cursor::new(run.end.line, run.end.column);
             let Some((x, width)) = row.highlight(start, end).filter(|(_, width)| *width > 0.0)
@@ -635,7 +645,7 @@ fn draw_paint<R: renderer::Renderer>(
             };
             let x = text_bounds.x + x - scroll_x;
             match run.look {
-                PaintLook::Buttons { .. } => {}
+                PaintLook::Buttons { .. } | PaintLook::Caret => {}
                 PaintLook::Found { outline: color } => {
                     let outline = Rectangle::new(Point::new(x, top), Size::new(width, box_height));
                     let lit = run.color.scale_alpha(FOUND_ALPHA);
@@ -673,6 +683,22 @@ fn draw_paint<R: renderer::Renderer>(
                 }
             }
         }
+    }
+}
+
+/// ours: how far along `row` a caret at `at` sits, if it's on that row: before the glyph starting
+/// there, or after the row's last glyph.
+fn caret_x(row: &cosmic_text::LayoutRun<'_>, at: Position) -> Option<f32> {
+    if row.line_i != at.line {
+        return None;
+    }
+    let Some(last) = row.glyphs.last() else {
+        return (at.column == 0).then_some(0.0);
+    };
+    match row.glyphs.iter().find(|glyph| glyph.end > at.column) {
+        Some(glyph) if glyph.start <= at.column => Some(glyph.x),
+        _ if last.end == at.column => Some(last.x + last.w),
+        _ => None,
     }
 }
 

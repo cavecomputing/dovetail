@@ -14,6 +14,7 @@ use iced::widget::text::Wrapping;
 use iced::widget::text_editor::Motion;
 use iced::{Background, Border, Element, Fill, Padding, Theme};
 
+use crate::core::find::{find_all, word_at};
 use crate::core::markdown::{BOLD, ITALIC, ListEnter, is_list_item, list_enter, toggle_marker};
 use crate::core::review::{DisplayMap, Review, Shown, Suggestion, clashes};
 use crate::core::settings::{ReadingMode, Settings};
@@ -30,6 +31,8 @@ use crate::ui::theme::{CHAR_WIDTH_RATIO, Roles};
 pub const EDITOR_ID: &str = "doc";
 /// Why an edit to the text a suggestion changes was refused.
 const IN_A_SUGGESTION: &str = "Accept or reject the suggestion there first";
+/// Why Ctrl+D was refused.
+const REVIEWING: &str = "Accept or reject the suggestions first";
 pub const LINE_HEIGHT: f32 = 1.5;
 /// Text starts near the top left, like any text editor, with just enough room to breathe.
 pub const PADDING: Padding = Padding {
@@ -198,6 +201,7 @@ fn key_binding(press: KeyPress, editable: bool, reviewing: bool) -> Option<Bindi
             Key::Character("d" | "D") if press.modifiers.shift() => {
                 Some(Binding::Custom(Message::DuplicateLines))
             }
+            Key::Character("d") => Some(Binding::Custom(Message::SelectNextMatch)),
             Key::Character("k" | "K") if press.modifiers.shift() => {
                 Some(Binding::Custom(Message::DeleteLines))
             }
@@ -249,6 +253,10 @@ pub struct Pane {
     /// While any suggestions wait: the text with them spliced in, which the widget shows, and
     /// how it maps back to the text.
     display: Option<DisplayMap>,
+    /// The places Ctrl+D selected besides the widget's own selection, as byte ranges of the
+    /// model's text in order. Typing changes them all; then each is a caret (an empty range).
+    /// Moving the caret, or any other edit, lets them go.
+    others: Vec<Range<usize>>,
 }
 
 impl Pane {
@@ -258,6 +266,7 @@ impl Pane {
             model: TextModel::new(text.to_string()),
             review: Review::default(),
             display: None,
+            others: Vec::new(),
         }
     }
 
@@ -276,6 +285,7 @@ impl Pane {
     /// text). The caret stays where it is. Returns its id, or why it was refused.
     pub fn suggest(&mut self, range: Range<usize>, text: &str) -> Result<u64, String> {
         let caret = self.to_text(self.content.cursor().position);
+        self.others.clear();
         let id = self
             .review
             .add(self.model.text(), range, &newlines_only(text))?;
@@ -334,6 +344,7 @@ impl Pane {
 
     /// Puts the caret at byte `offset` of the model's text, with nothing selected.
     fn put_caret(&mut self, offset: usize) {
+        self.others.clear();
         let position = self.position(offset, true);
         self.content.move_to(Cursor {
             position,
@@ -379,6 +390,7 @@ impl Pane {
     /// Selects byte range `range` of the model's text with the caret at its end, which scrolls
     /// it into view.
     pub fn select(&mut self, range: Range<usize>) {
+        self.others.clear();
         let start = self.position(range.start, false);
         let end = self.position(range.end, false);
         self.content.move_to(Cursor {
@@ -468,6 +480,9 @@ impl Pane {
     /// the text they change (or to their ghost text) is refused, with the reason.
     pub fn perform(&mut self, action: Action) -> Result<bool, String> {
         if !action.is_edit() {
+            if !matches!(action, Action::Scroll { .. }) {
+                self.others.clear();
+            }
             self.content.perform(action);
             return Ok(false);
         }
@@ -478,6 +493,11 @@ impl Pane {
             }
             other => other,
         };
+        if let Action::Edit(edit) = &action
+            && !self.others.is_empty()
+        {
+            return self.edit_every(edit.clone());
+        }
         let cursor = self.content.cursor();
         let anchor = cursor.selection.unwrap_or(cursor.position);
         let text = self.shown();
@@ -531,6 +551,154 @@ impl Pane {
         }
         self.show_review();
         Ok(recorded.is_some())
+    }
+
+    /// Ctrl+D. With nothing selected it selects the word at the caret. With text selected it
+    /// selects the next place the same text appears too (matching case, and whole words for a
+    /// word, round to the top after the end), so typing then changes every selected place at
+    /// once. Refused while suggestions
+    /// wait. Returns whether anything more was selected, or why it can't.
+    pub fn select_next_match(&mut self) -> Result<bool, String> {
+        if self.reviewing() {
+            return Err(REVIEWING.to_string());
+        }
+        let text = self.model.text();
+        let Some(selected) = self.selection() else {
+            let Some(word) = word_at(text, self.caret()) else {
+                return Ok(false);
+            };
+            self.select(word);
+            return Ok(true);
+        };
+        let taken = |range: &Range<usize>| *range == selected || self.others.contains(range);
+        // A whole word selected matches whole words, so "cat" skips "catalog".
+        let whole_word = word_at(text, selected.start) == Some(selected.clone());
+        let matches = find_all(text, &text[selected.clone()], true, whole_word);
+        let mut free = matches.iter().filter(|range| !taken(range));
+        let next = match free.clone().find(|range| range.start >= selected.end) {
+            Some(next) => next.clone(),
+            None => match free.next() {
+                Some(first) => first.clone(),
+                None => return Ok(false),
+            },
+        };
+        let mut others = std::mem::take(&mut self.others);
+        others.push(selected);
+        others.sort_by_key(|range| range.start);
+        self.select(next);
+        self.others = others;
+        Ok(true)
+    }
+
+    /// The places Ctrl+D selected besides the widget's own, as the editor draws them: a caret at
+    /// the end of each, over a fill for one that holds text.
+    pub fn other_runs(&self, roles: &Roles) -> Vec<PaintRun> {
+        let mut runs = Vec::new();
+        for range in &self.others {
+            let (start, end) = (
+                self.position(range.start, false),
+                self.position(range.end, true),
+            );
+            if !range.is_empty() {
+                let look = PaintLook::Found { outline: None };
+                let color = roles.accent_cool;
+                runs.push(PaintRun {
+                    start,
+                    end,
+                    color,
+                    look,
+                });
+            }
+            let (start, color, look) = (end, roles.fg, PaintLook::Caret);
+            runs.push(PaintRun {
+                start,
+                end,
+                color,
+                look,
+            });
+        }
+        runs
+    }
+
+    /// Lets go of the places Ctrl+D selected, keeping the widget's own selection (Esc).
+    pub fn clear_others(&mut self) {
+        self.others.clear();
+    }
+
+    /// `edit`, made while Ctrl+D has several places selected: the same edit at each, as one undo
+    /// step, after which each is a caret after its new text. Backspace and Delete at a caret take
+    /// the character before or after it. Indent and Unindent let the other places go and act on
+    /// the widget's own selection alone. Returns whether the text changed.
+    fn edit_every(&mut self, edit: Edit) -> Result<bool, String> {
+        let typed = match &edit {
+            Edit::Insert(c) => c.to_string(),
+            Edit::Paste(pasted) => pasted.to_string(),
+            Edit::Enter => "\n".to_string(),
+            Edit::Backspace | Edit::Delete => String::new(),
+            Edit::Indent | Edit::Unindent => {
+                self.others.clear();
+                return self.perform(Action::Edit(edit));
+            }
+        };
+        let caret = self.caret();
+        let main = self.selection().unwrap_or(caret..caret);
+        let text = self.model.text();
+        // Each place, and whether it's the widget's own.
+        let mut places: Vec<(Range<usize>, bool)> = self
+            .others
+            .iter()
+            .map(|range| (range.clone(), false))
+            .collect();
+        places.push((main, true));
+        places.sort_by_key(|(range, _)| range.start);
+        for (range, _) in &mut places {
+            match edit {
+                Edit::Backspace if range.start == range.end => {
+                    range.start -= text[..range.start]
+                        .chars()
+                        .next_back()
+                        .map_or(0, char::len_utf8);
+                }
+                Edit::Delete if range.start == range.end => {
+                    range.end += text[range.end..].chars().next().map_or(0, char::len_utf8);
+                }
+                _ => {}
+            }
+        }
+        // Carets side by side can now overlap: merge them, keeping which one is the widget's.
+        let mut merged: Vec<(Range<usize>, bool)> = Vec::new();
+        for (range, main) in places {
+            match merged.last_mut() {
+                Some((last, last_main)) if range.start < last.end => {
+                    last.end = last.end.max(range.end);
+                    *last_main |= main;
+                }
+                _ => merged.push((range, main)),
+            }
+        }
+        let edits: Vec<(Range<usize>, &str)> = merged
+            .iter()
+            .filter(|(range, _)| !(range.is_empty() && typed.is_empty()))
+            .map(|(range, _)| (range.clone(), typed.as_str()))
+            .collect();
+        let changes = self.model.replace_each(&edits);
+        let changed = self.replay(&changes);
+        // Where each place's caret is now: after its new text, moved by the edits before it.
+        let (mut moved, mut main_caret, mut others) = (0isize, 0, Vec::new());
+        for (range, main) in &merged {
+            let at = range.start.saturating_add_signed(moved) + typed.len();
+            moved += typed.len() as isize - range.len() as isize;
+            match main {
+                true => main_caret = at,
+                false => others.push(at..at),
+            }
+        }
+        // Carets that met are one caret now.
+        others.dedup();
+        others.retain(|caret| caret.start != main_caret);
+        self.put_caret(main_caret);
+        self.others = others;
+        Ok(changed)
     }
 
     /// The selected text as a byte range of the model's text, or `None` when nothing is
@@ -603,6 +771,9 @@ impl Pane {
     /// line left behind is empty rather than trailing spaces. Returns whether the text changed,
     /// or why it can't.
     pub fn new_line(&mut self) -> Result<bool, String> {
+        if !self.others.is_empty() {
+            return self.perform(Action::Edit(Edit::Enter));
+        }
         let cursor = self.content.cursor();
         let caret = self.caret();
         let range = self.selection().unwrap_or(caret..caret);
@@ -628,6 +799,9 @@ impl Pane {
     /// Anywhere else, in fenced code, or with the caret in the line's prefix, it is `new_line`.
     /// Returns whether the text changed, or why it can't.
     pub fn markdown_new_line(&mut self, tab_spaces: usize) -> Result<bool, String> {
+        if !self.others.is_empty() {
+            return self.new_line();
+        }
         let cursor = self.content.cursor();
         let caret = self.caret();
         let range = self.selection().unwrap_or(caret..caret);
@@ -675,6 +849,9 @@ impl Pane {
     /// stop (a multiple of `tab_spaces`), so one press takes back a Tab; anywhere else, or with a
     /// selection, it deletes as usual. Returns whether the text changed, or why it can't.
     pub fn backspace(&mut self, tab_spaces: usize) -> Result<bool, String> {
+        if !self.others.is_empty() {
+            return self.perform(Action::Edit(Edit::Backspace));
+        }
         let cursor = self.content.cursor();
         let caret = self.caret();
         let text = self.model.text();
@@ -871,6 +1048,7 @@ impl Pane {
     /// with the changes (one a change touches is dropped) and the widget shows the result.
     /// Returns whether there were any changes.
     fn replay(&mut self, changes: &[Change]) -> bool {
+        self.others.clear();
         if self.reviewing() {
             for change in changes {
                 self.review.shift(change, false);
@@ -2045,8 +2223,78 @@ mod tests {
         pane.content.move_to(cursor_at(1, 2));
         pane.delete_lines().unwrap();
         assert_eq!(pane.content.text(), "second line");
-        assert_eq!(pane.caret(), 2, "the line above came up, so the caret is on it");
+        assert_eq!(
+            pane.caret(),
+            2,
+            "the line above came up, so the caret is on it"
+        );
         pane.suggest(0..6, "first").unwrap();
         assert_eq!(pane.delete_lines(), Err(IN_A_SUGGESTION.to_string()));
+    }
+
+    #[test]
+    fn ctrl_d_selects_the_word_then_each_next_match_round_to_the_top() {
+        let mut pane = Pane::new("cat dog cat Cat catalog cat");
+        pane.content.move_to(cursor_at(0, 9));
+        assert_eq!(pane.select_next_match(), Ok(true));
+        assert_eq!(pane.selection(), Some(8..11), "the word at the caret");
+        assert_eq!(pane.select_next_match(), Ok(true));
+        assert_eq!(pane.selection(), Some(24..27), "case matters, and whole words");
+        assert_eq!(pane.select_next_match(), Ok(true));
+        assert_eq!(pane.selection(), Some(0..3), "round to the top");
+        assert_eq!(pane.select_next_match(), Ok(false), "every one is selected");
+        assert_eq!(pane.others, vec![8..11, 24..27]);
+        // Part of a word matches inside words too.
+        pane.select(17..19);
+        pane.select_next_match().unwrap();
+        assert_eq!(pane.selection(), Some(25..27));
+    }
+
+    #[test]
+    fn typing_after_ctrl_d_changes_every_place_as_one_step_each() {
+        let mut pane = Pane::new("cat dog cat");
+        pane.content.move_to(cursor_at(0, 1));
+        pane.select_next_match().unwrap();
+        pane.select_next_match().unwrap();
+        for c in "cow".chars() {
+            assert_eq!(pane.perform(Action::Edit(Edit::Insert(c))), Ok(true));
+        }
+        assert_eq!(pane.content.text(), "cow dog cow");
+        assert_eq!(pane.model.text(), "cow dog cow");
+        assert_eq!(pane.caret(), 11, "the widget's own caret, after the last cow");
+        assert_eq!(pane.others, vec![3..3]);
+        assert_eq!(pane.backspace(4), Ok(true));
+        assert_eq!(pane.content.text(), "co dog co");
+        assert!(pane.undo());
+        assert_eq!(pane.content.text(), "cow dog cow");
+        assert!(pane.others.is_empty(), "undo lets the other places go");
+    }
+
+    #[test]
+    fn moving_the_caret_lets_ctrl_d_places_go() {
+        let mut pane = Pane::new("ab ab");
+        pane.content.move_to(cursor_at(0, 0));
+        pane.select_next_match().unwrap();
+        pane.select_next_match().unwrap();
+        pane.perform(Action::Move(Motion::Right)).unwrap();
+        pane.perform(Action::Edit(Edit::Insert('x'))).unwrap();
+        assert_eq!(pane.content.text(), "ab abx");
+    }
+
+    #[test]
+    fn deleting_at_carets_side_by_side_takes_each_character_once() {
+        let mut pane = Pane::new("aaa");
+        pane.content.move_to(cursor_at(0, 0));
+        pane.select(0..1);
+        pane.others = vec![1..2, 2..3];
+        pane.perform(Action::Edit(Edit::Delete)).unwrap();
+        assert_eq!(pane.content.text(), "");
+        let mut pane = Pane::new("abcd");
+        pane.put_caret(2);
+        pane.others.push(1..1);
+        pane.perform(Action::Edit(Edit::Backspace)).unwrap();
+        assert_eq!(pane.content.text(), "cd", "the a before one caret, the b before the other");
+        assert_eq!(pane.caret(), 0);
+        assert!(pane.others.is_empty(), "the two carets met, so they're one");
     }
 }

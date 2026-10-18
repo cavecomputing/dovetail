@@ -115,6 +115,9 @@ pub enum Message {
     /// Ctrl+Shift+K in the editor: delete the caret's line, or the selected lines
     /// (`Pane::delete_lines`).
     DeleteLines,
+    /// Ctrl+D in the editor: select the word at the caret, or the next place the selected text
+    /// appears as well (`Pane::select_next_match`).
+    SelectNextMatch,
     /// Ctrl+B or Ctrl+I in the editor: in a Markdown file, put this marker (bold's `**` or
     /// italic's `_`, a `*` inside a word) around the selection, or take it off
     /// (`Pane::toggle_marker`).
@@ -384,9 +387,17 @@ impl App {
             | Message::MoveLines { .. }
             | Message::DuplicateLines
             | Message::DeleteLines
+            | Message::SelectNextMatch
             | Message::ToggleMarker(_)
                 if self.editable() =>
             {
+                // Ctrl+D's other places take Backspace and Enter; any other key lets them go.
+                if !matches!(
+                    message,
+                    Message::Backspace | Message::NewLine { .. } | Message::SelectNextMatch
+                ) {
+                    self.pane.clear_others();
+                }
                 let tab_spaces = usize::from(self.settings.tab_spaces);
                 let markdown = self.markdown();
                 let edited = match message {
@@ -401,6 +412,7 @@ impl App {
                     Message::MoveLines { up } => self.pane.move_lines(up),
                     Message::DuplicateLines => self.pane.duplicate_lines(),
                     Message::DeleteLines => self.pane.delete_lines(),
+                    Message::SelectNextMatch => self.pane.select_next_match(),
                     Message::ToggleMarker(marker) if markdown => self.pane.toggle_marker(marker),
                     // Ctrl+B and Ctrl+I outside Markdown do nothing, and the arm's pattern lets
                     // no other message in.
@@ -416,6 +428,7 @@ impl App {
             | Message::MoveLines { .. }
             | Message::DuplicateLines
             | Message::DeleteLines
+            | Message::SelectNextMatch
             | Message::ToggleMarker(_) => {}
             Message::Undo | Message::Redo if self.editable() => {
                 let changed = match message {
@@ -523,9 +536,12 @@ impl App {
                 self.menu_open = false;
                 self.switcher = None;
                 // The find bar sits under all of those, so it closes on an Esc of its own, after
-                // the go to line box over it.
-                if !closed && self.find.line.take().is_none() {
-                    self.find.open = false;
+                // the go to line box over it. Then Esc lets go of Ctrl+D's other places.
+                if !closed
+                    && self.find.line.take().is_none()
+                    && !std::mem::take(&mut self.find.open)
+                {
+                    self.pane.clear_others();
                 }
                 return iced::widget::operation::focus(editor::EDITOR_ID);
             }
@@ -865,8 +881,10 @@ impl App {
     /// The document: the editor, with any suggestions and find matches drawn in it, and
     /// Markdown coloured in a .md file.
     pub fn document_view(&self) -> Element<'_, Message> {
-        let mut paint = self.pane.suggestion_runs(Roles::of(&self.theme));
+        let roles = Roles::of(&self.theme);
+        let mut paint = self.pane.suggestion_runs(roles);
         paint.extend(self.find_runs());
+        paint.extend(self.pane.other_runs(roles));
         editor::view(
             &self.pane,
             &self.settings,
