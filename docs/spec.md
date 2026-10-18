@@ -60,6 +60,7 @@ Matt writes prompts by putting two Typora windows side by side: the old version 
 
 - Text starts at the top left, like any text editor, with only a small margin (Matt, 2026-10-18: a centred, floating column didn't feel like an editor). Word wrap is on by default.
 - Reading mode is either **Full width** (the default) or **Comfort**, which caps lines at a number of characters (80 by default, adjustable), still anchored left.
+- Optional line numbers left of the text, like vim's `set number` (Matt, 2026-10-18), off by default. Ctrl+Shift+L (⇧⌘L on macOS) turns them on and off; it changes the setting, so every window follows and it's remembered. Each line's number is right-aligned against the text, in the text's font and size and on its baseline, and a wrapped line has a number only on its first row. Numbers are in `fg-subtle`, the caret's line in `fg` (vim's CursorLineNr). The gutter is as wide as the largest number needs plus a gap, and widens the column rather than narrowing the text, so Comfort still holds its number of characters. Clicking in it puts the cursor at the start of that row.
 - The Tab key inserts **4 spaces** by default (configurable) and never writes a tab character; with several lines selected it indents each of them.
 - The editing keys do the convenient thing, as in a code editor (Matt, 2026-10-18). Enter starts the new line indented like the one the cursor is on, as far as the cursor; on a line of only spaces the spaces go down with the cursor, so none are left trailing. Backspace in the spaces at the start of a line deletes back to the previous indent stop, so one press takes back a Tab. Ctrl+Backspace and Ctrl+Delete delete the word before or after the cursor (⌥⌫ and ⌥⌦ on macOS, where ⌘⌫ and ⌘⌦ delete to the start and end of the line). Alt+↑ and Alt+↓ (⌥↑ and ⌥↓ on macOS) move the line, or every selected line, up or down.
 - Optional colouring for XML tags and `{{macros}}`. This matters for prompts like Cozy's NanoBear prompt, which uses `<system_instructions status="enabled">`, `{{char}}`, `{{user}}` and `{{#x}}…{{/x}}` blocks. Plain prose has to work just as well.
@@ -79,7 +80,7 @@ Rules:
 - On the `rewrite` branch the bottom-right corner always holds the **next step**: the pen icon on plain docs, Commit in projects. On `main` it holds the assistant toggle.
 - **Save dot:** green means saved (quiet, with the word on hover). Yellow with a gentle pulse means saving. Orange with words means the save failed, for example "Save failed: disk full", and also blocks closing. There's no "unsaved" state, because everything autosaves.
 - The tokenizer and encoding show on hover over the token count, not in the bar. Line and column are off by default and can be turned on.
-- The menu holds new file, open, recent, save as (save to a file in scratch), find, settings and scratch. On the `rewrite` branch a project's menu adds version history and idea weights.
+- The menu holds new file, open, recent, save as (save to a file in scratch), find, show or hide line numbers, settings and scratch. On the `rewrite` branch a project's menu adds version history and idea weights.
 
 ## 7. Projects: the rewrite flow (`rewrite` branch)
 
@@ -143,7 +144,7 @@ A settings panel that opens over the app, from the menu or `Ctrl+,`, in whicheve
 | Section | Settings |
 |---|---|
 | Appearance | Theme (Gruvbox dark / light / follow system), font, font size (default 14), reading mode (Full width, default, or Comfort with a character width) |
-| Editor | Tab inserts N spaces (**default 4**, never tabs), word wrap (**on** by default), XML and macro colouring |
+| Editor | Tab inserts N spaces (**default 4**, never tabs), word wrap (**on** by default), line numbers (**off** by default, Ctrl+Shift+L), XML and macro colouring |
 | Saving | Autosave timing (the `rewrite` branch adds the projects folder) |
 | Assistant | Base URL, API key (keyring), model, request format (Responses, default / Chat Completions), test connection |
 | Window | Window controls: Auto / Always show / Always hide (Linux and Windows; macOS always shows its own) |
