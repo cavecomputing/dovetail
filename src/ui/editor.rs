@@ -1,4 +1,4 @@
-//! The text editing widget: the centred column, Tab as spaces, undo and redo, and XML-tag /
+//! The text editing widget: the text column, Tab as spaces, undo and redo, and XML-tag /
 //! {{macro}} colouring. A `Pane` pairs the widget's content with the text model behind it, and
 //! shows suggested edits inside the text until each is accepted or rejected (review mode).
 
@@ -30,12 +30,13 @@ use crate::ui::theme::{CHAR_WIDTH_RATIO, MONO, Roles};
 pub const EDITOR_ID: &str = "doc";
 /// The left pane of a project: a committed version, read-only.
 pub const REFERENCE_ID: &str = "reference";
-pub const LINE_HEIGHT: f32 = 1.75;
+pub const LINE_HEIGHT: f32 = 1.5;
+/// Text starts near the top left, like any text editor, with just enough room to breathe.
 pub const PADDING: Padding = Padding {
-    top: 56.0,
-    right: 24.0,
-    bottom: 40.0,
-    left: 24.0,
+    top: 12.0,
+    right: 16.0,
+    bottom: 24.0,
+    left: 16.0,
 };
 
 /// The pane's editor in its column, with `paint` (and any suggestions, from `Pane::suggestion_runs`)
@@ -91,7 +92,7 @@ pub fn view<'a>(
         }
         ReadingMode::FullWidth => container(editor),
     };
-    container(column).center_x(Fill).height(Fill).into()
+    container(column).width(Fill).height(Fill).into()
 }
 
 fn style(theme: &Theme, editable: bool) -> text_editor::Style {

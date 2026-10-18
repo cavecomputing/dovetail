@@ -19,7 +19,7 @@ Rewriting a prompt usually means two windows side by side: the old version on th
 - **No branding** in the app: no logo or wordmark.
 - **Colours:** the cavecomputing design system's Gruvbox palette, in dark (default) and light.
   - Roles: `bg-surface` for the window, `bg-page` for the status bar, `bg-raised` for cards and chips, `fg` and `fg-muted` for text. Yellow `accent-text` for focus and active items, aqua for success, orange `accent-warm` for warnings. No red.
-- **Font:** JetBrains Mono Nerd Font everywhere, in both the UI and the editor. This deliberately overrides the design system's system-fonts rule. The Nerd Font glyphs can double as the app's icons.
+- **Font:** JetBrains Mono Nerd Font everywhere, in both the UI and the editor, in its NL build without ligatures (2026-10-18: ligatures like `</` looked cramped). Default size 14. This deliberately overrides the design system's system-fonts rule. The Nerd Font glyphs can double as the app's icons.
 - **Top strip:** about 32px tall, no border, same colour as the page. It holds **only the window controls**, which are plain glyphs, not GNOME circles. No GTK-style big header bars.
   - Auto-sense: hide the app-drawn controls under a tiling WM. On Hyprland, check `HYPRLAND_INSTANCE_SIGNATURE` and/or the Wayland decoration support. Show them everywhere else, since not every machine is tiling. Can be overridden in Settings.
 - **Status bar** at the bottom, VS Code style, 24px, mono 11px. See §6.
@@ -50,8 +50,8 @@ Rewriting a prompt usually means two windows side by side: the old version on th
 
 ## 5. Plain editor (the default)
 
-- One centred column of text. Word wrap is on by default.
-- Reading mode is either **Comfort** (a centred column, 80 characters by default and adjustable) or **Full width**.
+- Text starts at the top left, like any text editor, with only a small margin (2026-10-18: a centred, floating column didn't feel like an editor). Word wrap is on by default.
+- Reading mode is either **Full width** (the default) or **Comfort**, which caps lines at a number of characters (80 by default, adjustable), still anchored left.
 - The Tab key inserts **4 spaces** by default (configurable) and never writes a tab character.
 - Optional colouring for XML tags and `{{macros}}`. This matters for prompts that use `<system_instructions status="enabled">`, `{{char}}`, `{{user}}` and `{{#x}}…{{/x}}` blocks. Plain prose has to work just as well.
 - There's no markdown rendering. It isn't needed.
@@ -130,7 +130,7 @@ A settings window opened from the menu or `Ctrl+,`. Changes apply instantly. Set
 
 | Section | Settings |
 |---|---|
-| Appearance | Theme (Gruvbox dark / light / follow system), font, font size, reading mode (Comfort with a character width, or Full width) |
+| Appearance | Theme (Gruvbox dark / light / follow system), font, font size (default 14), reading mode (Full width, default, or Comfort with a character width) |
 | Editor | Tab inserts N spaces (**default 4**, never tabs), word wrap (**on** by default), XML and macro colouring |
 | Saving | Autosave timing, projects folder |
 | Assistant | Base URL, API key (keyring), model, request format (Responses, default / Chat Completions), test connection |

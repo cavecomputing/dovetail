@@ -6,14 +6,14 @@ use iced::widget::{button, container, text, text_input};
 use iced::{Background, Border, Color, Font, Theme, color};
 
 pub const FONT_REGULAR: &[u8] =
-    include_bytes!("../../assets/fonts/JetBrainsMonoNerdFontMono-Regular.ttf");
+    include_bytes!("../../assets/fonts/JetBrainsMonoNLNerdFontMono-Regular.ttf");
 pub const FONT_BOLD: &[u8] =
-    include_bytes!("../../assets/fonts/JetBrainsMonoNerdFontMono-Bold.ttf");
+    include_bytes!("../../assets/fonts/JetBrainsMonoNLNerdFontMono-Bold.ttf");
 pub const FONT_ITALIC: &[u8] =
-    include_bytes!("../../assets/fonts/JetBrainsMonoNerdFontMono-Italic.ttf");
+    include_bytes!("../../assets/fonts/JetBrainsMonoNLNerdFontMono-Italic.ttf");
 
 /// The family name inside the bundled font files (what `fc-scan` reports).
-pub const MONO: Font = Font::with_name("JetBrainsMono Nerd Font Mono");
+pub const MONO: Font = Font::with_name("JetBrainsMonoNL Nerd Font Mono");
 
 /// Nerd Font glyphs used as icons (codicons).
 pub const GLYPH_MINIMIZE: &str = "\u{eaba}";

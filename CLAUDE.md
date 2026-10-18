@@ -142,7 +142,7 @@ and `ui/` holds only drawing and event wiring.
 
 ```
 Cargo.toml, Cargo.lock   dependencies (see "Rust in plain terms")
-assets/fonts/            the bundled JetBrains Mono Nerd Font and its licence
+assets/fonts/            the bundled JetBrains Mono NL Nerd Font (no ligatures) and its licence
 assets/icon/             the app icon (SVGs for the installer, a 64px raw RGBA copy for the window)
 docs/                    spec.md (the design), design-tokens.json (the Gruvbox palette)
 scripts/install.sh       installs the binary, .desktop file and MIME type
@@ -224,7 +224,9 @@ files (`pub mod save;`); keep that list current. Tests sit at the bottom of the 
   status bar, `bg-raised` cards and chips, `fg`/`fg-muted` text, `accent-text` (yellow) for focus
   and active, aqua for success, `accent-warm` (orange) for warnings. **No red, ever.** Every status
   also carries a word, not colour alone.
-- **One font**: JetBrains Mono Nerd Font (bundled in [assets/fonts/](assets/fonts/), OFL licensed),
+- **One font**: JetBrains Mono Nerd Font, in its **NL** (no ligatures) Mono build (bundled in
+  [assets/fonts/](assets/fonts/), OFL licensed). The ligature build merged pairs like `</` into one
+  glyph, which read as cramped and not monospace-feeling, so never switch back to it. It is used
   in the UI and the editor. Nerd Font glyphs are the in-app icons; the only image is the app icon in
   [assets/icon/](assets/icon/).
 - **No branding in the UI**: no logo, no app name in the window.

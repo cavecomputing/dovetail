@@ -109,7 +109,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
             ),
             setting_row(
                 "Font",
-                row![value_text("JetBrainsMono Nerd Font"), hint("bundled")]
+                row![value_text("JetBrains Mono NL Nerd Font"), hint("bundled")]
                     .align_y(iced::Center)
                     .into(),
             ),
@@ -126,17 +126,17 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 "Reading mode",
                 row![
                     choices(vec![
-                        ("comfort", comfort, comfort_with(comfort_chars)),
                         (
                             "full width",
                             !comfort,
                             Change::ReadingMode(ReadingMode::FullWidth)
                         ),
+                        ("comfort", comfort, comfort_with(comfort_chars)),
                     ]),
                     separator("·"),
                     stepper(
                         comfort_chars.to_string(),
-                        "chars",
+                        "chars a line",
                         comfort_with(comfort_chars.saturating_sub(5)),
                         comfort_with(comfort_chars + 5),
                     ),
