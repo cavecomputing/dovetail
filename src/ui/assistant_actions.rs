@@ -30,12 +30,12 @@ pub enum AssistantAction {
     Toggle,
     /// Typing in the composer.
     Composer(text_editor::Action),
-    /// Send, or Enter in the composer.
+    /// Enter in the composer.
     Send,
     Stop,
-    /// The header's "New chat": stops the reply, rejects the waiting suggestions and starts over.
+    /// The header's "new chat": stops the reply, rejects the waiting suggestions and starts over.
     NewChat,
-    /// A card's "Try shorter": rejects the suggestion with this id and asks for a shorter one.
+    /// An edit's "try shorter": rejects the suggestion with this id and asks for a shorter one.
     TryShorter(u64),
     /// The API key, read for the question with this number.
     KeyRead(u64, Result<Option<String>, String>),
@@ -155,7 +155,7 @@ impl App {
                 let question = self.assistant.composer.text().trim().to_string();
                 if !question.is_empty() && self.can_ask() {
                     self.assistant.composer = text_editor::Content::new();
-                    // Focus stays in the composer even when Send was clicked.
+                    // Focus stays in the composer.
                     return Task::batch([focus(COMPOSER_ID), self.ask(&question)]);
                 }
             }

@@ -300,16 +300,18 @@ The fields:
 **What it does.** Ask about the text in the box at the bottom of the pane. The assistant can read
 the document and the selection, search the text, count words and tokens, and suggest edits. It never
 changes the text itself. Each suggestion shows in the text, the old words struck through and the new
-ones beside them, with Accept and Reject buttons, and as a card in the chat with Accept, Reject and
-Try shorter, which asks for a shorter version (Accept all and Reject all when several wait). You can
-keep typing elsewhere meanwhile. While it answers, Send turns into Stop. New chat starts over and
-rejects the suggestions still waiting. Closing the window forgets the conversation.
+ones beside them, with Accept and Reject buttons. In the chat it shows as a little diff: the line
+it's on, `−` and the old words, `+` and the new ones, the reason, and `accept`, `reject` and `try
+shorter`, which asks for a shorter version (`accept all` and `reject all` when several wait). You
+can keep typing elsewhere meanwhile. Enter sends your question; while it answers, `stop` appears
+beside the prompt. `new chat` starts over and rejects the suggestions still waiting. Closing the
+window forgets the conversation.
 
 **What it sees.** Only this window's document. Each question sends the server the file's name, the
 text (about the first 48 KB; the model can read the rest a few lines at a time), its size, and the
 selection, or the cursor's line when nothing is selected. Every request also resends the
 conversation so far, including whatever its tools read. It sees no other files or windows. The
-chips at the top of the pane show what it sees and what you have selected. In a read-only window it
+`#` lines at the top of the pane say what it sees and what you have selected. In a read-only window it
 can answer but not suggest edits.
 
 ## Settings

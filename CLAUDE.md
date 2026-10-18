@@ -261,8 +261,9 @@ src/
                          pointed at closing the window
     settings_panel.rs    the Settings panel over the text (Ctrl+,), laid out like settings.toml,
                          and how each change applies
-    assistant_view.rs    the assistant pane (Ctrl+L, every window): chips, chat, suggestion cards,
-                         composer, and how it sits beside or over the document
+    assistant_view.rs    the assistant pane (Ctrl+L, every window), drawn like a transcript: its
+                         # header, the chat, suggested edits as diffs, the > prompt, and how it
+                         sits beside or over the document
     assistant_actions.rs App's handlers for the assistant: the slide, the agent loop off the UI
                          thread, cards kept in step with the ghost text, the key, the connection test
   ai/                    the assistant pane's logic, no UI
