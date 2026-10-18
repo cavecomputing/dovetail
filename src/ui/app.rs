@@ -9,7 +9,6 @@ use iced::widget::{column, container, responsive, space, stack};
 use iced::window::{self, Direction};
 use iced::{Element, Size, Subscription, Task, Theme, event, keyboard};
 
-use crate::brand;
 use crate::core::counts::{Counts, load_tokenizer_in_background, word_count};
 use crate::core::opened::{Doc, open_doc};
 use crate::core::paths::Paths;
@@ -156,7 +155,9 @@ fn window_settings() -> window::Settings {
         // X11 shows this in task bars; Wayland finds the icon through the .desktop file instead.
         icon: window::icon::from_rgba(APP_ICON_RGBA.to_vec(), 64, 64).ok(),
         platform_specific: window::settings::PlatformSpecific {
-            application_id: brand::APP_ID.to_string(),
+            // Each OS has its own fields here, and only Linux has an app id.
+            #[cfg(target_os = "linux")]
+            application_id: crate::brand::APP_ID.to_string(),
             ..Default::default()
         },
         ..Default::default()

@@ -56,6 +56,7 @@ mod tests {
         assert!(claim_lock(&path).is_ok());
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_link_and_its_target_share_a_lock() {
         let dir = tempfile::tempdir().unwrap();

@@ -214,6 +214,7 @@ mod tests {
         assert_eq!(names.len(), 1);
     }
 
+    #[cfg(unix)]
     #[test]
     fn atomic_write_keeps_permissions() {
         use std::os::unix::fs::PermissionsExt;
@@ -236,6 +237,7 @@ mod tests {
         assert!(atomic_write(&blocker.join("child.txt"), b"x").is_err());
     }
 
+    #[cfg(unix)]
     #[test]
     fn atomic_write_through_a_symlink_keeps_the_link() {
         let dir = tempfile::tempdir().unwrap();
@@ -248,6 +250,7 @@ mod tests {
         assert!(fs::symlink_metadata(&link).unwrap().is_symlink());
     }
 
+    #[cfg(unix)]
     #[test]
     fn check_writable_needs_a_writable_folder() {
         use std::os::unix::fs::PermissionsExt;

@@ -1,8 +1,7 @@
 //! `settings.toml`: the user's preferences, with defaults for anything missing.
 
-use std::fs::{self, OpenOptions, Permissions};
+use std::fs;
 use std::io::{self, ErrorKind};
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 
 use serde::de::DeserializeOwned;
@@ -214,6 +213,7 @@ impl Settings {
     /// API key, the file is made readable by its owner only before the key goes in.
     pub fn save(&self, path: &Path) -> io::Result<()> {
         let text = toml::to_string_pretty(self).map_err(io::Error::other)?;
+        #[cfg(unix)]
         if self.api_key_fallback.is_some() {
             owner_only(path)?;
         }
@@ -232,7 +232,11 @@ impl Settings {
 
 /// Creates `path` if needed and sets it to mode 0600 (read and write by its owner only).
 /// `atomic_write` keeps a file's permissions, so the saved settings stay that way.
+/// Unix only: on Windows the key always goes in the Credential Manager, never in this file.
+#[cfg(unix)]
 fn owner_only(path: &Path) -> io::Result<()> {
+    use std::fs::{OpenOptions, Permissions};
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
     }
@@ -429,8 +433,10 @@ mod tests {
         assert!(warning.unwrap().contains("request_format"));
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_file_holding_the_key_is_private() {
+        use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config/settings.toml");
         let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;

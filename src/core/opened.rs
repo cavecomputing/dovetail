@@ -318,6 +318,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn file_in_a_folder_that_cant_be_written_is_read_only() {
         use std::os::unix::fs::PermissionsExt;
