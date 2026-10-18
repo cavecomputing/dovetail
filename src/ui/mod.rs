@@ -10,6 +10,7 @@ pub mod find_bar;
 pub mod idea_actions;
 pub mod idea_panel;
 pub mod ideas_view;
+pub mod key_guard;
 pub mod project_actions;
 pub mod project_view;
 pub mod settings_panel;
