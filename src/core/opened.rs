@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use crate::core::lock::{claim_lock, file_lock_path};
 use crate::core::paths::Paths;
 use crate::core::recent::remember;
-use crate::core::save::{atomic_write, check_writable};
+use crate::core::save::{atomic_write, check_writable, failure_reason};
 use crate::core::scratch::{ScratchState, claim_scratch, take_cleared};
 use crate::core::text_file::{DiskStamp, LineEnding, read_text};
 use crate::project::DRAFT_FILE;
@@ -126,6 +126,29 @@ pub fn open_doc(doc: Doc, paths: &Paths) -> OpenedDoc {
     opened
 }
 
+/// Gives a window's text a new home at `path` (Save as): claims the file so no other window
+/// edits it, writes `text` there with `line_ending`, and remembers it as recent. Returns the
+/// claim to hold while the window lives and the file as written, or why nothing was written.
+pub fn save_as(
+    data_dir: &Path,
+    path: &Path,
+    text: &str,
+    line_ending: LineEnding,
+) -> Result<(Option<File>, Option<DiskStamp>), String> {
+    let lock = match claim_lock(&file_lock_path(data_dir, path)) {
+        Err(TryLockError::WouldBlock) => {
+            return Err("That file is open in another window".to_string());
+        }
+        // Without a lock file there is nothing to guard with, so carry on.
+        Err(TryLockError::Error(_)) => None,
+        Ok(lock) => Some(lock),
+    };
+    atomic_write(path, line_ending.apply(text).as_bytes())
+        .map_err(|error| failure_reason(&error))?;
+    let _ = remember(data_dir, path);
+    Ok((lock, DiskStamp::of(path)))
+}
+
 /// Why `path` can't be saved, or `None` if it can.
 fn writable_reason(path: &Path) -> Option<String> {
     match check_writable(path) {
@@ -144,6 +167,34 @@ mod tests {
             path: path.to_path_buf(),
             line_ending: LineEnding::default(),
         }
+    }
+
+    #[test]
+    fn save_as_writes_the_text_and_claims_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::under(dir.path());
+        let path = dir.path().join("notes.txt");
+        let (lock, stamp) = save_as(&paths.data_dir, &path, "a\nb", LineEnding::CrLf).unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "a\r\nb");
+        assert!(lock.is_some() && stamp.is_some());
+        // Another window opening it now gets it read-only.
+        let other = open_doc(file_doc(&path), &paths);
+        assert_eq!(
+            other.read_only_reason.as_deref(),
+            Some("Open in another window")
+        );
+    }
+
+    #[test]
+    fn save_as_refuses_a_file_open_in_another_window() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::under(dir.path());
+        let path = dir.path().join("open.txt");
+        fs::write(&path, "theirs").unwrap();
+        let _other = open_doc(file_doc(&path), &paths);
+        let refused = save_as(&paths.data_dir, &path, "mine", LineEnding::Lf);
+        assert_eq!(refused.unwrap_err(), "That file is open in another window");
+        assert_eq!(fs::read_to_string(&path).unwrap(), "theirs");
     }
 
     #[test]

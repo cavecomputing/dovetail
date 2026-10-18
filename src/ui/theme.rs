@@ -25,6 +25,8 @@ pub const GLYPH_LOCK: &str = "\u{ea75}";
 pub const GLYPH_FILE: &str = "\u{ea7b}";
 pub const GLYPH_PROJECT: &str = "\u{ea62}";
 pub const GLYPH_CLAUDE: &str = "\u{ea6b}";
+pub const GLYPH_UP: &str = "\u{eaa1}";
+pub const GLYPH_DOWN: &str = "\u{ea9a}";
 
 /// The editor's mono font is about 0.6 of its size wide per character.
 pub const CHAR_WIDTH_RATIO: f32 = 0.6;

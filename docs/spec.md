@@ -37,6 +37,8 @@ Rewriting a prompt usually means two windows side by side: the old version on th
 - `Ctrl+0` (or similar) jumps back to scratch from anywhere.
 - `Ctrl+,` opens Settings.
 - `Ctrl+L` opens and closes the assistant pane.
+- The usual editor keys too (2026-10-18): `Ctrl+N` new file (asks where, opens in its own window), `Ctrl+O` open, `Ctrl+S` save (see §4), `Ctrl+Shift+S` save as, `Ctrl+W` close the window, `Ctrl+F` find, `Ctrl+=` / `Ctrl+-` font size.
+- **Find** (`Ctrl+F`): a bar just above the status bar. Matches ignore case and are lit up in the text, the current one outlined; Enter and Shift+Enter step through them, Esc closes the bar and leaves the match selected. In a project it searches the draft.
 - Startup has to be near-instant: launch, jot, close. This is a key reason to prefer pure Rust over a webview.
 - Launch from the app menu or a short terminal command.
 - Register as a `.desktop` app with a MIME type for `.dovetail`. Optionally act as a `.txt` handler too.
@@ -44,6 +46,8 @@ Rewriting a prompt usually means two windows side by side: the old version on th
 ## 4. Saving
 
 - **Everything autosaves**, scratch included. There's never a "save changes?" prompt.
+- `Ctrl+S` still does something useful (2026-10-18). In a `.txt` or project it writes now instead of after the pause. Scratch has no file, so there it asks where to save: the window becomes that `.txt`, and scratch is cleared with its text kept for the next scratch window's undo, as after a Rewrite.
+- `Ctrl+Shift+S` (Save as) moves a `.txt` to a new file and keeps editing there; the old file keeps its last save. Projects live in their own folder, so they have no Save as.
 - **Closing waits for the save.** The window only closes once the latest autosave has been written. If a save fails, the window stays open and says why.
 - The scratch space persists between launches as a single document.
 - Plain docs are ordinary `.txt` files.
@@ -60,7 +64,7 @@ Rewriting a prompt usually means two windows side by side: the old version on th
 
 Left to right:
 
-- **Plain doc:** `☰ menu` · save dot · path (or `Scratch · not saved to a file`) … words · tokens · assistant toggle · **pen icon (Rewrite)**
+- **Plain doc:** `☰ menu` · save dot · path (or `Scratch`) … words · tokens · assistant toggle · **pen icon (Rewrite)**
 - **Project:** `☰ menu` · save dot · project path · `v3 → draft` … words · tokens · `−45% vs v3` · assistant toggle · **Commit**
 
 Rules:

@@ -159,6 +159,7 @@ src/
                          cursor, the lock, and whether it's editable
     lock.rs              OS file locks so two windows never edit the same document
     counts.rs            word and token counts (tokenizer loads in the background), % change
+    find.rs              every match of a find query, ignoring case
     markup.rs            where XML tags and {{macros}} are, for colouring them and naming things
     text_file.rs         reading and saving .txt files: line endings, outside-change check
     recent.rs            the recently opened files and projects (data folder), fuzzy matching
@@ -189,6 +190,8 @@ src/
     weights_view.rs      the idea weights view
     idea_actions.rs      App's handlers for brushes, painting and editing ideas
     switcher.rs          the Ctrl+P quick switcher over recent files and projects
+    find_bar.rs          the Ctrl+F find bar: its matches, stepping through them, how they're lit
+    file_actions.rs      App's handlers for New file (Ctrl+N), Save (Ctrl+S) and Save as
     window_controls.rs   the top strip's window controls and the resize edges
     settings_window.rs   the Settings window and how each change applies
     assistant_view.rs    the assistant pane (Ctrl+L, every window): chips, chat, suggestion cards,
@@ -215,7 +218,8 @@ files (`pub mod save;`); keep that list current. Tests sit at the bottom of the 
 - **Saving is never lost.** Every write goes to a temp file in the same folder, then is renamed over
   the target (an atomic replace), so a crash mid-save never leaves half a file. Closing a window waits
   for the latest save; if it failed, the window stays open and the status bar says why. There is no
-  "unsaved" state and no "save changes?" prompt.
+  "unsaved" state and no "save changes?" prompt. Ctrl+S only writes sooner, or in scratch (which has
+  no file) asks where to save one.
 - **Startup must stay near-instant.** Anything slow (loading the tokenizer, git, network) happens
   off the UI thread after the first frame. The window shows text first and fills in counts later.
 - **Tab never writes a tab character.** It inserts N spaces (default 4, from settings).

@@ -110,6 +110,10 @@ pub enum PaintLook {
         id: u64,
         stripe: bool,
     },
+    /// A find match: the fill and no gutter stripe; the `current` one is also outlined.
+    Found {
+        current: bool,
+    },
 }
 
 impl<'a, Message, Theme, Renderer> TextEditor<'a, highlighter::PlainText, Message, Theme, Renderer>
@@ -601,7 +605,10 @@ fn draw_paint<R: renderer::Renderer>(
                 .filter(|(x, w, run)| {
                     matches!(
                         run.look,
-                        PaintLook::Fill | PaintLook::Missing(_) | PaintLook::Ghost
+                        PaintLook::Fill
+                            | PaintLook::Missing(_)
+                            | PaintLook::Ghost
+                            | PaintLook::Found { .. }
                     ) && *x <= left
                         && x + w >= right
                 })
@@ -630,7 +637,28 @@ fn draw_paint<R: renderer::Renderer>(
         for (x, width, run) in &pieces {
             let square = border::Radius::default();
             match run.look {
-                PaintLook::Fill | PaintLook::Buttons { .. } => {}
+                PaintLook::Fill
+                | PaintLook::Buttons { .. }
+                | PaintLook::Found { current: false } => {}
+                PaintLook::Found { current: true } => {
+                    let outline =
+                        Rectangle::new(Point::new(*x, top), Size::new(*width, box_height));
+                    let sides = [
+                        Rectangle::new(outline.position(), Size::new(outline.width, 1.0)),
+                        Rectangle::new(
+                            Point::new(outline.x, outline.y + outline.height - 1.0),
+                            Size::new(outline.width, 1.0),
+                        ),
+                        Rectangle::new(outline.position(), Size::new(1.0, outline.height)),
+                        Rectangle::new(
+                            Point::new(outline.x + outline.width - 1.0, outline.y),
+                            Size::new(1.0, outline.height),
+                        ),
+                    ];
+                    for side in sides {
+                        fill(side, square, run.color, text_bounds);
+                    }
+                }
                 PaintLook::Cut(color) | PaintLook::Struck(color) => {
                     let y = text_bounds.y + row.line_y - text_size * 0.3;
                     let line = Rectangle::new(Point::new(*x, y), Size::new(*width, 1.0));
@@ -727,7 +755,7 @@ fn paragraph_stripes(paint: &[PaintRun], first: usize, last: usize) -> Vec<(Colo
             let striped = match run.look {
                 PaintLook::Fill | PaintLook::Missing(_) | PaintLook::Cut(_) => !pending,
                 PaintLook::Buttons { stripe, .. } => stripe && pending,
-                PaintLook::Ghost | PaintLook::Struck(_) => false,
+                PaintLook::Ghost | PaintLook::Struck(_) | PaintLook::Found { .. } => false,
             };
             // Paint that ends at the very start of a line doesn't reach into it.
             let end_line = if run.end.column == 0 && run.end.line > run.start.line {
