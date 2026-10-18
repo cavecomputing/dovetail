@@ -22,6 +22,7 @@ use crate::core::text_file::{DiskStamp, TEXT_EXTENSIONS, changed_on_disk, read_t
 use crate::ui::assistant_actions::{Assistant, AssistantAction, CardState};
 use crate::ui::editor::{Decision, Pane};
 use crate::ui::find_bar::{self, Find, FindAction};
+use crate::ui::palette::{self, Palette};
 use crate::ui::settings_panel::{self, Change, Connection, KeyField};
 use crate::ui::switcher::{self, Switcher};
 use crate::ui::text_editor::{Action, Cursor, Edit, Motion, Position};
@@ -47,6 +48,8 @@ pub struct App {
     pub pane: Pane,
     /// The Ctrl+P switcher, while it is open.
     pub switcher: Option<Switcher>,
+    /// The Ctrl+Shift+P palette, while it is open.
+    pub palette: Option<Palette>,
     /// Whether the Settings panel is open over the document.
     pub settings_open: bool,
     /// Whether the view opens at a saved top line, rather than around the cursor.
@@ -179,11 +182,16 @@ pub enum Message {
     OpenScratch,
     OpenSwitcher,
     SwitcherQuery(String),
+    /// ↑ or ↓: moves the highlight in the switcher or the palette, whichever is open.
     SwitcherMove(i32),
     SwitcherOpen,
     /// Open the switcher's row with this number: Ctrl+1 to Ctrl+9 (Ctrl+0 is `OpenScratch`, its
     /// row 0), or a click.
     SwitcherPick(usize),
+    OpenPalette,
+    PaletteQuery(String),
+    /// Run the palette's tool with this number (Enter runs the highlighted one).
+    PaletteRun(usize),
 
     ReloadFromDisk,
     KeepMine,
@@ -308,6 +316,7 @@ impl App {
             document: 0,
             pane,
             switcher: None,
+            palette: None,
             settings_open: false,
             scroll_restored: opened.scroll_line.is_some(),
             read_only_reason: opened.read_only_reason,
@@ -374,7 +383,7 @@ impl App {
         self.theme.clone()
     }
 
-    fn update(&mut self, message: Message) -> Task<Message> {
+    pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             // A read-only window still scrolls, selects and copies, but never changes the text.
             Message::Edit(action) if action.is_edit() && !self.editable() => {}
@@ -579,10 +588,11 @@ impl App {
                 self.menu_open = !self.menu_open;
                 self.recent = existing_recent_files(&self.paths.data_dir);
             }
-            // Esc, or a click outside: closes the menu, the switcher and Settings. With none of
-            // them open, Esc closes the find bar.
+            // Esc, or a click outside: closes the menu, the switcher, the palette and Settings.
+            // With none of them open, Esc closes the find bar.
             Message::CloseMenu => {
                 let mut closed = self.menu_open || self.switcher.is_some();
+                closed |= self.palette.take().is_some();
                 closed |= std::mem::take(&mut self.settings_open);
                 self.menu_open = false;
                 self.switcher = None;
@@ -642,6 +652,12 @@ impl App {
                 return Task::batch([unfocus, self.load_key()]);
             }
             Message::OpenScratch => return self.open_here(Doc::Scratch),
+            Message::SwitcherMove(_) if self.palette.is_some() => {
+                return self.update_palette(message);
+            }
+            Message::OpenPalette | Message::PaletteQuery(_) | Message::PaletteRun(_) => {
+                return self.update_palette(message);
+            }
             Message::OpenSwitcher
             | Message::SwitcherQuery(_)
             | Message::SwitcherMove(_)
@@ -939,6 +955,7 @@ impl App {
         let layers = [
             self.menu_open.then(|| status_bar::menu(self)),
             self.switcher.as_ref().map(switcher::view),
+            (self.palette.as_ref()).map(|open| palette::view(open, self.syntax())),
         ];
         let page = stack![page].extend(layers.map(|layer| layer.unwrap_or_else(|| space().into())));
         let page = container(page).style(|theme: &Theme| theme::fill(Roles::of(theme).bg_surface));
@@ -1019,7 +1036,7 @@ fn pane_for(opened: &OpenedDoc) -> Pane {
     pane
 }
 
-/// App-wide keys. Up and Down move through the switcher's list, Enter steps through the find
+/// App-wide keys. Up and Down move through the switcher's or the palette's list, Enter steps through the find
 /// bar's matches (each ignored while its panel is closed), and Tab outside the editor moves
 /// between text boxes.
 fn shortcut(event: iced::Event, status: event::Status, _window: window::Id) -> Option<Message> {
@@ -1068,6 +1085,7 @@ fn shortcut(event: iced::Event, status: event::Status, _window: window::Id) -> O
     match key.as_ref() {
         keyboard::Key::Character(",") => Some(Message::OpenSettings),
         keyboard::Key::Character("0") => Some(Message::OpenScratch),
+        keyboard::Key::Character("p" | "P") if modifiers.shift() => Some(Message::OpenPalette),
         keyboard::Key::Character("p") => Some(Message::OpenSwitcher),
         keyboard::Key::Character("l" | "L") if modifiers.shift() => {
             Some(Message::ToggleLineNumbers)
@@ -1366,6 +1384,36 @@ mod tests {
         ));
         assert!(matches!(press("0", command), Some(Message::OpenScratch)));
         assert!(press("3", keyboard::Modifiers::empty()).is_none());
+    }
+
+    #[test]
+    fn the_palette_runs_a_json_tool_and_ctrl_shift_p_opens_it() {
+        let (dir, _paths, mut app, _notes) = scratch_window("");
+        let data = dir.path().join("export.json");
+        std::fs::write(&data, "{ \"a\": [1, 2] }").unwrap();
+        let _ = app.update(Message::OpenPath(data));
+        let _ = app.update(Message::OpenPalette);
+        let _ = app.update(Message::SwitcherMove(1));
+        let _ = app.update(Message::PaletteRun(app.palette.as_ref().unwrap().selected));
+        assert_eq!(
+            app.pane.model.text(),
+            r#"{"a":[1,2]}"#,
+            "Minify, the second tool"
+        );
+        assert!(app.palette.is_none());
+        let event = iced::Event::Keyboard(keyboard::Event::KeyPressed {
+            key: keyboard::Key::Character("P".into()),
+            modified_key: keyboard::Key::Character("P".into()),
+            physical_key: keyboard::key::Physical::Unidentified(
+                keyboard::key::NativeCode::Unidentified,
+            ),
+            location: keyboard::Location::Standard,
+            modifiers: keyboard::Modifiers::COMMAND | keyboard::Modifiers::SHIFT,
+            text: None,
+            repeat: false,
+        });
+        let pressed = shortcut(event, event::Status::Ignored, window::Id::unique());
+        assert!(matches!(pressed, Some(Message::OpenPalette)));
     }
 
     #[test]

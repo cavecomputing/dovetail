@@ -8,6 +8,7 @@ pub mod file_actions;
 pub mod find_bar;
 pub mod highlighter;
 pub mod key_guard;
+pub mod palette;
 pub mod scroll_bar;
 pub mod settings_panel;
 pub mod status_bar;

@@ -10,7 +10,6 @@ use iced::{Background, Border, Color, Element, Fill, Theme};
 use crate::core::opened::Doc;
 use crate::core::paths::display_path;
 use crate::core::save::SaveState;
-use crate::core::syntax::Syntax;
 use crate::ui::app::{App, Message};
 use crate::ui::assistant_actions::AssistantAction;
 use crate::ui::find_bar::{FindAction, LINE_KEYS};
@@ -301,19 +300,6 @@ pub fn menu(app: &App) -> Element<'_, Message> {
             "Ctrl+Shift+L",
             Message::ToggleLineNumbers,
         ));
-    if app.syntax() == Syntax::Json {
-        items = items
-            .push(menu_item(
-                "Format JSON".to_string(),
-                "",
-                Message::ReformatJson { minify: false },
-            ))
-            .push(menu_item(
-                "Minify JSON".to_string(),
-                "",
-                Message::ReformatJson { minify: true },
-            ));
-    }
     items = items.push(menu_heading("Recent"));
     let current = match &app.doc {
         Doc::File { path, .. } => Some(path),

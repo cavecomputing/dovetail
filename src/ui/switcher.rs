@@ -79,6 +79,7 @@ impl App {
         match message {
             Message::OpenSwitcher => {
                 self.menu_open = false;
+                self.palette = None;
                 if self.switcher.take().is_some() {
                     return iced::widget::operation::focus(editor::EDITOR_ID);
                 }
@@ -144,20 +145,7 @@ pub fn view(switcher: &Switcher) -> Element<'_, Message> {
         .on_submit(Message::SwitcherOpen)
         .size(13)
         .padding([6, 10])
-        .style(|theme: &Theme, _status| {
-            let roles = Roles::of(theme);
-            text_input::Style {
-                background: Background::Color(Color::TRANSPARENT),
-                border: Border::default()
-                    .rounded(4)
-                    .width(1)
-                    .color(roles.accent_text),
-                icon: roles.fg_muted,
-                placeholder: roles.fg_subtle,
-                value: roles.fg,
-                selection: roles.accent_cool.scale_alpha(0.35),
-            }
-        });
+        .style(search_style);
 
     let mut rows = column![].spacing(2);
     let docs = switcher.rows();
@@ -173,10 +161,15 @@ pub fn view(switcher: &Switcher) -> Element<'_, Message> {
         rows = rows.push(container(text(words).size(12)).padding([6, 10]));
     }
 
-    let panel = container(column![search, rows].spacing(6).width(560))
+    panel(column![search, rows])
+}
+
+/// A panel near the top of the window, as the switcher and the palette show: `content`, raised.
+/// Clicking outside it closes it, like the menu.
+pub fn panel<'a>(content: iced::widget::Column<'a, Message>) -> Element<'a, Message> {
+    let panel = container(content.spacing(6).width(560))
         .padding(6)
         .style(raised_box);
-    // Clicking outside the panel closes it, like the menu.
     iced::widget::stack![
         iced::widget::mouse_area(space().width(Fill).height(Fill)).on_press(Message::CloseMenu),
         container(iced::widget::opaque(panel))
@@ -215,22 +208,41 @@ fn match_row<'a>(doc: Doc, index: usize, selected: bool) -> Element<'a, Message>
     )
     .width(Fill)
     .padding([5, 10])
-    .style(move |theme: &Theme, status| {
-        let roles = Roles::of(theme);
-        let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
-        button::Style {
-            background: (selected || hovered).then_some(Background::Color(roles.bg_inset)),
-            text_color: if selected {
-                roles.accent_text
-            } else {
-                roles.fg
-            },
-            border: Border::default().rounded(4),
-            ..button::Style::default()
-        }
-    })
+    .style(move |theme, status| row_style(theme, status, selected))
     .on_press(Message::SwitcherPick(index))
     .into()
+}
+
+/// The search box's look: an outline in the focus colour.
+pub fn search_style(theme: &Theme, _status: text_input::Status) -> text_input::Style {
+    let roles = Roles::of(theme);
+    text_input::Style {
+        background: Background::Color(Color::TRANSPARENT),
+        border: Border::default()
+            .rounded(4)
+            .width(1)
+            .color(roles.accent_text),
+        icon: roles.fg_muted,
+        placeholder: roles.fg_subtle,
+        value: roles.fg,
+        selection: roles.accent_cool.scale_alpha(0.35),
+    }
+}
+
+/// A row's look: lit while hovered, and in the focus colour while `selected`.
+pub fn row_style(theme: &Theme, status: button::Status, selected: bool) -> button::Style {
+    let roles = Roles::of(theme);
+    let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
+    button::Style {
+        background: (selected || hovered).then_some(Background::Color(roles.bg_inset)),
+        text_color: if selected {
+            roles.accent_text
+        } else {
+            roles.fg
+        },
+        border: Border::default().rounded(4),
+        ..button::Style::default()
+    }
 }
 
 #[cfg(test)]

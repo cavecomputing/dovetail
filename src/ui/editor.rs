@@ -147,7 +147,8 @@ fn key_binding(press: KeyPress, editable: bool, reviewing: bool) -> Option<Bindi
         && matches!(
             press.key.as_ref(),
             Key::Character(
-                "p" | "0"
+                "p" | "P"
+                    | "0"
                     | ","
                     | "l"
                     | "w"

@@ -127,8 +127,8 @@ list or a quote, Tab nests a list item, and Ctrl+B and Ctrl+I put in bold and it
 keys in blue, strings in green, numbers in yellow, and `true`, `false` and `null` in orange. Tags
 and `{{macros}}` inside strings are still coloured. A moment after you stop typing, the file is
 checked: if it isn't valid JSON, the status bar says where and why, such as `Invalid JSON at line
-12, column 5: expected , or }`. The menu adds **Format JSON** (each value on its own line, indented
-by your Tab setting) and **Minify JSON** (all on one line). Both change only the spaces and line
+12, column 5: expected , or }`. The command palette (Ctrl+Shift+P) has **Format JSON** (each value
+on its own line, indented by your Tab setting) and **Minify JSON** (all on one line). Both change only the spaces and line
 breaks between values, so keys keep their order and numbers their digits, and Ctrl+Z undoes either
 in one step. Neither runs on invalid JSON: the status bar says it can't, next to the problem.
 
@@ -164,6 +164,7 @@ Shortcuts are written with Ctrl; on macOS use ⌘ (the app's menu and hints show
 | Ctrl+N | New file: asks where, then opens it, empty, as Ctrl+O would. Choosing an existing file empties it (the dialog asks first); a file open in any window is refused |
 | Ctrl+O | Open a file in this window |
 | Ctrl+P | Scratch and the recent files, numbered 0 (scratch) to 9: type part of a name, ↑ and ↓ to choose, Enter to open. With nothing typed a row's number opens it; Ctrl+number does at any time |
+| Ctrl+Shift+P | The command palette: the tools for the kind of file open (Format JSON and Minify JSON in a `.json` file). Type part of a name, ↑ and ↓ to choose, Enter to run |
 | Ctrl+0 | Back to scratch in this window (if another window has it, the status bar says so instead) |
 | Ctrl+S | Save now; in scratch, save to a file |
 | Ctrl+Shift+S | Save as |

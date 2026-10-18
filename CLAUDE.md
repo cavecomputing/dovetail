@@ -184,7 +184,7 @@ One process per window: launching with no file opens scratch, with a file (`.txt
 ...) opens that file. Each launch gets its own window, which plays well with tiling window managers. Opening another
 document from inside the app (Ctrl+O, Ctrl+P, Recent, Ctrl+N, Ctrl+0) replaces the one in the same
 window, once the one being left is saved (`App::open_here`). A process has exactly one window:
-Settings, the Ctrl+P switcher and the menu open over it.
+Settings, the Ctrl+P switcher, the Ctrl+Shift+P palette and the menu open over it.
 
 The UI is [iced](https://iced.rs) (Elm-style: `update` handles a `Message` and changes state, `view`
 draws the state; nothing else mutates state). Logic modules do not depend on iced, so they can be
@@ -249,6 +249,7 @@ src/
                          typing into text boxes; widgets still get the key for their shortcuts
     status_bar.rs        the bottom bar (save dot, path, counts, assistant toggle) and its menu
     switcher.rs          the Ctrl+P quick switcher: scratch and the recent files, numbered 0-9
+    palette.rs           the Ctrl+Shift+P command palette: the open file's tools (Format JSON...)
     find_bar.rs          the Ctrl+F find bar: its matches, stepping through them, how they're lit
     file_actions.rs      App's handlers for opening a document in the window's place (Ctrl+O,
                          Ctrl+P, Ctrl+0), New file (Ctrl+N), Save (Ctrl+S) and Save as
