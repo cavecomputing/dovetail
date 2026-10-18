@@ -143,7 +143,7 @@ Shortcuts are written with Ctrl; on macOS use ⌘ (the app's menu and hints show
 |---|---|
 | Ctrl+N | New file: asks where, then opens it, empty, as Ctrl+O would. Choosing an existing file empties it (the dialog asks first); a file open in any window is refused |
 | Ctrl+O | Open a file in this window |
-| Ctrl+P | Recent files: type part of a name, ↑ and ↓ to choose, Enter to open |
+| Ctrl+P | Scratch and the recent files, numbered 0 (scratch) to 9: type part of a name, ↑ and ↓ to choose, Enter to open. With nothing typed a row's number opens it; Ctrl+number does at any time |
 | Ctrl+0 | Back to scratch in this window (if another window has it, the status bar says so instead) |
 | Ctrl+S | Save now; in scratch, save to a file |
 | Ctrl+Shift+S | Save as |

@@ -239,7 +239,7 @@ src/
     key_guard.rs         keeps Ctrl+digit and Ctrl+punctuation (and ⌘ plus a letter on macOS) from
                          typing into text boxes; widgets still get the key for their shortcuts
     status_bar.rs        the bottom bar (save dot, path, counts, assistant toggle) and its menu
-    switcher.rs          the Ctrl+P quick switcher over recent files
+    switcher.rs          the Ctrl+P quick switcher: scratch and the recent files, numbered 0-9
     find_bar.rs          the Ctrl+F find bar: its matches, stepping through them, how they're lit
     file_actions.rs      App's handlers for opening a document in the window's place (Ctrl+O,
                          Ctrl+P, Ctrl+0), New file (Ctrl+N), Save (Ctrl+S) and Save as
