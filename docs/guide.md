@@ -47,7 +47,8 @@ scripts look for the build in the repository's own `target/` folder, so unset `C
   needed) and a `dovetail` command in `~/.local/bin`. The app can't be a file's "Open With" app
   yet, so open files from the terminal or from inside the app.
 - **Windows**: `dovetail.exe` goes to `%LOCALAPPDATA%\Programs\Dovetail\`, with a Start Menu entry,
-  and Dovetail joins the "Open with" list for `.txt`, `.md`, `.markdown` and `.json` files.
+  and Dovetail joins the "Open with" list for `.txt`, Markdown and config files (`.json`, `.yaml`,
+  `.yml`, `.toml`, `.ini`, `.cfg`, `.conf`).
 
 To run `dovetail` from a terminal, its folder must be on your `PATH`: `~/.local/bin` on Linux and
 macOS, `%LOCALAPPDATA%\Programs\Dovetail` on Windows. The scripts tell you if it isn't. On Linux
@@ -130,6 +131,16 @@ checked: if it isn't valid JSON, the status bar says where and why, such as `Inv
 by your Tab setting) and **Minify JSON** (all on one line). Both change only the spaces and line
 breaks between values, so keys keep their order and numbers their digits, and Ctrl+Z undoes either
 in one step. Neither runs on invalid JSON: the status bar says it can't, next to the problem.
+
+**Config files** are coloured and checked the same way: YAML (`.yaml`, `.yml`), TOML (`.toml`)
+and INI (`.ini`, `.cfg`, `.conf`). Keys are blue, strings green, numbers yellow, `true`, `false`,
+`null` (and YAML's `yes`, `no`, `on`, `off`) orange, comments grey, and INI sections and TOML
+tables yellow and bold. The text of a YAML block (`prompt: |`) and of a TOML `"""` string is
+coloured as text, so a line inside one that looks like a key isn't. If the file stops being valid,
+the status bar says where and why, as for JSON. INI has no single standard, so the check only asks
+that each line is a `[section]`, a `key = value` (or `key: value`), a `;` or `#` comment, or
+indented to carry on the value above it. There's no Format for these: rewriting them would lose
+your comments and layout.
 
 Files must be UTF-8, which almost every editor writes today. Any other file opens empty and
 read-only, and the status bar says why; the file itself is never touched. A file keeps its line

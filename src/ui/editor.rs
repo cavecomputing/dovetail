@@ -18,6 +18,7 @@ use crate::core::find::{find_all, word_at};
 use crate::core::markdown::{BOLD, ITALIC, ListEnter, is_list_item, list_enter, toggle_marker};
 use crate::core::review::{DisplayMap, Review, Shown, Suggestion, clashes};
 use crate::core::settings::{ReadingMode, Settings};
+use crate::core::syntax::Syntax;
 use crate::core::text_file::newlines_only;
 use crate::core::text_model::{Change, TextModel, offset, position, positions, selected_lines};
 use crate::ui::app::Message;
@@ -44,22 +45,20 @@ pub const PADDING: Padding = Padding {
 };
 
 /// The pane's editor in its column, with `paint` (any suggestions, from `Pane::suggestion_runs`,
-/// and find matches) drawn under the text, and Markdown or JSON coloured when `markdown` or
-/// `json` is set. Without
+/// and find matches) drawn under the text, coloured for its `syntax` (Markdown, or a data file's
+/// keys and values). Without
 /// `editable` the text is dimmed; it can still be scrolled, selected and copied, and
 /// `App::update` drops any change to it.
 pub fn view<'a>(
     pane: &'a Pane,
     settings: &Settings,
     editable: bool,
-    markdown: bool,
-    json: bool,
+    syntax: Syntax,
     paint: Vec<PaintRun>,
 ) -> Element<'a, Message> {
     let reviewing = pane.reviewing();
     let colouring = Colouring {
-        markdown,
-        json,
+        syntax,
         markup: settings.colour_markup,
         review: pane.review_highlights(),
     };

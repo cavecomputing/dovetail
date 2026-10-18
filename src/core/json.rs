@@ -2,27 +2,12 @@
 //! text laid out again (Format) or squeezed onto one line (Minify).
 
 use std::ops::Range;
-use std::path::Path;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Json {
-    /// A string that names a field: one followed by `:`.
-    Key,
-    String,
-    Number,
-    /// `true`, `false` and `null`.
-    Word,
-}
-
-/// Whether `path` is a JSON file, by its extension.
-pub fn is_json(path: &Path) -> bool {
-    path.extension()
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("json"))
-}
+use crate::core::syntax::Token;
 
 /// Finds the keys, strings, numbers and words in one line, as byte ranges. A JSON string can't
 /// hold a line break, so each line can be coloured on its own; one left open runs to the end.
-pub fn json_ranges(line: &str) -> Vec<(Range<usize>, Json)> {
+pub fn json_ranges(line: &str) -> Vec<(Range<usize>, Token)> {
     let bytes = line.as_bytes();
     let mut found = Vec::new();
     let mut at = 0;
@@ -37,8 +22,8 @@ pub fn json_ranges(line: &str) -> Vec<(Range<usize>, Json)> {
                 }
                 at = (at + 1).min(bytes.len());
                 match line[at..].trim_start().starts_with(':') {
-                    true => Json::Key,
-                    false => Json::String,
+                    true => Token::Key,
+                    false => Token::String,
                 }
             }
             b'-' | b'0'..=b'9' => {
@@ -47,7 +32,7 @@ pub fn json_ranges(line: &str) -> Vec<(Range<usize>, Json)> {
                 {
                     at += 1;
                 }
-                Json::Number
+                Token::Number
             }
             b'a'..=b'z' => {
                 while at < bytes.len() && bytes[at].is_ascii_lowercase() {
@@ -56,7 +41,7 @@ pub fn json_ranges(line: &str) -> Vec<(Range<usize>, Json)> {
                 if !matches!(&line[start..at], "true" | "false" | "null") {
                     continue;
                 }
-                Json::Word
+                Token::Literal
             }
             _ => {
                 at += 1;
@@ -155,7 +140,7 @@ pub fn reformat(text: &str, indent: Option<usize>) -> Result<String, String> {
 mod tests {
     use super::*;
 
-    fn looks(line: &str) -> Vec<(&str, Json)> {
+    fn looks(line: &str) -> Vec<(&str, Token)> {
         json_ranges(line)
             .into_iter()
             .map(|(range, look)| (&line[range], look))
@@ -167,30 +152,22 @@ mod tests {
         assert_eq!(
             looks(r#"  "name": "Nano \"Bear\"", "age": -1.5e3, "ok": true, "x": null,"#),
             vec![
-                (r#""name""#, Json::Key),
-                (r#""Nano \"Bear\"""#, Json::String),
-                (r#""age""#, Json::Key),
-                ("-1.5e3", Json::Number),
-                (r#""ok""#, Json::Key),
-                ("true", Json::Word),
-                (r#""x""#, Json::Key),
-                ("null", Json::Word),
+                (r#""name""#, Token::Key),
+                (r#""Nano \"Bear\"""#, Token::String),
+                (r#""age""#, Token::Key),
+                ("-1.5e3", Token::Number),
+                (r#""ok""#, Token::Key),
+                ("true", Token::Literal),
+                (r#""x""#, Token::Key),
+                ("null", Token::Literal),
             ]
         );
         // A string left open runs to the end of the line; a stray word isn't coloured.
-        assert_eq!(looks(r#"[nope, "open"#), vec![(r#""open"#, Json::String)]);
+        assert_eq!(looks(r#"[nope, "open"#), vec![(r#""open"#, Token::String)]);
         assert_eq!(
             looks(r#""ends in \"#),
-            vec![(r#""ends in \"#, Json::String)]
+            vec![(r#""ends in \"#, Token::String)]
         );
-    }
-
-    #[test]
-    fn json_files_are_known_by_their_extension() {
-        assert!(is_json(Path::new("export.json")));
-        assert!(is_json(Path::new("EXPORT.JSON")));
-        assert!(!is_json(Path::new("notes.md")));
-        assert!(!is_json(Path::new("json")));
     }
 
     #[test]

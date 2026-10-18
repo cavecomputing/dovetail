@@ -140,7 +140,7 @@ Installing for daily use, from a checkout. Each script builds the release binary
 name from `brand.rs` through `<bin> --print-brand`:
 
 - **Linux**: `scripts/install.sh` copies the binary to `~/.local/bin` and installs the app icon and
-  the `.desktop` file (for plain text, Markdown and JSON).
+  the `.desktop` file (for plain text, Markdown and config files).
 - **Arch**: `packaging/arch/PKGBUILD` builds a `dovetail-git` pacman package from GitHub's `main`
   (`cd packaging/arch && makepkg -si`), installing the same files under `/usr`. Its package name
   has to be written out (makepkg needs it literally); the installed names still come from
@@ -151,7 +151,8 @@ name from `brand.rs` through `<bin> --print-brand`:
   files from the terminal or from inside the app.
 - **Windows**: `powershell -ExecutionPolicy Bypass -File scripts\install-windows.ps1` copies the
   exe to `%LOCALAPPDATA%\Programs\<app>` and adds a Start Menu entry and an "Open with" entry for
-  `.txt`, `.md`, `.markdown` and `.json` files; add `-Uninstall` to remove them.
+  `.txt`, Markdown and config files (`.json`, `.yaml`, `.toml`, `.ini`, ...); add `-Uninstall`
+  to remove them.
 
 ### How much verification a change needs
 
@@ -178,8 +179,8 @@ name from `brand.rs` through `<bin> --print-brand`:
 
 ## Architecture
 
-One process per window: launching with no file opens scratch, with a `.txt`, `.md` or `.json` opens
-that file. Each launch gets its own window, which plays well with tiling window managers. Opening another
+One process per window: launching with no file opens scratch, with a file (`.txt`, `.md`, `.json`,
+...) opens that file. Each launch gets its own window, which plays well with tiling window managers. Opening another
 document from inside the app (Ctrl+O, Ctrl+P, Recent, Ctrl+N, Ctrl+0) replaces the one in the same
 window, once the one being left is saved (`App::open_here`). A process has exactly one window:
 Settings, the Ctrl+P switcher and the menu open over it.
@@ -218,11 +219,14 @@ src/
     opened.rs            what a launch opens (scratch or a file): the text, the cursor, the lock,
                          and whether it's editable
     lock.rs              OS file locks so two windows never edit the same document
+    config.rs            YAML, TOML and INI: which parts of a line to colour, and the checks
     counts.rs            word and token counts (tokenizer loads in the background)
     find.rs              every match of a find query, ignoring case
     markup.rs            where XML tags and {{macros}} are, for colouring them
     markdown.rs          which parts of a Markdown (.md) line to colour, whether a code fence is
                          open, what Enter and Tab do in a list, and Ctrl+B and Ctrl+I's markers
+    syntax.rs            which kind of text a file is (plain, Markdown, JSON, YAML, TOML, INI),
+                         by extension; the shared colour tokens; the validity check for each
     json.rs              which parts of a .json line to colour, whether the text is valid JSON,
                          and Format and Minify (whitespace only, so key order and digits are kept)
     text_file.rs         reading and saving .txt and .md files: line endings, outside-change check
