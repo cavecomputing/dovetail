@@ -41,7 +41,9 @@ pub fn view(app: &App) -> Element<'_, Message> {
     }
     // Warnings in orange, each in words: why the text is read-only, anything a menu action
     // couldn't do, and a settings problem (short here, the whole reason on hover).
-    for warning in [&app.read_only_reason, &app.notice].into_iter().flatten() {
+    let notice = app.notice.as_ref().map(|(words, _)| words);
+    let warnings = [app.read_only_reason.as_ref(), notice];
+    for warning in warnings.into_iter().flatten() {
         left = left.push(small(warning.as_str()).color(roles.accent_warm));
     }
     if let Some(reason) = &app.settings_error {

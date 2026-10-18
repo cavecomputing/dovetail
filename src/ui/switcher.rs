@@ -88,7 +88,7 @@ impl App {
                 });
                 if let Some(path) = picked {
                     self.switcher = None;
-                    self.notice = open_in_new_window(Some(path)).err();
+                    self.set_notice(open_in_new_window(Some(path)).err());
                     return iced::widget::operation::focus(editor::EDITOR_ID);
                 }
             }
