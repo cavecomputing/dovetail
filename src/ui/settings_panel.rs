@@ -289,7 +289,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
         .padding(0)
         .style(icon_button)
         .on_press(Message::CloseMenu);
-    let header = row![
+    let words = row![
         text("Settings").size(13),
         dot(dot_color),
         text(file).size(12).color(color),
@@ -300,15 +300,19 @@ pub fn view(app: &App) -> Element<'_, Message> {
         } else {
             "changes apply instantly"
         }),
-        close,
     ]
     .spacing(8)
-    .align_y(iced::Center)
-    .padding(Padding {
-        left: 32.0,
-        right: 12.0,
-        ..Padding::ZERO
-    });
+    .align_y(iced::Center);
+    // In a narrow window the words are cut off, not the close button (a long path, as on
+    // Windows, would push it off the card).
+    let header = row![container(words).width(Fill).clip(true), close]
+        .spacing(8)
+        .align_y(iced::Center)
+        .padding(Padding {
+            left: 32.0,
+            right: 12.0,
+            ..Padding::ZERO
+        });
     let card = container(column![header, page].spacing(20))
         .width(Fill)
         .max_width(704)
