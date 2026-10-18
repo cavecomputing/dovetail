@@ -164,13 +164,6 @@ pub fn muted<'a>(words: impl text::IntoFragment<'a>) -> text::Text<'a> {
         })
 }
 
-/// Text in the subtle grey, for hints and labels.
-pub fn subtle(theme: &Theme) -> text::Style {
-    text::Style {
-        color: Some(Roles::of(theme).fg_subtle),
-    }
-}
-
 /// A row of a menu or panel: filled only while hovered.
 pub fn menu_button(theme: &Theme, status: button::Status) -> button::Style {
     let roles = Roles::of(theme);

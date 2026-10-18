@@ -931,17 +931,17 @@ impl App {
         let show_controls = window_controls::visible(self.settings.window_controls);
         // Always inside `responsive`, so opening the pane keeps the editor's state.
         let document = responsive(move |size| assistant_view::beside(self, size.width));
-        let mut body = column![document];
+        let mut text_area = column![document];
         if self.find.open || self.find.line.is_some() {
-            body = body.push(find_bar::view(self));
+            text_area = text_area.push(find_bar::view(self));
         }
-        let body = body.push(status_bar::view(self));
-        // Settings covers everything under the top strip, so the window controls still work.
-        let settings = match self.settings_open {
-            true => settings_panel::view(self),
-            false => space().into(),
+        // Settings covers the text area, between the window controls and the status bar, which
+        // then says where the settings are saved.
+        let (settings, status) = match self.settings_open {
+            true => (settings_panel::view(self), settings_panel::status(self)),
+            false => (space().into(), status_bar::view(self)),
         };
-        let body = stack![body, settings];
+        let body = column![stack![text_area, settings], status];
         // Everything that comes and goes keeps its place, left empty while it's hidden: iced keeps
         // a widget's state (focus, selection, scroll offsets) only while the widget tree keeps its
         // shape. So opening Settings or a panel, or hiding the window controls, resets nothing.
