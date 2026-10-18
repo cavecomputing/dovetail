@@ -124,6 +124,14 @@ impl App {
     /// editing it, undo history and all. Scratch is emptied, keeping its text for the next scratch
     /// window's Ctrl+Z; a file keeps its last save.
     pub fn save_as(&mut self, path: PathBuf) -> Task<Message> {
+        // An autosave still running would land after the writes below: over scratch just
+        // emptied, or over the old file with older text. So wait for it: its `Saved` comes back
+        // here.
+        if self.autosaver.is_saving() {
+            self.opening = None;
+            self.saving_as = Some(path);
+            return Task::none();
+        }
         let (line_ending, bom) = match &self.doc {
             Doc::File {
                 path: current,
@@ -133,8 +141,7 @@ impl App {
                 // Its own file: save, even with nothing new, so a file moved or deleted
                 // outside the app is written again.
                 if same_file(current, &path) {
-                    let can_save = self.editable() && !self.autosaver.is_saving();
-                    return match can_save {
+                    return match self.editable() {
                         true => self.save(Instant::now()),
                         false => Task::none(),
                     };
