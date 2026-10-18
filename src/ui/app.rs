@@ -168,6 +168,12 @@ fn window_settings() -> window::Settings {
             titlebar_transparent: true,
             #[cfg(target_os = "macos")]
             fullsize_content_view: true,
+            // Windows draws no edge round an undecorated window unless asked: a drop shadow
+            // (iced warns of a 1px line along the top), and rounded corners on Windows 11.
+            #[cfg(target_os = "windows")]
+            undecorated_shadow: true,
+            #[cfg(target_os = "windows")]
+            corner_preference: window::settings::platform::CornerPreference::Round,
             ..Default::default()
         },
         ..Default::default()
