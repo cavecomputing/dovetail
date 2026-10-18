@@ -222,8 +222,9 @@ src/
   ui/                    everything iced: windows, widgets, styling
     app.rs               the App state, Message enum, update and view
     theme.rs             Gruvbox palette roles, the font and its icon glyphs, shared styles
-    editor.rs            the editor pane (widget + text model), key bindings, tag/macro colouring,
-                         and review mode (suggestions as ghost text, Accept and Reject)
+    editor.rs            the editor pane (widget + text model), key bindings, and review mode
+                         (suggestions as ghost text, Accept and Reject)
+    highlighter.rs       how the editor colours its text: tags and macros, suggested edits
     text_editor.rs       a copy of iced's text editor widget (draws find matches, suggested edits
                          and their buttons), changes marked `ours:`
     key_guard.rs         keeps Ctrl+digit and Ctrl+punctuation (and ⌘ plus a letter on macOS) from

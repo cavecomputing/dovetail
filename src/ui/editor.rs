@@ -1,29 +1,28 @@
-//! The text editing widget: the text column, Tab as spaces, undo and redo, and XML-tag /
-//! {{macro}} colouring. A `Pane` pairs the widget's content with the text model behind it, and
-//! shows suggested edits inside the text until each is accepted or rejected (review mode).
+//! The text editing widget: the text column, Tab as spaces, undo and redo (its colours come from
+//! `highlighter`). A `Pane` pairs the widget's content with the text model behind it, and shows
+//! suggested edits inside the text until each is accepted or rejected (review mode).
 
 use std::ops::Range;
 use std::sync::Arc;
 use std::time::Instant;
 
-use iced::advanced::text::highlighter::{self, Highlighter};
 use iced::keyboard::{Key, key::Named};
 use iced::widget::container;
 use iced::widget::text::Wrapping;
 use iced::widget::text_editor::Motion;
-use iced::{Background, Border, Color, Element, Fill, Font, Padding, Theme};
+use iced::{Background, Border, Element, Fill, Padding, Theme};
 
-use crate::core::markup::{Markup, markup_ranges};
 use crate::core::review::{DisplayMap, Review, Shown, Suggestion, clashes};
 use crate::core::settings::{ReadingMode, Settings};
 use crate::core::text_file::newlines_only;
 use crate::core::text_model::{Change, TextModel, offset, position, positions};
 use crate::ui::app::Message;
+use crate::ui::highlighter::{Colouring, Highlight, MarkupHighlighter, highlight_format};
 use crate::ui::text_editor::{
     self, Action, Binding, Content, Cursor, Edit, KeyPress, PaintLook, PaintRun, Position, Status,
     TextEditor,
 };
-use crate::ui::theme::{CHAR_WIDTH_RATIO, MONO, Roles};
+use crate::ui::theme::{CHAR_WIDTH_RATIO, Roles};
 
 pub const EDITOR_ID: &str = "doc";
 /// Why an edit to the text a suggestion changes was refused.
@@ -603,89 +602,6 @@ impl Pane {
             } else {
                 Edit::Paste(Arc::new(change.inserted.clone()))
             }));
-    }
-}
-
-/// What the highlighter colours: XML tags and macros when `markup` is on, and in review mode the
-/// struck and ghost text and the room for the buttons, as (line, byte columns, look).
-#[derive(Debug, Clone, PartialEq)]
-pub struct Colouring {
-    markup: bool,
-    review: Vec<(usize, Range<usize>, Highlight)>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Highlight {
-    Markup(Markup),
-    /// Text a suggestion would replace: muted (the line through it is drawn as paint).
-    Struck,
-    /// A suggestion's new text: italic.
-    Ghost,
-    /// The room for a suggestion's buttons: invisible, as the buttons are drawn over it.
-    Hidden,
-}
-
-fn highlight_format(highlight: &Highlight, theme: &Theme) -> highlighter::Format<Font> {
-    let roles = Roles::of(theme);
-    let color = match highlight {
-        Highlight::Markup(Markup::Tag) | Highlight::Struck => Some(roles.fg_muted),
-        Highlight::Markup(Markup::Macro) => Some(roles.accent_cool),
-        Highlight::Hidden => Some(Color::TRANSPARENT),
-        Highlight::Ghost => None,
-    };
-    let font = (*highlight == Highlight::Ghost).then_some(Font {
-        style: iced::font::Style::Italic,
-        ..MONO
-    });
-    highlighter::Format { color, font }
-}
-
-/// iced asks for colours one line at a time; `line` tracks how far it has got.
-pub struct MarkupHighlighter {
-    line: usize,
-    colouring: Colouring,
-}
-
-impl Highlighter for MarkupHighlighter {
-    type Settings = Colouring;
-    type Highlight = Highlight;
-    type Iterator<'a> = std::vec::IntoIter<(Range<usize>, Highlight)>;
-
-    fn new(colouring: &Colouring) -> Self {
-        MarkupHighlighter {
-            line: 0,
-            colouring: colouring.clone(),
-        }
-    }
-
-    fn update(&mut self, colouring: &Colouring) {
-        self.line = 0;
-        self.colouring = colouring.clone();
-    }
-
-    fn change_line(&mut self, line: usize) {
-        self.line = self.line.min(line);
-    }
-
-    /// Tags and macros first, so suggestion looks win where they overlap.
-    fn highlight_line(&mut self, text: &str) -> Self::Iterator<'_> {
-        let mut found = Vec::new();
-        if self.colouring.markup {
-            for (range, markup) in markup_ranges(text) {
-                found.push((range, Highlight::Markup(markup)));
-            }
-        }
-        for (line, range, highlight) in &self.colouring.review {
-            if *line == self.line {
-                found.push((range.clone(), *highlight));
-            }
-        }
-        self.line += 1;
-        found.into_iter()
-    }
-
-    fn current_line(&self) -> usize {
-        self.line
     }
 }
 
