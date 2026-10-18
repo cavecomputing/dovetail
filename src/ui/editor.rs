@@ -2239,7 +2239,11 @@ mod tests {
         assert_eq!(pane.select_next_match(), Ok(true));
         assert_eq!(pane.selection(), Some(8..11), "the word at the caret");
         assert_eq!(pane.select_next_match(), Ok(true));
-        assert_eq!(pane.selection(), Some(24..27), "case matters, and whole words");
+        assert_eq!(
+            pane.selection(),
+            Some(24..27),
+            "case matters, and whole words"
+        );
         assert_eq!(pane.select_next_match(), Ok(true));
         assert_eq!(pane.selection(), Some(0..3), "round to the top");
         assert_eq!(pane.select_next_match(), Ok(false), "every one is selected");
@@ -2261,7 +2265,11 @@ mod tests {
         }
         assert_eq!(pane.content.text(), "cow dog cow");
         assert_eq!(pane.model.text(), "cow dog cow");
-        assert_eq!(pane.caret(), 11, "the widget's own caret, after the last cow");
+        assert_eq!(
+            pane.caret(),
+            11,
+            "the widget's own caret, after the last cow"
+        );
         assert_eq!(pane.others, vec![3..3]);
         assert_eq!(pane.backspace(4), Ok(true));
         assert_eq!(pane.content.text(), "co dog co");
@@ -2293,7 +2301,11 @@ mod tests {
         pane.put_caret(2);
         pane.others.push(1..1);
         pane.perform(Action::Edit(Edit::Backspace)).unwrap();
-        assert_eq!(pane.content.text(), "cd", "the a before one caret, the b before the other");
+        assert_eq!(
+            pane.content.text(),
+            "cd",
+            "the a before one caret, the b before the other"
+        );
         assert_eq!(pane.caret(), 0);
         assert!(pane.others.is_empty(), "the two carets met, so they're one");
     }
