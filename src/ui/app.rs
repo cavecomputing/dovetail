@@ -78,6 +78,8 @@ pub struct App {
     pub menu_open: bool,
     /// The Ctrl+F find bar.
     pub find: Find,
+    /// The modifier keys held now, for the Replace box's Ctrl+Enter.
+    pub modifiers: keyboard::Modifiers,
 
     /// The assistant pane and its conversation, kept while the window is open.
     pub assistant: Assistant,
@@ -176,6 +178,13 @@ pub enum Message {
 
     Assistant(AssistantAction),
     Find(FindAction),
+    /// The modifier keys held changed.
+    Modifiers(keyboard::Modifiers),
+    /// Tab outside the editor, such as in the find bar: the keyboard to the next text box, or
+    /// the one before (`back`, with Shift).
+    FocusNext {
+        back: bool,
+    },
 }
 
 /// Runs the app on `doc` until its window closes.
@@ -291,6 +300,7 @@ impl App {
             opening: None,
             menu_open: false,
             find: Find::default(),
+            modifiers: keyboard::Modifiers::default(),
             assistant: Assistant::default(),
             key_field: KeyField::default(),
             connection: None,
@@ -386,11 +396,7 @@ impl App {
                     // no other message in.
                     _ => Ok(false),
                 };
-                match edited {
-                    Ok(true) => self.text_changed(),
-                    Ok(false) => {}
-                    Err(reason) => self.set_notice(Some(reason)),
-                }
+                self.after_edit(edited);
             }
             Message::Indent
             | Message::Unindent
@@ -641,6 +647,9 @@ impl App {
             }
             Message::Assistant(action) => return self.update_assistant(action),
             Message::Find(action) => return self.update_find(action),
+            Message::Modifiers(modifiers) => self.modifiers = modifiers,
+            Message::FocusNext { back: true } => return iced::widget::operation::focus_previous(),
+            Message::FocusNext { back: false } => return iced::widget::operation::focus_next(),
         }
         Task::none()
     }
@@ -648,6 +657,15 @@ impl App {
     /// Puts `notice` up in the status bar for `NOTICE_TIME` (`None` takes the last one down).
     pub fn set_notice(&mut self, notice: Option<String>) {
         self.notice = notice.map(|words| (words, Instant::now()));
+    }
+
+    /// Follows up an edit to the pane: what changed, or why it couldn't, in the status bar.
+    pub fn after_edit(&mut self, edited: Result<bool, String>) {
+        match edited {
+            Ok(true) => self.text_changed(),
+            Ok(false) => {}
+            Err(reason) => self.set_notice(Some(reason)),
+        }
     }
 
     fn text_changed(&mut self) {
@@ -891,11 +909,18 @@ fn pane_for(opened: &OpenedDoc) -> Pane {
     pane
 }
 
-/// App-wide keys. Up and Down move through the switcher's list, and Enter steps through the find
-/// bar's matches (each ignored while its panel is closed).
+/// App-wide keys. Up and Down move through the switcher's list, Enter steps through the find
+/// bar's matches (each ignored while its panel is closed), and Tab outside the editor moves
+/// between text boxes.
 fn shortcut(event: iced::Event, status: event::Status, _window: window::Id) -> Option<Message> {
-    let iced::Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) = event else {
-        return None;
+    let (key, modifiers) = match event {
+        iced::Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
+            (key, modifiers)
+        }
+        iced::Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) => {
+            return Some(Message::Modifiers(modifiers));
+        }
+        _ => return None,
     };
     match key {
         keyboard::Key::Named(keyboard::key::Named::Escape) => return Some(Message::CloseMenu),
@@ -903,6 +928,10 @@ fn shortcut(event: iced::Event, status: event::Status, _window: window::Id) -> O
         keyboard::Key::Named(keyboard::key::Named::Enter) if status == event::Status::Ignored => {
             let shift = modifiers.shift();
             return Some(Message::EnterKey { shift });
+        }
+        keyboard::Key::Named(keyboard::key::Named::Tab) if status == event::Status::Ignored => {
+            let back = modifiers.shift();
+            return Some(Message::FocusNext { back });
         }
         keyboard::Key::Named(keyboard::key::Named::ArrowUp) => {
             return Some(Message::SwitcherMove(-1));
@@ -934,7 +963,10 @@ fn shortcut(event: iced::Event, status: event::Status, _window: window::Id) -> O
         keyboard::Key::Character("s" | "S") => Some(Message::Save),
         keyboard::Key::Character("o") => Some(Message::OpenDialog),
         keyboard::Key::Character("n") => Some(Message::NewFile),
-        keyboard::Key::Character("f") => Some(Message::Find(FindAction::Open)),
+        keyboard::Key::Character("f" | "F") if modifiers.shift() => {
+            Some(Message::Find(FindAction::OpenReplace))
+        }
+        keyboard::Key::Character("f" | "F") => Some(Message::Find(FindAction::Open)),
         keyboard::Key::Character("=" | "+") => Some(Message::Zoom(1.0)),
         keyboard::Key::Character("-") => Some(Message::Zoom(-1.0)),
         // macOS's own: ⌘M minimizes, and ⌘G and ⇧⌘G step through the find bar's matches.
@@ -955,7 +987,8 @@ fn settings_key(message: Message) -> Option<Message> {
         | Message::CloseRequested
         | Message::Minimize
         | Message::Zoom(_)
-        | Message::ToggleLineNumbers => Some(message),
+        | Message::ToggleLineNumbers
+        | Message::Modifiers(_) => Some(message),
         _ => None,
     }
 }

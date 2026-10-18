@@ -148,7 +148,8 @@ Shortcuts are written with Ctrl; on macOS use ⌘ (the app's menu and hints show
 | Ctrl+S | Save now; in scratch, save to a file |
 | Ctrl+Shift+S | Save as |
 | Ctrl+W | Close the window, once the latest save is written |
-| Ctrl+F | Find, ignoring case (text selected on one line becomes the search). In the find box, Enter and Shift+Enter step through the matches; Esc closes, leaving the match selected |
+| Ctrl+F | Find (text selected on one line becomes the search). Case is ignored unless you switch on Match case (the Aa button); the button next to it finds whole words only. In the find box, Enter and Shift+Enter step through the matches; Esc closes, leaving the match selected |
+| Ctrl+Shift+F | Find and replace: the find bar with a Replace box under it (Tab moves between the two). In the Replace box, Enter replaces the selected match and goes to the next one, and Ctrl+Enter replaces them all, as one Ctrl+Z |
 | Ctrl+= and Ctrl+- | Bigger or smaller text. This is the Font size setting (9 to 40), so every window follows and it is remembered |
 | Ctrl+, | Settings |
 | Ctrl+L | Open or close the assistant pane |

@@ -84,6 +84,7 @@ your text and suggests edits. Test connection will tell you if it doesn't.
 | Ctrl+O | Open a file |
 | Ctrl+P | Recent files |
 | Ctrl+F | Find |
+| Ctrl+Shift+F | Find and replace |
 | Ctrl+S | Save now (in the scratchpad, save it to a file) |
 | Ctrl+L | Show or hide the assistant |
 | Ctrl+, | Settings |
