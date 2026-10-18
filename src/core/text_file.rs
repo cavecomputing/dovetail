@@ -111,7 +111,7 @@ pub fn save_text(
     expected: Option<DiskStamp>,
 ) -> io::Result<Option<DiskStamp>> {
     if changed_on_disk(path, expected) {
-        return Err(io::Error::other("changed on disk outside this window"));
+        return Err(io::Error::other("changed on disk"));
     }
     let mut disk_text = line_ending.apply(text);
     if bom {
@@ -250,7 +250,7 @@ mod tests {
         fs::write(&path, "someone else's text").unwrap();
         assert!(changed_on_disk(&path, stamp));
         let error = save_text(&path, "mine again", LineEnding::Lf, false, stamp).unwrap_err();
-        assert_eq!(error.to_string(), "changed on disk outside this window");
+        assert_eq!(error.to_string(), "changed on disk");
         assert_eq!(fs::read_to_string(&path).unwrap(), "someone else's text");
     }
 
