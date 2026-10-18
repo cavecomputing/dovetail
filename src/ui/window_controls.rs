@@ -88,10 +88,18 @@ pub fn with_resize_edges(page: Element<'_, Message>, shown: bool) -> Element<'_,
     let edge = |width: Length, height: Length, cursor, direction| -> Element<'static, Message> {
         let area = space().width(width).height(height);
         match shown {
-            true => mouse_area(area)
-                .interaction(cursor)
-                .on_press(Message::Resize(direction))
-                .into(),
+            true => {
+                let area = mouse_area(area)
+                    .interaction(cursor)
+                    .on_press(Message::Resize(direction));
+                // Like the strip they lie over, the top edges maximize on a double click.
+                match direction {
+                    Direction::North | Direction::NorthWest | Direction::NorthEast => {
+                        area.on_double_click(Message::ToggleMaximize).into()
+                    }
+                    _ => area.into(),
+                }
+            }
             false => area.into(),
         }
     };
