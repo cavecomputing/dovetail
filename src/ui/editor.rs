@@ -15,7 +15,9 @@ use iced::widget::{container, stack};
 use iced::{Background, Border, Element, Fill, Padding, Theme};
 
 use crate::core::find::{find_all, word_at};
-use crate::core::markdown::{BOLD, ITALIC, ListEnter, is_list_item, list_enter, toggle_marker};
+use crate::core::markdown::{
+    BOLD, ITALIC, ListEnter, fence_enter, is_list_item, list_enter, toggle_marker,
+};
 use crate::core::review::{DisplayMap, Review, Shown, Suggestion, clashes};
 use crate::core::settings::{ReadingMode, Settings};
 use crate::core::syntax::{Syntax, toggle_comments};
@@ -810,8 +812,10 @@ impl Pane {
     /// Enter in a Markdown file. On a list item it starts the next item (the same bullet or the
     /// next number, and an empty task box if it had one), and on a quote line it continues the
     /// quote. On an empty item it takes off one layer instead: an indented item unindents, any
-    /// other loses its marker, and a quote line with nothing else loses its quote markers.
-    /// Anywhere else, in fenced code, or with the caret in the line's prefix, it is `new_line`.
+    /// other loses its marker, and a quote line with nothing else loses its quote markers. At the
+    /// end of a fence that opens a code block, it puts the closing fence in two lines down, with
+    /// the caret between. Anywhere else, in fenced code, or with the caret in the line's prefix,
+    /// it is `new_line`.
     /// Returns whether the text changed, or why it can't.
     pub fn markdown_new_line(&mut self, tab_spaces: usize) -> Result<bool, String> {
         if !self.others.is_empty() {
@@ -820,6 +824,13 @@ impl Pane {
         let cursor = self.content.cursor();
         let caret = self.caret();
         let range = self.selection().unwrap_or(caret..caret);
+        if range.is_empty()
+            && let Some((typed, at)) = fence_enter(self.model.text(), caret)
+        {
+            let edited = self.perform(Action::Edit(Edit::Paste(Arc::new(typed))))?;
+            self.put_caret(at);
+            return Ok(edited);
+        }
         match list_enter(self.model.text(), range.start) {
             Some(ListEnter::Continue(prefix)) => {
                 let typed = Edit::Paste(Arc::new(format!("\n{prefix}")));
