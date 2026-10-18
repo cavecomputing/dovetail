@@ -81,7 +81,11 @@ pub fn open_doc(doc: Doc, paths: &Paths) -> OpenedDoc {
                 Err(TryLockError::Error(_)) => {}
                 Ok(lock) => {
                     opened.lock = Some(lock);
-                    opened.cleared_scratch = take_cleared(&paths.data_dir);
+                    // Only into a scratch that opened, or it would be lost (`open_in_place`
+                    // refuses a scratch it can't read).
+                    if opened.read_only_reason.is_none() {
+                        opened.cleared_scratch = take_cleared(&paths.data_dir);
+                    }
                 }
             }
         }
@@ -543,6 +547,21 @@ mod tests {
             assert_eq!(opened.text, "look");
             assert_eq!(opened.read_only_reason.as_deref(), Some(NO_PERMISSION));
         }
+    }
+
+    #[test]
+    fn a_scratch_that_cant_be_read_keeps_its_cleared_text() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::under(dir.path());
+        crate::core::scratch::clear_scratch(&paths.data_dir, "old").unwrap();
+        let scratch_file = scratch_text_path(&paths.data_dir);
+        fs::write(&scratch_file, [0xff, 0xfe]).unwrap();
+        let file_window = file_doc(&dir.path().join("notes.txt"));
+        let refused = open_in_place(&file_window, Doc::Scratch, &paths);
+        assert!(refused.unwrap_err().starts_with("Couldn't read scratch"));
+        fs::write(&scratch_file, "").unwrap();
+        let opened = open_doc(Doc::Scratch, &paths);
+        assert_eq!(opened.cleared_scratch.as_deref(), Some("old"));
     }
 
     #[test]
