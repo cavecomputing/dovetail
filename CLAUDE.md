@@ -254,7 +254,8 @@ src/
                          Ctrl+P, Ctrl+0), New file (Ctrl+N), Save (Ctrl+S) and Save as
     window_controls.rs   the top strip's window controls and the resize edges; on macOS, Quit
                          pointed at closing the window
-    settings_panel.rs    the Settings panel over the window (Ctrl+,) and how each change applies
+    settings_panel.rs    the Settings panel over the text (Ctrl+,), laid out like settings.toml,
+                         and how each change applies
     assistant_view.rs    the assistant pane (Ctrl+L, every window): chips, chat, suggestion cards,
                          composer, and how it sits beside or over the document
     assistant_actions.rs App's handlers for the assistant: the slide, the agent loop off the UI

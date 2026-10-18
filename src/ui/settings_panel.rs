@@ -1,5 +1,5 @@
-//! The Settings panel (Ctrl+,), covering the text area. Every change applies at once and is
-//! written to settings.toml.
+//! The Settings panel (Ctrl+,), covering the text area and laid out like settings.toml. Every
+//! change applies at once and is written to that file.
 
 use iced::widget::{button, column, container, row, scrollable, space, text, text_input};
 use iced::{Background, Border, Color, Element, Fill, Padding, Theme};
@@ -9,11 +9,13 @@ use crate::core::paths::display_path;
 use crate::core::settings::{
     DEFAULT_BASE_URL, ReadingMode, RequestFormat, Settings, Theme as ThemeSetting, WindowControls,
 };
+use crate::core::syntax::Token;
 use crate::ui::app::{App, Message};
 use crate::ui::assistant_actions::AssistantAction;
 use crate::ui::editor;
-use crate::ui::status_bar::{dot, keys};
-use crate::ui::theme::{self, GLYPH_CLOSE, Roles, icon_button, subtle};
+use crate::ui::highlighter::{Highlight, highlight_format};
+use crate::ui::status_bar::{bar, dot, glyph_button, keys, small};
+use crate::ui::theme::{self, GLYPH_CLOSE, GLYPH_MENU, Roles, bold, icon_button};
 
 /// One edit made in the Settings panel.
 #[derive(Debug, Clone)]
@@ -87,7 +89,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
         "appearance",
         vec![
             setting_row(
-                "Theme",
+                "theme",
                 choices(vec![
                     (
                         "dark",
@@ -105,24 +107,28 @@ pub fn view(app: &App) -> Element<'_, Message> {
                         Change::Theme(ThemeSetting::System),
                     ),
                 ]),
+                comment(""),
             ),
             setting_row(
-                "Font",
-                row![value_text("JetBrains Mono NL Nerd Font"), hint("bundled")]
-                    .align_y(iced::Center)
-                    .into(),
+                "font",
+                value_text("JetBrains Mono NL Nerd Font", Token::String),
+                comment("bundled"),
             ),
             setting_row(
-                "Font size",
+                "font_size",
                 stepper(
-                    format!("{}", settings.font_size),
-                    "px",
+                    settings.font_size.to_string(),
                     Change::FontSize(settings.font_size - 1.0),
                     Change::FontSize(settings.font_size + 1.0),
                 ),
+                comment(format!(
+                    "px, also {} and {}",
+                    keys("Ctrl+="),
+                    keys("Ctrl+-")
+                )),
             ),
             setting_row(
-                "Reading mode",
+                "reading_mode",
                 row![
                     choices(vec![
                         (
@@ -132,16 +138,15 @@ pub fn view(app: &App) -> Element<'_, Message> {
                         ),
                         ("comfort", comfort, comfort_with(comfort_chars)),
                     ]),
-                    separator("·"),
                     stepper(
                         comfort_chars.to_string(),
-                        "chars a line",
                         comfort_with(comfort_chars.saturating_sub(5)),
                         comfort_with(comfort_chars + 5),
                     ),
                 ]
-                .align_y(iced::Center)
+                .spacing(CH)
                 .into(),
+                comment("chars a line, in comfort"),
             ),
         ],
     );
@@ -150,39 +155,33 @@ pub fn view(app: &App) -> Element<'_, Message> {
         "editor",
         vec![
             setting_row(
-                "Tab inserts",
+                "tab_spaces",
                 stepper(
                     settings.tab_spaces.to_string(),
-                    "spaces, never tabs",
                     Change::TabSpaces(settings.tab_spaces.saturating_sub(1)),
                     Change::TabSpaces(settings.tab_spaces.saturating_add(1)),
                 ),
+                comment("spaces, never tabs"),
             ),
             setting_row(
-                "Word wrap",
-                row![
-                    on_off(settings.word_wrap, Change::WordWrap),
-                    hint("off cuts long lines at the edge")
-                ]
-                .align_y(iced::Center)
-                .into(),
+                "word_wrap",
+                on_off(settings.word_wrap, Change::WordWrap),
+                comment("off cuts long lines at the edge"),
             ),
             setting_row(
-                "Line numbers",
-                row![
-                    on_off(settings.line_numbers, Change::LineNumbers),
-                    hint(keys("Ctrl+Shift+L"))
-                ]
-                .align_y(iced::Center)
-                .into(),
+                "line_numbers",
+                on_off(settings.line_numbers, Change::LineNumbers),
+                comment(keys("Ctrl+Shift+L")),
             ),
             setting_row(
-                "XML and macro colour",
+                "colour_markup",
                 on_off(settings.colour_markup, Change::ColourMarkup),
+                comment("XML tags and {{macros}}"),
             ),
             setting_row(
-                "Line and column",
+                "show_line_col",
                 on_off(settings.show_line_col, Change::ShowLineCol),
+                comment("in the status bar"),
             ),
         ],
     );
@@ -191,13 +190,13 @@ pub fn view(app: &App) -> Element<'_, Message> {
     let saving = section(
         "saving",
         vec![setting_row(
-            "Autosave after",
+            "autosave_delay_ms",
             stepper(
                 delay.to_string(),
-                "ms pause in typing",
                 Change::AutosaveDelay(delay.saturating_sub(250)),
                 Change::AutosaveDelay(delay + 250),
             ),
+            comment("pause in typing"),
         )],
     );
 
@@ -206,19 +205,17 @@ pub fn view(app: &App) -> Element<'_, Message> {
         "assistant",
         vec![
             setting_row(
-                "Base URL",
+                "base_url",
                 field(DEFAULT_BASE_URL, &settings.base_url, Change::BaseUrl),
+                comment(""),
             ),
             setting_row(
-                "Model",
-                field(
-                    "model name, as the server knows it",
-                    &settings.model,
-                    Change::Model,
-                ),
+                "model",
+                field("as the server knows it", &settings.model, Change::Model),
+                comment(""),
             ),
             setting_row(
-                "Request format",
+                "request_format",
                 choices(vec![
                     (
                         "responses",
@@ -231,64 +228,91 @@ pub fn view(app: &App) -> Element<'_, Message> {
                         Change::RequestFormat(RequestFormat::ChatCompletions),
                     ),
                 ]),
+                comment(""),
             ),
-            setting_row("API key", key_input(&app.key_field.text)),
-            setting_row("", key_status(&app.key_field)),
             setting_row(
-                "Connection",
+                "api_key",
+                key_input(&app.key_field.text),
+                key_status(&app.key_field),
+            ),
+            setting_row(
+                "",
                 value_button(
                     "test connection".to_string(),
-                    None,
+                    Look::Action,
                     Message::Assistant(AssistantAction::TestConnection),
                 ),
+                connection_result(app.connection.as_ref()),
             ),
-            connection_result(app.connection.as_ref()),
         ],
     );
 
     let window = section(
         "window",
         vec![setting_row(
-            "Window controls",
-            row![
-                choices(vec![
-                    (
-                        "auto",
-                        settings.window_controls == WindowControls::Auto,
-                        Change::WindowControls(WindowControls::Auto)
-                    ),
-                    (
-                        "show",
-                        settings.window_controls == WindowControls::Show,
-                        Change::WindowControls(WindowControls::Show)
-                    ),
-                    (
-                        "hide",
-                        settings.window_controls == WindowControls::Hide,
-                        Change::WindowControls(WindowControls::Hide)
-                    ),
-                ]),
-                hint("auto hides them on tiling WMs"),
-            ]
-            .align_y(iced::Center)
-            .into(),
+            "window_controls",
+            choices(vec![
+                (
+                    "auto",
+                    settings.window_controls == WindowControls::Auto,
+                    Change::WindowControls(WindowControls::Auto),
+                ),
+                (
+                    "show",
+                    settings.window_controls == WindowControls::Show,
+                    Change::WindowControls(WindowControls::Show),
+                ),
+                (
+                    "hide",
+                    settings.window_controls == WindowControls::Hide,
+                    Change::WindowControls(WindowControls::Hide),
+                ),
+            ]),
+            comment("auto hides them on tiling WMs"),
         )],
     );
 
-    let mut sections = column![appearance, editor, saving, assistant].spacing(28);
+    let close = button(text(GLYPH_CLOSE).size(13).center())
+        .width(28)
+        .height(24)
+        .padding(0)
+        .style(icon_button)
+        .on_press(Message::CloseMenu);
+    // The first line, like the comment at the top of a file. In a narrow window the words are
+    // cut off, not the close button.
+    let header = row![
+        container(comment(
+            "every change applies and saves at once · Esc goes back"
+        ))
+        .width(Fill)
+        .clip(true),
+        close
+    ]
+    .align_y(iced::Center);
+
+    // A blank line between sections, as in a file.
+    let mut page = column![header, appearance, editor, saving, assistant].spacing(LINE);
     // macOS keeps its own window buttons, so there is nothing to choose.
     if !cfg!(target_os = "macos") {
-        sections = sections.push(window);
+        page = page.push(window);
     }
-    // Taller than the window, it scrolls, with the bar at the window's right edge like the
-    // editor's. The settings keep to a readable width, starting where the text does.
-    let sections = container(sections).max_width(704).padding(Padding {
-        bottom: 28.0,
-        ..Padding::from([0.0, editor::PADDING.left])
+    // Laid out like settings.toml, in the editor's type, starting where the text does. Taller
+    // than the window, it scrolls, with the bar at the window's right edge like the editor's.
+    let page = container(page).padding(Padding {
+        right: 12.0,
+        ..editor::PADDING
     });
-    let page = scrollable(sections).width(Fill).height(Fill);
+    // Settings takes the whole text area, edge to edge, over the text; Esc or the close button
+    // goes back. `opaque` keeps clicks and scrolling off the text underneath.
+    let page = container(scrollable(page).width(Fill).height(Fill))
+        .width(Fill)
+        .height(Fill)
+        .style(|theme: &Theme| theme::fill(Roles::of(theme).bg_surface));
+    iced::widget::opaque(page)
+}
 
-    // Where the settings are saved, or why they can't be.
+/// The status bar while Settings is open: where the settings are saved, or why they can't be.
+pub fn status(app: &App) -> Element<'_, Message> {
     let roles = Roles::of(&app.theme);
     let (dot_color, color, file) = match &app.settings_error {
         Some(reason) => (roles.accent_warm, roles.accent_warm, reason.clone()),
@@ -298,122 +322,140 @@ pub fn view(app: &App) -> Element<'_, Message> {
             display_path(&app.paths.settings_file()),
         ),
     };
-    let close = button(text(GLYPH_CLOSE).size(13).center())
-        .width(28)
-        .height(24)
-        .padding(0)
-        .style(icon_button)
-        .on_press(Message::CloseMenu);
-    let words = row![
-        text("Settings").size(13),
+    // The menu button keeps its place, unused, so the dot and path sit where the document's do.
+    let left = row![
+        glyph_button(GLYPH_MENU, None),
         dot(dot_color),
-        text(file).size(12).color(color),
-        space::horizontal(),
-        // Hidden while there's a problem, which needs the room and isn't instant.
-        hint(if app.settings_error.is_some() {
-            ""
-        } else {
-            "changes apply instantly"
-        }),
-    ]
-    .spacing(8)
-    .align_y(iced::Center);
-    // In a narrow window the words are cut off, not the close button (a long path, as on
-    // Windows, would push it off the window).
-    let header = row![container(words).width(Fill).clip(true), close]
-        .spacing(8)
-        .align_y(iced::Center)
-        .padding(Padding {
-            left: editor::PADDING.left,
-            right: 12.0,
-            ..Padding::ZERO
-        });
-    // Settings takes the whole text area, edge to edge, rather than floating over it; Esc or the
-    // close button goes back. `opaque` keeps clicks and scrolling off the text underneath.
-    let page = container(column![header, page].spacing(20))
-        .width(Fill)
-        .height(Fill)
-        .padding(Padding {
-            top: editor::PADDING.top,
-            ..Padding::ZERO
-        })
-        .style(|theme: &Theme| theme::fill(Roles::of(theme).bg_surface));
-    iced::widget::opaque(page)
-}
-
-fn section<'a>(label: &'a str, rows: Vec<Element<'a, Message>>) -> Element<'a, Message> {
-    let rule = container(space().width(Fill).height(1))
-        .style(|theme: &Theme| theme::fill(Roles::of(theme).border));
-    let heading = row![text(label).size(12).style(subtle), rule]
-        .spacing(10)
-        .align_y(iced::Center);
-    column![heading, column(rows)].spacing(6).into()
-}
-
-fn setting_row<'a>(label: &'a str, control: Element<'a, Message>) -> Element<'a, Message> {
-    row![
-        text(label)
-            .size(13)
-            .width(200)
-            .style(|theme: &Theme| text::Style {
-                color: Some(Roles::of(theme).fg_muted),
-            }),
-        control,
+        small(file).color(color)
     ]
     .spacing(16)
-    .height(30)
+    .align_y(iced::Center);
+    bar(container(left).width(Fill).clip(true).into())
+}
+
+/// The text size and line height Settings is set in: the editor's, at its default size, so the
+/// page reads like a file in the editor (and doesn't jump under the mouse as the font size
+/// changes).
+const SIZE: f32 = 14.0;
+const LINE: f32 = SIZE * editor::LINE_HEIGHT;
+/// One character's width, which the columns are counted in.
+const CH: f32 = SIZE * theme::CHAR_WIDTH_RATIO;
+
+/// A section: its name as a TOML table, then its settings, one a line.
+fn section<'a>(name: &'a str, rows: Vec<Element<'a, Message>>) -> Element<'a, Message> {
+    let heading = text(format!("[{name}]"))
+        .size(SIZE)
+        .line_height(editor::LINE_HEIGHT)
+        .font(bold())
+        .style(|theme: &Theme| text::Style {
+            color: Some(Roles::of(theme).accent_text),
+        });
+    column![heading, column(rows)].into()
+}
+
+/// One setting as a line of the file: its key, `=`, the value, and a comment, each starting in
+/// its own column.
+fn setting_row<'a>(
+    key: &'a str,
+    value: Element<'a, Message>,
+    comment: Element<'a, Message>,
+) -> Element<'a, Message> {
+    let equals = if key.is_empty() { "" } else { "=" };
+    row![
+        coloured(key, Token::Key).width(19.0 * CH),
+        coloured(equals, Token::Comment).width(2.0 * CH),
+        container(value).width(34.0 * CH),
+        comment,
+    ]
     .align_y(iced::Center)
     .into()
 }
 
-/// Options side by side, separated by `/`; the chosen one is yellow.
+/// `words` in the colour the editor gives `token` in a TOML file.
+fn coloured<'a>(words: impl text::IntoFragment<'a>, token: Token) -> text::Text<'a> {
+    text(words)
+        .size(SIZE)
+        .line_height(editor::LINE_HEIGHT)
+        .style(move |theme: &Theme| text::Style {
+            color: highlight_format(&Highlight::Data(token), theme).color,
+        })
+}
+
+/// `# words`, after a setting or on a line of its own; nothing when `words` is empty. Long words
+/// wrap onto the next line.
+fn comment<'a>(words: impl Into<String>) -> Element<'a, Message> {
+    let words = words.into();
+    if words.is_empty() {
+        return space().into();
+    }
+    coloured(format!("# {words}"), Token::Comment)
+        .width(Fill)
+        .into()
+}
+
+/// Options side by side; the chosen one is coloured as a TOML string.
 fn choices<'a>(options: Vec<(&'a str, bool, Change)>) -> Element<'a, Message> {
-    let mut line = row![].align_y(iced::Center);
-    for (index, (label, chosen, change)) in options.into_iter().enumerate() {
-        if index > 0 {
-            line = line.push(separator("/"));
-        }
-        let message = Message::Setting(change);
-        line = line.push(value_button(label.to_string(), Some(chosen), message));
+    choices_as(options, Token::String)
+}
+
+fn choices_as<'a>(options: Vec<(&'a str, bool, Change)>, token: Token) -> Element<'a, Message> {
+    let mut line = row![].spacing(CH).align_y(iced::Center);
+    for (label, chosen, change) in options {
+        let look = if chosen {
+            Look::Chosen(token)
+        } else {
+            Look::Other
+        };
+        line = line.push(value_button(
+            label.to_string(),
+            look,
+            Message::Setting(change),
+        ));
     }
     line.into()
 }
 
+/// On and off, the chosen one coloured as a TOML `true` or `false`.
 fn on_off<'a>(on: bool, change: fn(bool) -> Change) -> Element<'a, Message> {
-    choices(vec![("on", on, change(true)), ("off", !on, change(false))])
+    choices_as(
+        vec![("on", on, change(true)), ("off", !on, change(false))],
+        Token::Literal,
+    )
 }
 
-/// A number with − and + on either side, and its unit after.
-fn stepper<'a>(value: String, unit: &'a str, less: Change, more: Change) -> Element<'a, Message> {
+/// A number, coloured as one, with − and + on either side.
+fn stepper<'a>(value: String, less: Change, more: Change) -> Element<'a, Message> {
     row![
-        value_button("−".to_string(), None, Message::Setting(less)),
-        value_text(value),
-        value_button("+".to_string(), None, Message::Setting(more)),
-        hint(unit),
+        value_button("−".to_string(), Look::Other, Message::Setting(less)),
+        value_text(value, Token::Number),
+        value_button("+".to_string(), Look::Other, Message::Setting(more)),
     ]
     .align_y(iced::Center)
     .into()
 }
 
-/// A text box for a free-form setting; empty shows `placeholder`.
+/// A text box for a free-form setting, its text coloured as a TOML string; empty shows
+/// `placeholder`.
 fn field<'a>(placeholder: &str, value: &str, change: fn(String) -> Change) -> Element<'a, Message> {
     text_input(placeholder, value)
         .on_input(move |typed| Message::Setting(change(typed)))
-        .size(13)
-        .padding([3, 8])
-        .width(320)
+        .size(SIZE)
+        .line_height(editor::LINE_HEIGHT)
+        .padding([0, 4])
+        .width(32.0 * CH)
         .style(field_style)
         .into()
 }
 
 /// The API key, shown as dots. Each change is saved (see `KeyField`); empty deletes it.
 fn key_input<'a>(key: &str) -> Element<'a, Message> {
-    text_input("paste a key, if the server needs one", key)
+    text_input("paste one if needed", key)
         .secure(true)
         .on_input(|typed| Message::Assistant(AssistantAction::KeyTyped(typed)))
-        .size(13)
-        .padding([3, 8])
-        .width(320)
+        .size(SIZE)
+        .line_height(editor::LINE_HEIGHT)
+        .padding([0, 4])
+        .width(32.0 * CH)
         .style(field_style)
         .into()
 }
@@ -444,14 +486,14 @@ fn key_status<'a>(field: &KeyField) -> Element<'a, Message> {
             "none saved · no keyring, a key goes in settings.toml".to_string()
         }
     };
-    hint(words)
+    comment(words)
 }
 
-/// The test's outcome under the button: what the model replied, or why it failed.
+/// The test's outcome after the button: what the model replied, or why it failed.
 fn connection_result<'a>(connection: Option<&Connection>) -> Element<'a, Message> {
-    let line = match connection {
-        None => return space().into(),
-        Some(Connection::Testing) => hint("testing…"),
+    match connection {
+        None => space().into(),
+        Some(Connection::Testing) => comment("testing…"),
         Some(Connection::Passed(reply)) if reply.trim().is_empty() => {
             ok_line("ok · it answered".to_string())
         }
@@ -460,31 +502,28 @@ fn connection_result<'a>(connection: Option<&Connection>) -> Element<'a, Message
             ok_line(format!("ok · it replied \u{201c}{reply}\u{201d}"))
         }
         Some(Connection::Failed(reason)) => warning(reason.clone()),
-    };
-    // Under the controls, wrapping, so a long reason stays readable.
-    container(line)
-        .padding(iced::Padding {
-            left: 216.0,
-            ..iced::Padding::ZERO
-        })
-        .into()
+    }
 }
 
+/// A comment saying something worked, in the success colour.
 fn ok_line<'a>(words: String) -> Element<'a, Message> {
-    container(text(words).size(12).style(|theme: &Theme| text::Style {
-        color: Some(Roles::of(theme).accent_aqua),
-    }))
-    .padding([0, 8])
-    .into()
+    coloured_comment(words, |roles| roles.accent_aqua)
 }
 
 /// A problem in words, in the warm accent (never red).
 fn warning<'a>(words: String) -> Element<'a, Message> {
-    container(text(words).size(12).style(|theme: &Theme| text::Style {
-        color: Some(Roles::of(theme).accent_warm),
-    }))
-    .padding([0, 8])
-    .into()
+    coloured_comment(words, |roles| roles.accent_warm)
+}
+
+fn coloured_comment<'a>(words: String, color: fn(&Roles) -> Color) -> Element<'a, Message> {
+    text(format!("# {words}"))
+        .size(SIZE)
+        .line_height(editor::LINE_HEIGHT)
+        .width(Fill)
+        .style(move |theme: &Theme| text::Style {
+            color: Some(color(Roles::of(theme))),
+        })
+        .into()
 }
 
 /// A field's frame shows only on hover, and turns yellow while it has focus.
@@ -500,25 +539,40 @@ fn field_style(theme: &Theme, status: text_input::Status) -> text_input::Style {
         border: Border::default().rounded(4).width(1).color(border),
         icon: roles.fg_muted,
         placeholder: roles.fg_subtle,
-        value: roles.fg,
+        value: roles.accent_aqua,
         selection: roles.accent_cool.scale_alpha(0.35),
     }
 }
 
-/// A clickable value. `chosen` colours it as an option: yellow if picked, dim if not.
-fn value_button<'a>(label: String, chosen: Option<bool>, message: Message) -> Element<'a, Message> {
-    button(text(label).size(13))
-        .padding([2, 8])
+/// How a clickable value is drawn.
+#[derive(Clone, Copy)]
+enum Look {
+    /// The setting's value, in the colour TOML gives this kind of value.
+    Chosen(Token),
+    /// Another choice, or − and +: dim until picked.
+    Other,
+    /// Something to do rather than a value.
+    Action,
+}
+
+/// A clickable value, framed while hovered.
+fn value_button<'a>(label: String, look: Look, message: Message) -> Element<'a, Message> {
+    button(text(label).size(SIZE).line_height(editor::LINE_HEIGHT))
+        .padding([0, 4])
         .style(move |theme: &Theme, status| {
             let roles = Roles::of(theme);
             let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
+            let text_color = match look {
+                Look::Chosen(token) => highlight_format(&Highlight::Data(token), theme)
+                    .color
+                    .unwrap_or(roles.fg),
+                Look::Other if hovered => roles.fg_muted,
+                Look::Other => roles.fg_subtle,
+                Look::Action => roles.fg,
+            };
             button::Style {
                 background: None,
-                text_color: match chosen {
-                    Some(true) => roles.accent_text,
-                    Some(false) => roles.fg_subtle,
-                    None => roles.fg,
-                },
+                text_color,
                 border: Border::default().rounded(4).width(1).color(if hovered {
                     roles.border
                 } else {
@@ -531,20 +585,9 @@ fn value_button<'a>(label: String, chosen: Option<bool>, message: Message) -> El
         .into()
 }
 
-fn value_text<'a>(value: impl text::IntoFragment<'a>) -> Element<'a, Message> {
-    container(text(value).size(13)).padding([2, 8]).into()
-}
-
-fn separator<'a>(mark: &'a str) -> Element<'a, Message> {
-    container(text(mark).size(13).style(subtle))
-        .padding([0, 2])
-        .into()
-}
-
-fn hint<'a>(words: impl text::IntoFragment<'a>) -> Element<'a, Message> {
-    container(text(words).size(12).style(subtle))
-        .padding([0, 6])
-        .into()
+/// A value that isn't clicked, lined up with the buttons' text.
+fn value_text<'a>(value: impl text::IntoFragment<'a>, token: Token) -> Element<'a, Message> {
+    container(coloured(value, token)).padding([0, 4]).into()
 }
 
 #[cfg(test)]
