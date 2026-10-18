@@ -386,10 +386,15 @@ impl App {
             Message::SaveAsPicked(path) => return self.save_as(path),
             Message::OpenDialog => {
                 self.menu_open = false;
-                let dialog = rfd::AsyncFileDialog::new()
-                    .add_filter("Text", &["txt"])
-                    .add_filter("All files", &["*"])
-                    .pick_file();
+                let mut dialog = rfd::AsyncFileDialog::new();
+                // macOS puts every filter's extensions in one list, where "*" isn't a wildcard,
+                // so only .txt could be picked; with no filter it allows any file.
+                if !cfg!(target_os = "macos") {
+                    dialog = dialog
+                        .add_filter("Text", &["txt"])
+                        .add_filter("All files", &["*"]);
+                }
+                let dialog = dialog.pick_file();
                 // Cancelling leaves everything as it was.
                 return Task::perform(dialog, |picked| picked)
                     .and_then(|file| Task::done(Message::OpenPath(file.path().to_path_buf())));
