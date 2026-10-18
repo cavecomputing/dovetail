@@ -140,7 +140,7 @@ Installing for daily use, from a checkout. Each script builds the release binary
 name from `brand.rs` through `<bin> --print-brand`:
 
 - **Linux**: `scripts/install.sh` copies the binary to `~/.local/bin` and installs the app icon and
-  the `.desktop` file (for plain text and Markdown).
+  the `.desktop` file (for plain text, Markdown and JSON).
 - **Arch**: `packaging/arch/PKGBUILD` builds a `dovetail-git` pacman package from GitHub's `main`
   (`cd packaging/arch && makepkg -si`), installing the same files under `/usr`. Its package name
   has to be written out (makepkg needs it literally); the installed names still come from
@@ -151,7 +151,7 @@ name from `brand.rs` through `<bin> --print-brand`:
   files from the terminal or from inside the app.
 - **Windows**: `powershell -ExecutionPolicy Bypass -File scripts\install-windows.ps1` copies the
   exe to `%LOCALAPPDATA%\Programs\<app>` and adds a Start Menu entry and an "Open with" entry for
-  `.txt`, `.md` and `.markdown` files; add `-Uninstall` to remove them.
+  `.txt`, `.md`, `.markdown` and `.json` files; add `-Uninstall` to remove them.
 
 ### How much verification a change needs
 
@@ -178,8 +178,8 @@ name from `brand.rs` through `<bin> --print-brand`:
 
 ## Architecture
 
-One process per window: launching with no file opens scratch, with a `.txt` or `.md` opens that file.
-Each launch gets its own window, which plays well with tiling window managers. Opening another
+One process per window: launching with no file opens scratch, with a `.txt`, `.md` or `.json` opens
+that file. Each launch gets its own window, which plays well with tiling window managers. Opening another
 document from inside the app (Ctrl+O, Ctrl+P, Recent, Ctrl+N, Ctrl+0) replaces the one in the same
 window, once the one being left is saved (`App::open_here`). A process has exactly one window:
 Settings, the Ctrl+P switcher and the menu open over it.
@@ -223,6 +223,8 @@ src/
     markup.rs            where XML tags and {{macros}} are, for colouring them
     markdown.rs          which parts of a Markdown (.md) line to colour, whether a code fence is
                          open, what Enter and Tab do in a list, and Ctrl+B and Ctrl+I's markers
+    json.rs              which parts of a .json line to colour, whether the text is valid JSON,
+                         and Format and Minify (whitespace only, so key order and digits are kept)
     text_file.rs         reading and saving .txt and .md files: line endings, outside-change check
     recent.rs            the recently opened files (data folder), fuzzy matching
     text_model.rs        a pane's text and its undo/redo history, in byte offsets

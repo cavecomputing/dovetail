@@ -2,6 +2,7 @@
 
 pub mod counts;
 pub mod find;
+pub mod json;
 pub mod lock;
 pub mod markdown;
 pub mod markup;

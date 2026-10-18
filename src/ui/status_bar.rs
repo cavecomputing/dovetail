@@ -40,9 +40,14 @@ pub fn view(app: &App) -> Element<'_, Message> {
         ));
     }
     // Warnings in orange, each in words: why the text is read-only, anything a menu action
-    // couldn't do, and a settings problem (short here, the whole reason on hover).
+    // couldn't do, where a .json file stops being valid JSON, and a settings problem (short here,
+    // the whole reason on hover).
     let notice = app.notice.as_ref().map(|(words, _)| words);
-    let warnings = [app.read_only_reason.as_ref(), notice];
+    let warnings = [
+        app.read_only_reason.as_ref(),
+        notice,
+        app.json_problem.as_ref(),
+    ];
     for warning in warnings.into_iter().flatten() {
         left = left.push(small(warning.as_str()).color(roles.accent_warm));
     }
@@ -294,8 +299,21 @@ pub fn menu(app: &App) -> Element<'_, Message> {
             line_numbers.to_string(),
             "Ctrl+Shift+L",
             Message::ToggleLineNumbers,
-        ))
-        .push(menu_heading("Recent"));
+        ));
+    if app.json() {
+        items = items
+            .push(menu_item(
+                "Format JSON".to_string(),
+                "",
+                Message::ReformatJson { minify: false },
+            ))
+            .push(menu_item(
+                "Minify JSON".to_string(),
+                "",
+                Message::ReformatJson { minify: true },
+            ));
+    }
+    items = items.push(menu_heading("Recent"));
     let current = match &app.doc {
         Doc::File { path, .. } => Some(path),
         Doc::Scratch => None,
