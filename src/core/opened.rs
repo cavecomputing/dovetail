@@ -129,7 +129,8 @@ pub fn open_doc(doc: Doc, paths: &Paths) -> OpenedDoc {
 /// Gives the text of the window showing `own` a new home at `path` (Save as): claims the file so
 /// no other window edits it, writes `text` there with `line_ending` and `bom`, and remembers it as
 /// recent. Returns the claim to hold while the window lives and the file as written, or why
-/// nothing was written.
+/// nothing was written. A file the user can't write is left alone, as `open_doc` would open it
+/// read-only.
 pub fn save_as(
     data_dir: &Path,
     own: &Doc,
@@ -147,6 +148,8 @@ pub fn save_as(
         Err(TryLockError::Error(_)) => None,
         Ok(lock) => Some(lock),
     };
+    // The save's rename would replace a file the user can't write, so ask about it first.
+    check_writable(path).map_err(|error| failure_reason(&error))?;
     let stamp =
         save_text(path, text, line_ending, bom, None).map_err(|error| failure_reason(&error))?;
     let _ = remember(data_dir, path);
@@ -154,14 +157,18 @@ pub fn save_as(
 }
 
 /// Empties `path` for Ctrl+N in the window showing `own`, when the save dialog has agreed to
-/// replace a file there, unless that window or another one has it open.
+/// replace a file there, unless that window or another one has it open, or the user can't write
+/// it.
 pub fn empty_file(data_dir: &Path, own: &Doc, path: &Path) -> Result<(), String> {
     if is_own_file(data_dir, own, path) {
         return Err(OPEN_HERE.to_string());
     }
     match claim_lock(&lock_for(data_dir, path)) {
         Err(TryLockError::WouldBlock) => Err(OPEN_ELSEWHERE.to_string()),
-        _ => atomic_write(path, b"").map_err(|error| failure_reason(&error)),
+        // The rename would replace a file the user can't write, so ask about it first.
+        _ => check_writable(path)
+            .and_then(|()| atomic_write(path, b""))
+            .map_err(|error| failure_reason(&error)),
     }
 }
 
@@ -312,6 +319,33 @@ mod tests {
         fs::write(&path, "old text").unwrap();
         empty_file(&paths.data_dir, &Doc::Scratch, &path).unwrap();
         assert_eq!(fs::read_to_string(&path).unwrap(), "");
+    }
+
+    /// Windows refuses the rename over a read-only file itself (see `save.rs`).
+    #[cfg(unix)]
+    #[test]
+    fn new_file_and_save_as_leave_a_file_the_user_cant_write_alone() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::under(dir.path());
+        let path = dir.path().join("ro.txt");
+        fs::write(&path, "keep").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o444)).unwrap();
+        // Root ignores permissions, so only check when they apply.
+        if fs::OpenOptions::new().append(true).open(&path).is_err() {
+            let refused = empty_file(&paths.data_dir, &Doc::Scratch, &path);
+            assert_eq!(refused.unwrap_err(), "Save failed: no permission");
+            let refused = save_as(
+                &paths.data_dir,
+                &Doc::Scratch,
+                &path,
+                "x",
+                LineEnding::Lf,
+                false,
+            );
+            assert_eq!(refused.unwrap_err(), "Save failed: no permission");
+            assert_eq!(fs::read_to_string(&path).unwrap(), "keep");
+        }
     }
 
     #[test]
