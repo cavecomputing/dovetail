@@ -1,9 +1,7 @@
-//! The Settings panel (Ctrl+,), over the dimmed document. Every change applies at once and is
+//! The Settings panel (Ctrl+,), covering the text area. Every change applies at once and is
 //! written to settings.toml.
 
-use iced::widget::{
-    button, column, container, mouse_area, row, scrollable, space, text, text_input,
-};
+use iced::widget::{button, column, container, row, scrollable, space, text, text_input};
 use iced::{Background, Border, Color, Element, Fill, Padding, Theme};
 
 use crate::ai::key::KeyStore;
@@ -13,8 +11,9 @@ use crate::core::settings::{
 };
 use crate::ui::app::{App, Message};
 use crate::ui::assistant_actions::AssistantAction;
+use crate::ui::editor;
 use crate::ui::status_bar::{dot, keys};
-use crate::ui::theme::{self, GLYPH_CLOSE, Roles, dialog_box, icon_button, subtle};
+use crate::ui::theme::{self, GLYPH_CLOSE, Roles, icon_button, subtle};
 
 /// One edit made in the Settings panel.
 #[derive(Debug, Clone)]
@@ -281,8 +280,13 @@ pub fn view(app: &App) -> Element<'_, Message> {
     if !cfg!(target_os = "macos") {
         sections = sections.push(window);
     }
-    // Taller than the window, it scrolls, with the bar in the card's right margin.
-    let page = scrollable(container(sections).padding([0, 32]));
+    // Taller than the window, it scrolls, with the bar at the window's right edge like the
+    // editor's. The settings keep to a readable width, starting where the text does.
+    let sections = container(sections).max_width(704).padding(Padding {
+        bottom: 28.0,
+        ..Padding::from([0.0, editor::PADDING.left])
+    });
+    let page = scrollable(sections).width(Fill).height(Fill);
 
     // Where the settings are saved, or why they can't be.
     let roles = Roles::of(&app.theme);
@@ -315,42 +319,26 @@ pub fn view(app: &App) -> Element<'_, Message> {
     .spacing(8)
     .align_y(iced::Center);
     // In a narrow window the words are cut off, not the close button (a long path, as on
-    // Windows, would push it off the card).
+    // Windows, would push it off the window).
     let header = row![container(words).width(Fill).clip(true), close]
         .spacing(8)
         .align_y(iced::Center)
         .padding(Padding {
-            left: 32.0,
+            left: editor::PADDING.left,
             right: 12.0,
             ..Padding::ZERO
         });
-    let card = container(column![header, page].spacing(20))
+    // Settings takes the whole text area, edge to edge, rather than floating over it; Esc or the
+    // close button goes back. `opaque` keeps clicks and scrolling off the text underneath.
+    let page = container(column![header, page].spacing(20))
         .width(Fill)
-        .max_width(704)
+        .height(Fill)
         .padding(Padding {
-            top: 12.0,
-            bottom: 28.0,
+            top: editor::PADDING.top,
             ..Padding::ZERO
         })
-        .style(dialog_box);
-    modal(card.into())
-}
-
-/// `card` centred over a dimmed window; clicking outside it goes back.
-fn modal(card: Element<'_, Message>) -> Element<'_, Message> {
-    iced::widget::stack![
-        mouse_area(
-            container(space().width(Fill).height(Fill)).style(|theme: &Theme| container::Style {
-                background: Some(Background::Color(Roles::of(theme).bg_page.scale_alpha(0.7))),
-                ..container::Style::default()
-            })
-        )
-        .on_press(Message::CloseMenu),
-        container(iced::widget::opaque(card))
-            .center(Fill)
-            .padding(24),
-    ]
-    .into()
+        .style(|theme: &Theme| theme::fill(Roles::of(theme).bg_surface));
+    iced::widget::opaque(page)
 }
 
 fn section<'a>(label: &'a str, rows: Vec<Element<'a, Message>>) -> Element<'a, Message> {
