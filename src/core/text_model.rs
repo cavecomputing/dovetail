@@ -236,6 +236,27 @@ impl TextModel {
         vec![self.replace(at..end, &moved)]
     }
 
+    /// Ctrl+Shift+D: puts a copy of `lines` just below them, as one undo step.
+    pub fn duplicate_lines(&mut self, lines: RangeInclusive<usize>) -> Vec<Change> {
+        let span = line_span(&self.text, lines);
+        let copy = format!("\n{}", &self.text[span.clone()]);
+        vec![self.replace(span.end..span.end, &copy)]
+    }
+
+    /// Ctrl+Shift+K: deletes `lines` and the newline after them (before them, for the last line)
+    /// as one undo step. Returns nothing when there's nothing to delete.
+    pub fn delete_lines(&mut self, lines: RangeInclusive<usize>) -> Vec<Change> {
+        let span = line_span(&self.text, lines);
+        let range = match span.end < self.text.len() {
+            true => span.start..span.end + 1,
+            false => span.start.saturating_sub(1)..span.end,
+        };
+        if range.is_empty() {
+            return Vec::new();
+        }
+        vec![self.replace(range, "")]
+    }
+
     /// Undoes the last step. Returns the changes to replay into the widget, in order (empty
     /// when there was nothing to undo).
     pub fn undo(&mut self) -> Vec<Change> {
@@ -290,6 +311,18 @@ impl TextModel {
 pub fn offset(text: &str, line: usize, column: usize) -> usize {
     let line_start: usize = text.split('\n').take(line).map(|l| l.len() + 1).sum();
     (line_start + column).min(text.len())
+}
+
+/// Bytes from the start of the first of `lines` to the end of the last, without its newline.
+fn line_span(text: &str, lines: RangeInclusive<usize>) -> Range<usize> {
+    let (first, last) = lines.into_inner();
+    let start = offset(text, first, 0);
+    let length: usize = text[start..]
+        .split('\n')
+        .take(last - first + 1)
+        .map(|line| line.len() + 1)
+        .sum();
+    start..start + length - 1
 }
 
 /// The (line, byte column) of a byte offset in `text`.
@@ -648,6 +681,31 @@ mod tests {
         assert_eq!(widget, model.text());
         model.move_lines(0..=0, false);
         assert_eq!(model.text(), "naïve\ncafé");
+    }
+
+    #[test]
+    fn duplicate_lines_copies_them_below_as_one_step() {
+        let mut model = TextModel::new("one\ntwo\nthree".to_string());
+        model.duplicate_lines(0..=1);
+        assert_eq!(model.text(), "one\ntwo\none\ntwo\nthree");
+        model.undo();
+        model.duplicate_lines(2..=2);
+        assert_eq!(model.text(), "one\ntwo\nthree\nthree", "the last line, with no newline");
+    }
+
+    #[test]
+    fn delete_lines_takes_their_newline_too() {
+        let mut model = TextModel::new("one\ntwo\nthree".to_string());
+        model.delete_lines(0..=1);
+        assert_eq!(model.text(), "three");
+        model.undo();
+        model.delete_lines(2..=2);
+        assert_eq!(model.text(), "one\ntwo", "the last line takes the newline before it");
+        model.delete_lines(0..=1);
+        assert_eq!(model.text(), "");
+        assert!(model.delete_lines(0..=0).is_empty(), "nothing left to delete");
+        model.undo();
+        assert_eq!(model.text(), "one\ntwo");
     }
 
     #[test]

@@ -109,6 +109,12 @@ pub enum Message {
     MoveLines {
         up: bool,
     },
+    /// Ctrl+Shift+D in the editor: copy the caret's line, or the selected lines, to just below
+    /// (`Pane::duplicate_lines`).
+    DuplicateLines,
+    /// Ctrl+Shift+K in the editor: delete the caret's line, or the selected lines
+    /// (`Pane::delete_lines`).
+    DeleteLines,
     /// Ctrl+B or Ctrl+I in the editor: in a Markdown file, put this marker (bold's `**` or
     /// italic's `_`, a `*` inside a word) around the selection, or take it off
     /// (`Pane::toggle_marker`).
@@ -376,6 +382,8 @@ impl App {
             | Message::Backspace
             | Message::DeleteTo(_)
             | Message::MoveLines { .. }
+            | Message::DuplicateLines
+            | Message::DeleteLines
             | Message::ToggleMarker(_)
                 if self.editable() =>
             {
@@ -391,6 +399,8 @@ impl App {
                     Message::Backspace => self.pane.backspace(tab_spaces),
                     Message::DeleteTo(motion) => self.pane.delete_to(motion),
                     Message::MoveLines { up } => self.pane.move_lines(up),
+                    Message::DuplicateLines => self.pane.duplicate_lines(),
+                    Message::DeleteLines => self.pane.delete_lines(),
                     Message::ToggleMarker(marker) if markdown => self.pane.toggle_marker(marker),
                     // Ctrl+B and Ctrl+I outside Markdown do nothing, and the arm's pattern lets
                     // no other message in.
@@ -404,6 +414,8 @@ impl App {
             | Message::Backspace
             | Message::DeleteTo(_)
             | Message::MoveLines { .. }
+            | Message::DuplicateLines
+            | Message::DeleteLines
             | Message::ToggleMarker(_) => {}
             Message::Undo | Message::Redo if self.editable() => {
                 let changed = match message {
