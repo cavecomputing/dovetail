@@ -2,7 +2,8 @@
 //!
 //! - no arguments: the scratch space
 //! - a path: that text file, created if missing
-//! - `--print-brand`: prints the names from `brand.rs` for `scripts/install.sh`, then exits
+//! - `--print-brand`: prints the names from `brand.rs`, and the version, for the install scripts,
+//!   then exits
 
 // A release build on Windows is a GUI program, so no console window opens beside it. Its output
 // still reaches a pipe or a file (`--print-brand` in a script); debug builds keep the console, for
@@ -46,12 +47,15 @@ fn main() -> iced::Result {
     ui::app::run(doc)
 }
 
-/// Shell variable lines, e.g. `APP_NAME='...'`, for the install script to `eval`.
+/// Shell variable lines, e.g. `APP_NAME='...'`, for the install scripts: the bash ones `eval`
+/// them, the PowerShell one reads them line by line.
 fn print_brand() {
     let names = [
         ("APP_NAME", brand::APP_NAME),
         ("BIN_NAME", brand::BIN_NAME),
         ("APP_ID", brand::APP_ID),
+        ("CONFIG_DIR_NAME", brand::CONFIG_DIR_NAME),
+        ("VERSION", env!("CARGO_PKG_VERSION")),
     ];
     for (name, value) in names {
         println!("{name}='{}'", value.replace('\'', r"'\''"));

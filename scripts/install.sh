@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
-# Installs the app for the current user: the release binary in ~/.local/bin, the app icon and a
-# .desktop entry for app launchers. Every name comes from src/brand.rs (the binary prints them
+# Installs the app for the current user on Linux: the release binary in ~/.local/bin, the app icon
+# and a .desktop entry for app launchers. Every name comes from src/brand.rs (the binary prints them
 # with --print-brand), so nothing is hardcoded here.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+if [ "$(uname -s)" != Linux ]; then
+    echo "This installs the Linux app; on macOS run scripts/install-macos.sh, on Windows scripts/install-windows.ps1." >&2
+    exit 1
+fi
 
 cargo build --release
 # The binary's file name is Cargo.toml's package name.
