@@ -835,7 +835,7 @@ impl Pane {
         }
     }
 
-    /// Enter in code (a shell script or JSON): indents after a line that opens a block, opens up
+    /// Enter in code (a shell script, JSON or YAML): indents after a line that opens a block, opens up
     /// a pair of brackets the caret is between, and lines up a line that ends a block (see
     /// `typing::enter`). Anywhere else it is `new_line`. Returns whether the text changed, or why
     /// it can't.

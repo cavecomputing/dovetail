@@ -29,7 +29,7 @@ fn quoted_end(line: &str, start: usize) -> usize {
 
 /// Where a `#` comment starts in `line`, outside any quotes. In YAML (`after_space`) a `#` only
 /// starts one at the start of the line or after a space, so `a#b` is plain text.
-fn comment_start(line: &str, after_space: bool) -> Option<usize> {
+pub fn comment_start(line: &str, after_space: bool) -> Option<usize> {
     let bytes = line.as_bytes();
     let mut at = 0;
     while at < bytes.len() {
@@ -73,6 +73,18 @@ fn trimmed(line: &str, range: Range<usize>) -> Range<usize> {
     let start = range.start + (part.len() - part.trim_start().len());
     let end = range.end - (part.len() - part.trim_end().len());
     start..end.max(start)
+}
+
+/// The step a YAML file indents by: the smallest indent any of its lines has (2 in most files,
+/// 4 in some), or 2 when no line is indented yet. Tab, Shift+Tab, Backspace and Enter use it in
+/// a YAML file in place of the Tab setting, so new lines nest the way the file already does.
+pub fn yaml_indent(text: &str) -> usize {
+    text.lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(indent)
+        .filter(|indent| *indent > 0)
+        .min()
+        .map_or(2, |indent| indent.min(8))
 }
 
 /// The spaces at the start of `line`.
@@ -364,6 +376,14 @@ mod tests {
 
     fn yaml(line: &str) -> Vec<(&str, Token)> {
         looks(line, yaml_ranges(line, None).0)
+    }
+
+    #[test]
+    fn a_yaml_file_indents_by_its_own_step() {
+        assert_eq!(yaml_indent("a:\n  b: 1\n  c:\n    d: 2\n"), 2);
+        assert_eq!(yaml_indent("a:\n    b: 1\n"), 4);
+        assert_eq!(yaml_indent("a: 1\nb: 2\n"), 2, "flat, or new");
+        assert_eq!(yaml_indent(""), 2);
     }
 
     #[test]

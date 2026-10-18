@@ -217,6 +217,12 @@ Shortcuts are written with Ctrl; on macOS use ⌘ (the app's menu and hints show
   cursor on an indented line between.
 - Enter on a line that ends a block lines it up with the block's start, wherever you typed it:
   `}`, `]` and `)`, and in a script `fi`, `done`, `esac`, `else` and `elif`.
+
+**In YAML files**, Tab, Shift+Tab, Backspace in an indent and Enter step by the file's own indent
+(the smallest one it has, so 2 in most files) rather than the Tab setting; a new file, or one with
+nothing nested yet, uses 2. Enter after a key with no value (`web:`), a block (`run: |`) or a bare
+`-` indents the new line a step, and after a list item that starts a mapping (`- name: web`) the
+next line lines up under `name`.
 | Enter, in the assistant's box | Send (Shift+Enter starts a new line) |
 
 While Settings is open, only Esc, Ctrl+W, Ctrl+=, Ctrl+- and Ctrl+Shift+L (and ⌘M on macOS) work.
@@ -324,7 +330,7 @@ Changes apply at once and are saved to `settings.toml`, whose path the status ba
 | Section | Settings, by key (default) |
 |---|---|
 | appearance | `theme`: dark (default), light or system. `font_size` (14). `reading_mode`: full width (default) or comfort, which caps lines at 80 characters (adjustable) |
-| editor | `tab_spaces`: Tab inserts 4 spaces. `word_wrap` (on). `line_numbers` left of the text (off; Ctrl+Shift+L). `colour_markup`: colour for XML tags and `{{macros}}` (on). `show_line_col`: line and column in the status bar (off) |
+| editor | `tab_spaces`: Tab inserts 4 spaces (YAML files use their own step, 2 if new). `word_wrap` (on). `line_numbers` left of the text (off; Ctrl+Shift+L). `colour_markup`: colour for XML tags and `{{macros}}` (on). `show_line_col`: line and column in the status bar (off) |
 | saving | `autosave_delay_ms`: pause in typing before an autosave (500) |
 | assistant | `base_url` (`https://api.openai.com/v1`). `model` (none: the pane asks for one). `request_format` (responses). `api_key` (none; kept in the system keyring when there is one, see above). Test connection |
 | window | `window_controls`, the minimise, maximise and close buttons: auto (default) hides them under a tiling window manager (Hyprland, Sway, i3, niri, river) and shows them elsewhere; or show, or hide. Not on macOS, which keeps its own |

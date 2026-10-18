@@ -9,6 +9,7 @@ use iced::widget::{column, container, responsive, space, stack};
 use iced::window::{self, Direction};
 use iced::{Element, Size, Subscription, Task, Theme, event, keyboard};
 
+use crate::core::config::yaml_indent;
 use crate::core::counts::{Counts, load_tokenizer_in_background, token_count, word_count};
 use crate::core::json::reformat;
 use crate::core::opened::{Doc, OpenedDoc, open_doc};
@@ -433,8 +434,12 @@ impl App {
                 ) {
                     self.pane.clear_others();
                 }
-                let tab_spaces = usize::from(self.settings.tab_spaces);
                 let syntax = self.syntax();
+                // A YAML file nests by its own step, 2 when it has none yet.
+                let tab_spaces = match syntax {
+                    Syntax::Yaml => yaml_indent(self.pane.model.text()),
+                    _ => usize::from(self.settings.tab_spaces),
+                };
                 let markdown = syntax == Syntax::Markdown;
                 let edited = match message {
                     Message::Indent => self.pane.indent(tab_spaces, markdown),
@@ -442,7 +447,9 @@ impl App {
                     Message::NewLine { shift: false } if markdown => {
                         self.pane.markdown_new_line(tab_spaces)
                     }
-                    Message::NewLine { shift: false } if is_code(syntax) => {
+                    Message::NewLine { shift: false }
+                        if is_code(syntax) || syntax == Syntax::Yaml =>
+                    {
                         self.pane.code_new_line(tab_spaces, syntax)
                     }
                     Message::NewLine { .. } => self.pane.new_line(),
