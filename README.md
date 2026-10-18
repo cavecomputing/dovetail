@@ -112,7 +112,8 @@ enough guide for other models.
 as dialogs offer them alongside `.txt`: type `notes.md` as the name to make one. They are coloured
 as you type: headings, list markers and task boxes, quotes, code, bold, italic, struck text and
 links. Nothing is rendered: the text stays exactly as typed, markers and all. Enter continues a
-list or a quote, and Tab nests a list item (see [Keys](#keys)). Scratch and `.txt` files stay plain.
+list or a quote, Tab nests a list item, and Ctrl+B and Ctrl+I put in bold and italic markers (see
+[Keys](#keys)). Scratch and `.txt` files stay plain.
 
 Files must be UTF-8, which almost every editor writes today. Any other file opens empty and
 read-only, and the status bar says why; the file itself is never touched. A file keeps its line
@@ -152,6 +153,7 @@ Shortcuts are written with Ctrl; on macOS use ⌘ (the app's menu and hints show
 | Backspace | In the spaces at the start of a line, delete back to the previous indent, so one press takes back a Tab; anywhere else, one character |
 | Ctrl+Backspace and Ctrl+Delete | Delete the word before or after the cursor (or just the selection). On macOS these are ⌥⌫ and ⌥⌦, and ⌘⌫ and ⌘⌦ delete to the start and end of the line |
 | Alt+↑ and Alt+↓ | Move the line, or every selected line, up or down past the next one (⌥↑ and ⌥↓ on macOS) |
+| Ctrl+B and Ctrl+I | In a Markdown file, bold (`**`) or italic (`_`): put the markers around the selection, or with nothing selected a pair with the cursor between. Pressed again, they come off |
 | Ctrl+Z | Undo |
 | Ctrl+Shift+Z or Ctrl+Y | Redo |
 | Ctrl+A, C, X, V | Select all, copy, cut, paste |
