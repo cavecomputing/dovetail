@@ -103,7 +103,8 @@ pub enum Message {
         up: bool,
     },
     /// Ctrl+B or Ctrl+I in the editor: in a Markdown file, put this marker (bold's `**` or
-    /// italic's `_`) around the selection, or take it off (`Pane::toggle_marker`).
+    /// italic's `_`, a `*` inside a word) around the selection, or take it off
+    /// (`Pane::toggle_marker`).
     ToggleMarker(&'static str),
     Undo,
     Redo,
