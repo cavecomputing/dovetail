@@ -13,6 +13,8 @@ pub enum LineEnding {
     #[default]
     Lf,
     CrLf,
+    /// A lone `\r`, as classic Mac OS wrote.
+    Cr,
 }
 
 impl LineEnding {
@@ -20,7 +22,10 @@ impl LineEnding {
     pub fn detect(text: &str) -> LineEnding {
         let crlf = text.matches("\r\n").count();
         let lf = text.matches('\n').count() - crlf;
-        if crlf > lf {
+        let cr = text.matches('\r').count() - crlf;
+        if cr > lf && cr > crlf {
+            LineEnding::Cr
+        } else if crlf > lf {
             LineEnding::CrLf
         } else {
             LineEnding::Lf
@@ -32,6 +37,7 @@ impl LineEnding {
         match self {
             LineEnding::Lf => text.to_string(),
             LineEnding::CrLf => text.replace('\n', "\r\n"),
+            LineEnding::Cr => text.replace('\n', "\r"),
         }
     }
 }
@@ -170,6 +176,8 @@ mod tests {
         assert_eq!(LineEnding::detect("a\r\nb\r\n"), LineEnding::CrLf);
         assert_eq!(LineEnding::detect("no breaks"), LineEnding::Lf);
         assert_eq!(LineEnding::detect("a\r\nb\nc\n"), LineEnding::Lf);
+        assert_eq!(LineEnding::detect("a\rb\r"), LineEnding::Cr);
+        assert_eq!(LineEnding::detect("a\rb\r\nc\r\n"), LineEnding::CrLf);
     }
 
     #[test]
@@ -181,6 +189,17 @@ mod tests {
         assert_eq!(file.text, "one\ntwo\n");
         assert_eq!(file.line_ending, LineEnding::CrLf);
         assert_eq!(file.line_ending.apply(&file.text), "one\r\ntwo\r\n");
+    }
+
+    #[test]
+    fn cr_file_round_trips() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mac.txt");
+        fs::write(&path, "mac\rold\rstyle\r").unwrap();
+        let file = read_text(&path).unwrap();
+        assert_eq!(file.text, "mac\nold\nstyle\n");
+        assert_eq!(file.line_ending, LineEnding::Cr);
+        assert_eq!(file.line_ending.apply(&file.text), "mac\rold\rstyle\r");
     }
 
     #[test]
