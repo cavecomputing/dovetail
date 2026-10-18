@@ -146,11 +146,15 @@ pub fn run(doc: Doc) -> iced::Result {
         .run()
 }
 
+// macOS sets all three of its fields below, which clippy would call a needless `..Default`.
+#[cfg_attr(target_os = "macos", allow(clippy::needless_update))]
 fn window_settings() -> window::Settings {
     window::Settings {
         size: Size::new(960.0, 720.0),
         min_size: Some(Size::new(360.0, 240.0)),
-        decorations: false,
+        // macOS keeps its own title bar, see-through and untitled: its buttons sit in our top
+        // strip, and it resizes the window itself (see `window_controls`).
+        decorations: cfg!(target_os = "macos"),
         exit_on_close_request: false,
         // X11 shows this in task bars; Wayland finds the icon through the .desktop file instead.
         icon: window::icon::from_rgba(APP_ICON_RGBA.to_vec(), 64, 64).ok(),
@@ -158,6 +162,12 @@ fn window_settings() -> window::Settings {
             // Each OS has its own fields here, and only Linux has an app id.
             #[cfg(target_os = "linux")]
             application_id: crate::brand::APP_ID.to_string(),
+            #[cfg(target_os = "macos")]
+            title_hidden: true,
+            #[cfg(target_os = "macos")]
+            titlebar_transparent: true,
+            #[cfg(target_os = "macos")]
+            fullsize_content_view: true,
             ..Default::default()
         },
         ..Default::default()

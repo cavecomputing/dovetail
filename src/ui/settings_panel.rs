@@ -265,7 +265,11 @@ pub fn view(app: &App) -> Element<'_, Message> {
         )],
     );
 
-    let sections = column![appearance, editor, saving, assistant, window].spacing(28);
+    let mut sections = column![appearance, editor, saving, assistant].spacing(28);
+    // macOS keeps its own window buttons, so there is nothing to choose.
+    if !cfg!(target_os = "macos") {
+        sections = sections.push(window);
+    }
     // Taller than the window, it scrolls, with the bar in the card's right margin.
     let page = scrollable(container(sections).padding([0, 32]));
 

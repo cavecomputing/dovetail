@@ -1,5 +1,7 @@
 //! The 32px top strip with the app-drawn window controls, and the edges that resize an
-//! undecorated window. Under a tiling window manager both are left out.
+//! undecorated window. Under a tiling window manager both are left out. On macOS the window keeps
+//! the system's see-through title bar: its buttons sit over the strip and it resizes the window,
+//! so the strip is always there, empty, and no edges are drawn.
 
 use iced::widget::{button, container, mouse_area, row, space, stack, text};
 use iced::window::Direction;
@@ -11,9 +13,15 @@ use crate::ui::theme::{GLYPH_CLOSE, GLYPH_MAXIMIZE, GLYPH_MINIMIZE, icon_button}
 
 const STRIP_HEIGHT: f32 = 32.0;
 const EDGE: f32 = 6.0;
+/// macOS frames the window itself (see `app::window_settings`).
+const NATIVE_FRAME: bool = cfg!(target_os = "macos");
 
 /// Whether to draw the window controls, after the Auto/Show/Hide setting.
 pub fn visible(setting: WindowControls) -> bool {
+    // macOS's buttons need the strip under them, or they would sit over the text.
+    if NATIVE_FRAME {
+        return true;
+    }
     match setting {
         WindowControls::Auto => !tiling_window_manager(),
         WindowControls::Show => true,
@@ -40,7 +48,8 @@ fn tiling_window_manager() -> bool {
         .any(|name| desktop.contains(name))
 }
 
-/// The top strip: a drag area with minimize, maximize and close at the right.
+/// The top strip: a drag area with minimize, maximize and close at the right (on macOS, the
+/// system's own buttons at the left).
 pub fn strip<'a>() -> Element<'a, Message> {
     let control = |glyph, message| {
         button(text(glyph).size(13).center())
@@ -50,12 +59,15 @@ pub fn strip<'a>() -> Element<'a, Message> {
             .style(icon_button)
             .on_press(message)
     };
-    let controls = row![
-        control(GLYPH_MINIMIZE, Message::Minimize),
-        control(GLYPH_MAXIMIZE, Message::ToggleMaximize),
-        control(GLYPH_CLOSE, Message::CloseRequested),
-    ]
-    .spacing(6);
+    let controls = match NATIVE_FRAME {
+        true => row![],
+        false => row![
+            control(GLYPH_MINIMIZE, Message::Minimize),
+            control(GLYPH_MAXIMIZE, Message::ToggleMaximize),
+            control(GLYPH_CLOSE, Message::CloseRequested),
+        ]
+        .spacing(6),
+    };
     mouse_area(
         container(row![space::horizontal(), controls])
             .height(STRIP_HEIGHT)
@@ -70,6 +82,9 @@ pub fn strip<'a>() -> Element<'a, Message> {
 /// Thin grab areas on the left, right and bottom edges (and the bottom corners) laid over `page`.
 /// While the controls are hidden the areas are left empty, keeping the layout's shape.
 pub fn with_resize_edges(page: Element<'_, Message>, shown: bool) -> Element<'_, Message> {
+    if NATIVE_FRAME {
+        return page;
+    }
     let edge = |width: Length, height: Length, cursor, direction| -> Element<'static, Message> {
         let area = space().width(width).height(height);
         match shown {
