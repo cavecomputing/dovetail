@@ -102,6 +102,9 @@ pub enum Message {
     MoveLines {
         up: bool,
     },
+    /// Ctrl+B or Ctrl+I in the editor: in a Markdown file, put this marker (bold's `**` or
+    /// italic's `_`) around the selection, or take it off (`Pane::toggle_marker`).
+    ToggleMarker(&'static str),
     Undo,
     Redo,
     /// Ctrl+X or Ctrl+C while reviewing: copy the selected text, without the suggestions, and
@@ -327,6 +330,7 @@ impl App {
             | Message::Backspace
             | Message::DeleteTo(_)
             | Message::MoveLines { .. }
+            | Message::ToggleMarker(_)
                 if self.editable() =>
             {
                 let tab_spaces = usize::from(self.settings.tab_spaces);
@@ -341,7 +345,9 @@ impl App {
                     Message::Backspace => self.pane.backspace(tab_spaces),
                     Message::DeleteTo(motion) => self.pane.delete_to(motion),
                     Message::MoveLines { up } => self.pane.move_lines(up),
-                    // The arm's pattern lets no other message in.
+                    Message::ToggleMarker(marker) if markdown => self.pane.toggle_marker(marker),
+                    // Ctrl+B and Ctrl+I outside Markdown do nothing, and the arm's pattern lets
+                    // no other message in.
                     _ => Ok(false),
                 };
                 match edited {
@@ -355,7 +361,8 @@ impl App {
             | Message::NewLine { .. }
             | Message::Backspace
             | Message::DeleteTo(_)
-            | Message::MoveLines { .. } => {}
+            | Message::MoveLines { .. }
+            | Message::ToggleMarker(_) => {}
             Message::Undo | Message::Redo if self.editable() => {
                 let changed = match message {
                     Message::Undo => self.pane.undo(),

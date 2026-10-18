@@ -1,10 +1,16 @@
-//! Markdown in a .md or .markdown file: which parts of each line to colour, and what Enter and
-//! Tab do in a list. Nothing is rendered; the text stays exactly as typed. Lines are read one at a
-//! time, each starting in the `Block` the line above left it in: prose, or inside a fenced code
-//! block.
+//! Markdown in a .md or .markdown file: which parts of each line to colour, what Enter and Tab do
+//! in a list, and the markers Ctrl+B and Ctrl+I put in. Nothing is rendered; the text stays
+//! exactly as typed. Lines are read one at a time, each starting in the `Block` the line above
+//! left it in: prose, or inside a fenced code block.
 
 use std::ops::Range;
 use std::path::Path;
+
+/// The marker Ctrl+B puts around text, for bold.
+pub const BOLD: &str = "**";
+/// The marker Ctrl+I puts around text, for italic: an underscore, as GitHub's editor uses, so it
+/// never runs into a bold `**`.
+pub const ITALIC: &str = "_";
 
 /// Whether `path` is a Markdown file: its extension is .md or .markdown, in any case.
 pub fn is_markdown(path: &Path) -> bool {
@@ -235,6 +241,29 @@ fn next_marker(marker: &str) -> String {
         Ok(number) => format!("{}{} {task}", number + 1, &bullet[digits.len()..]),
         Err(_) => format!("{bullet} {task}"),
     }
+}
+
+/// Ctrl+B and Ctrl+I: puts `marker` around `selection` (a byte range of `text`, empty for just
+/// the caret), or takes it off when the selection already has it, just outside or at its ends.
+/// Returns the range of `text` to replace, what to put there, and what to select afterwards: the
+/// same text, or the caret between a new pair.
+pub fn toggle_marker(
+    text: &str,
+    selection: Range<usize>,
+    marker: &str,
+) -> (Range<usize>, String, Range<usize>) {
+    let (start, end, length) = (selection.start, selection.end, marker.len());
+    let selected = &text[selection.clone()];
+    if text[..start].ends_with(marker) && text[end..].starts_with(marker) {
+        let outer = start - length..end + length;
+        return (outer, selected.to_string(), start - length..end - length);
+    }
+    if selected.len() >= 2 * length && selected.starts_with(marker) && selected.ends_with(marker) {
+        let inside = selected[length..selected.len() - length].to_string();
+        return (selection, inside, start..end - 2 * length);
+    }
+    let wrapped = format!("{marker}{selected}{marker}");
+    (selection, wrapped, start + length..end + length)
 }
 
 /// Code spans, bold, italic, struck text and links in `line`, from byte `from`.
@@ -675,5 +704,55 @@ mod tests {
             [true, true, false, false, false, false, false, false, true]
         );
         assert!(!is_list_item("", 0));
+    }
+
+    #[test]
+    fn markers_go_around_the_selection_or_come_off() {
+        // The text afterwards, and what is selected in it.
+        let toggled = |text: &str, selection: Range<usize>, marker| {
+            let (replaced, with, selected) = toggle_marker(text, selection, marker);
+            let mut after = text.to_string();
+            after.replace_range(replaced, &with);
+            let chosen = after[selected].to_string();
+            (after, chosen)
+        };
+        let pair = |after: &str, chosen: &str| (after.to_string(), chosen.to_string());
+        assert_eq!(
+            toggled("a word b", 2..6, BOLD),
+            pair("a **word** b", "word")
+        );
+        assert_eq!(
+            toggled("a word b", 2..6, ITALIC),
+            pair("a _word_ b", "word")
+        );
+        // Markers just outside the selection, or at its ends, come off.
+        assert_eq!(
+            toggled("a **word** b", 4..8, BOLD),
+            pair("a word b", "word")
+        );
+        assert_eq!(
+            toggled("a **word** b", 2..10, BOLD),
+            pair("a word b", "word")
+        );
+        assert_eq!(toggled("_x_", 0..3, ITALIC), pair("x", "x"));
+        // Italic inside bold is a marker of its own.
+        assert_eq!(
+            toggled("**word**", 2..6, ITALIC),
+            pair("**_word_**", "word")
+        );
+        assert_eq!(toggled("é日本🙂", 2..8, ITALIC), pair("é_日本_🙂", "日本"));
+        // Nothing selected: a pair goes in around the caret, and comes out again.
+        assert_eq!(
+            toggle_marker("ab", 1..1, BOLD),
+            (1..1, "****".to_string(), 3..3)
+        );
+        assert_eq!(
+            toggle_marker("a****b", 3..3, BOLD),
+            (1..5, String::new(), 1..1)
+        );
+        assert_eq!(
+            toggle_marker("", 0..0, ITALIC),
+            (0..0, "__".to_string(), 1..1)
+        );
     }
 }

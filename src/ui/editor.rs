@@ -1,8 +1,8 @@
 //! The text editing widget: the text column, Tab as spaces, Enter and Backspace that know about
-//! indents (and Enter and Tab about Markdown lists), deleting a word, moving lines, undo and redo
-//! (its colours come from `highlighter`). A `Pane` pairs the widget's content with the text model
-//! behind it, and shows suggested edits inside the text until each is accepted or rejected
-//! (review mode).
+//! indents (and Enter and Tab about Markdown lists), deleting a word, moving lines, Markdown's bold
+//! and italic markers, undo and redo (its colours come from `highlighter`). A `Pane` pairs the
+//! widget's content with the text model behind it, and shows suggested edits inside the text
+//! until each is accepted or rejected (review mode).
 
 use std::ops::Range;
 use std::sync::Arc;
@@ -14,7 +14,7 @@ use iced::widget::text::Wrapping;
 use iced::widget::text_editor::Motion;
 use iced::{Background, Border, Element, Fill, Padding, Theme};
 
-use crate::core::markdown::{ListEnter, is_list_item, list_enter};
+use crate::core::markdown::{BOLD, ITALIC, ListEnter, is_list_item, list_enter, toggle_marker};
 use crate::core::review::{DisplayMap, Review, Shown, Suggestion, clashes};
 use crate::core::settings::{ReadingMode, Settings};
 use crate::core::text_file::newlines_only;
@@ -105,9 +105,10 @@ fn style(theme: &Theme, editable: bool) -> text_editor::Style {
 /// starts a line indented like the caret's (in Markdown, `App::update` has Tab nest a list item and
 /// Enter without Shift continue a list), Backspace in a line's leading spaces goes back to the last
 /// indent stop, Ctrl+Backspace and Ctrl+Delete delete a word (⌥⌫ and ⌥⌦ on macOS, where ⌘⌫ and ⌘⌦
-/// delete to the start and end of the line), Alt+↑ and Alt+↓ move lines, Ctrl+Z undoes,
-/// Ctrl+Shift+Z and Ctrl+Y redo, and the app's own Ctrl shortcuts are left for the app. A pane that
-/// isn't `editable` keeps only iced's own keys (moving, selecting, copying). While `reviewing`, Tab
+/// delete to the start and end of the line), Alt+↑ and Alt+↓ move lines, Ctrl+B and Ctrl+I toggle
+/// bold and italic markers (`App::update` drops them outside Markdown), Ctrl+Z undoes, Ctrl+Shift+Z
+/// and Ctrl+Y redo, and the app's own Ctrl shortcuts are left for the app. A pane that isn't
+/// `editable` keeps only iced's own keys (moving, selecting, copying). While `reviewing`, Tab
 /// accepts the suggestion the caret is on and Esc rejects it (`App::update` turns a Tab anywhere
 /// else back into an indent), and Ctrl+C and Ctrl+X go through `Message::Clip`, since the widget's
 /// text has the suggestions in it.
@@ -167,6 +168,8 @@ fn key_binding(press: KeyPress, editable: bool, reviewing: bool) -> Option<Bindi
             }
             Key::Character("z" | "Z") => Some(Binding::Custom(Message::Undo)),
             Key::Character("y" | "Y") => Some(Binding::Custom(Message::Redo)),
+            Key::Character("b" | "B") => Some(Binding::Custom(Message::ToggleMarker(BOLD))),
+            Key::Character("i" | "I") => Some(Binding::Custom(Message::ToggleMarker(ITALIC))),
             _ => Binding::from_key_press(press),
         };
     }
@@ -588,6 +591,31 @@ impl Pane {
             }
             _ => self.new_line(),
         }
+    }
+
+    /// Ctrl+B and Ctrl+I in a Markdown file: puts `marker` (`**` or `_`) around the selection and
+    /// keeps the same text selected, or with nothing selected puts in a pair with the caret
+    /// between. When the markers are already there, just outside the selection or at its ends,
+    /// it takes them off instead. Returns whether the text changed, or why it can't.
+    pub fn toggle_marker(&mut self, marker: &str) -> Result<bool, String> {
+        let cursor = self.content.cursor();
+        let caret = self.caret();
+        let selection = self.selection().unwrap_or(caret..caret);
+        let (replaced, with, selected) =
+            toggle_marker(self.model.text(), selection.clone(), marker);
+        if replaced != selection {
+            self.select(replaced);
+        }
+        let edit = match with.is_empty() {
+            true => Edit::Delete,
+            false => Edit::Paste(Arc::new(with)),
+        };
+        let edited = self.perform_or_put_back(edit, cursor)?;
+        match selected.is_empty() {
+            true => self.put_caret(selected.start),
+            false => self.select(selected),
+        }
+        Ok(edited)
     }
 
     /// Backspace. In the spaces at the start of a line it deletes back to the previous indent
@@ -1705,5 +1733,80 @@ mod tests {
         assert_eq!(pane.model.text(), "- one two\n    - three");
         assert_eq!(pane.suggestions()[0].range, 6..9);
         assert_eq!(pane.caret(), 18);
+    }
+
+    #[test]
+    fn ctrl_b_and_ctrl_i_toggle_bold_and_italic_markers() {
+        let press = |key: &str| KeyPress {
+            key: Key::Character(key.into()),
+            modified_key: Key::Character(key.into()),
+            physical_key: Physical::Unidentified(NativeCode::Unidentified),
+            modifiers: Modifiers::COMMAND,
+            text: None,
+            status: Status::Focused { is_hovered: false },
+        };
+        let marker = |key| match key_binding(press(key), true, false) {
+            Some(Binding::Custom(Message::ToggleMarker(marker))) => Some(marker),
+            _ => None,
+        };
+        assert_eq!((marker("b"), marker("i")), (Some(BOLD), Some(ITALIC)));
+        // A read-only pane takes neither.
+        assert!(key_binding(press("b"), false, false).is_none());
+
+        let mut pane = Pane::new("make café bold");
+        pane.select(5..10);
+        assert_eq!(pane.toggle_marker(BOLD), Ok(true));
+        assert_eq!(pane.content.text(), "make **café** bold");
+        assert_eq!(pane.copied().as_deref(), Some("café"));
+        // Again, with the markers just outside the selection, takes them off.
+        assert_eq!(pane.toggle_marker(BOLD), Ok(true));
+        assert_eq!(pane.content.text(), "make café bold");
+        assert_eq!(pane.copied().as_deref(), Some("café"));
+        // So does a selection with the markers at its ends.
+        assert_eq!(pane.toggle_marker(ITALIC), Ok(true));
+        pane.select(5..12);
+        assert_eq!(pane.toggle_marker(ITALIC), Ok(true));
+        assert_eq!(pane.content.text(), "make café bold");
+        assert_eq!(pane.copied().as_deref(), Some("café"));
+        assert_eq!(pane.model.text(), pane.content.text());
+        pane.undo();
+        assert_eq!(
+            pane.content.text(),
+            "make _café_ bold",
+            "each is one undo step"
+        );
+    }
+
+    #[test]
+    fn ctrl_b_with_nothing_selected_puts_the_caret_between_a_pair() {
+        let mut pane = Pane::new("a\nb");
+        pane.content.move_to(cursor_at(1, 1));
+        assert_eq!(pane.toggle_marker(BOLD), Ok(true));
+        assert_eq!(pane.content.text(), "a\nb****");
+        assert_eq!(pane.content.cursor(), cursor_at(1, 3));
+        assert_eq!(pane.toggle_marker(BOLD), Ok(true));
+        assert_eq!(pane.content.text(), "a\nb");
+        assert_eq!(pane.content.cursor(), cursor_at(1, 1));
+        let mut pane = Pane::new("");
+        assert_eq!(pane.toggle_marker(ITALIC), Ok(true));
+        assert_eq!(pane.content.text(), "__");
+        assert_eq!(pane.content.cursor(), cursor_at(0, 1));
+    }
+
+    #[test]
+    fn markers_while_reviewing() {
+        let mut pane = Pane::new("one two three");
+        pane.suggest(4..7, "2").unwrap();
+        pane.select(8..13);
+        assert_eq!(pane.toggle_marker(BOLD), Ok(true));
+        assert_eq!(pane.model.text(), "one two **three**");
+        assert_eq!(pane.suggestions()[0].range, 4..7);
+        assert_eq!(pane.copied().as_deref(), Some("three"));
+        // Around the text a suggestion changes, it is refused and the selection put back.
+        pane.select(0..7);
+        let cursor = pane.content.cursor();
+        assert_eq!(pane.toggle_marker(ITALIC), Err(IN_A_SUGGESTION.to_string()));
+        assert_eq!(pane.content.cursor(), cursor);
+        assert_eq!(pane.model.text(), "one two **three**");
     }
 }

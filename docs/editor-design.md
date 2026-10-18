@@ -121,7 +121,9 @@ the caret at the end of the last change. Undo of a step applies its changes in r
   delete the empty item's marker, or unindent it with `Pane::unindent`. Each goes through the
   same paths as above, so it is one undo step and review mode checks it. Tab there on a list
   item (`core::markdown::is_list_item`) takes `reindent`'s line path even with nothing selected,
-  so the whole line is indented and the caret moves with its text.
+  so the whole line is indented and the caret moves with its text. Ctrl+B and Ctrl+I go to
+  `Message::ToggleMarker`: `core::markdown::toggle_marker` works out what to replace and what to
+  select after, and `Pane::toggle_marker` does it as a paste or delete through `Pane::perform`.
 - Alt+↑ and Alt+↓ go to `Message::MoveLines`, a model change: `TextModel::move_lines` swaps the
   lines with the one above or below as one `Change` and one undo step, and `Pane::move_lines`
   replays it and puts the caret and selection back on the same text, a line up or down.
