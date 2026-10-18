@@ -1,6 +1,6 @@
 # Installs the app for the current user on Windows: the release binary in
-# %LOCALAPPDATA%\Programs\<app>, a Start Menu entry, and an "Open with" entry for .txt and
-# Markdown (.md, .markdown) files.
+# %LOCALAPPDATA%\Programs\<app>, a Start Menu entry, and an "Open with" entry for .txt,
+# Markdown (.md, .markdown) and .json files.
 # Every name comes from src/brand.rs (the binary prints them with --print-brand), so nothing is
 # hardcoded here. Run it from a PowerShell window in the repo:
 #
@@ -34,7 +34,7 @@ $exe = "$installDir\$BIN_NAME.exe"
 $shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) "$APP_NAME.lnk"
 # "Open with": the app's own entry, and its name in the list Windows offers for each file type.
 $appKey = "HKCU:\Software\Classes\Applications\$BIN_NAME.exe"
-$fileTypes = '.txt', '.md', '.markdown'
+$fileTypes = '.txt', '.md', '.markdown', '.json'
 $openWithKeys = $fileTypes | ForEach-Object { "HKCU:\Software\Classes\$_\OpenWithList\$BIN_NAME.exe" }
 
 if ($Uninstall) {

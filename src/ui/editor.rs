@@ -44,7 +44,8 @@ pub const PADDING: Padding = Padding {
 };
 
 /// The pane's editor in its column, with `paint` (any suggestions, from `Pane::suggestion_runs`,
-/// and find matches) drawn under the text, and Markdown coloured when `markdown` is set. Without
+/// and find matches) drawn under the text, and Markdown or JSON coloured when `markdown` or
+/// `json` is set. Without
 /// `editable` the text is dimmed; it can still be scrolled, selected and copied, and
 /// `App::update` drops any change to it.
 pub fn view<'a>(
@@ -52,11 +53,13 @@ pub fn view<'a>(
     settings: &Settings,
     editable: bool,
     markdown: bool,
+    json: bool,
     paint: Vec<PaintRun>,
 ) -> Element<'a, Message> {
     let reviewing = pane.reviewing();
     let colouring = Colouring {
         markdown,
+        json,
         markup: settings.colour_markup,
         review: pane.review_highlights(),
     };

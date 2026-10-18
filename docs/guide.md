@@ -47,7 +47,7 @@ scripts look for the build in the repository's own `target/` folder, so unset `C
   needed) and a `dovetail` command in `~/.local/bin`. The app can't be a file's "Open With" app
   yet, so open files from the terminal or from inside the app.
 - **Windows**: `dovetail.exe` goes to `%LOCALAPPDATA%\Programs\Dovetail\`, with a Start Menu entry,
-  and Dovetail joins the "Open with" list for `.txt`, `.md` and `.markdown` files.
+  and Dovetail joins the "Open with" list for `.txt`, `.md`, `.markdown` and `.json` files.
 
 To run `dovetail` from a terminal, its folder must be on your `PATH`: `~/.local/bin` on Linux and
 macOS, `%LOCALAPPDATA%\Programs\Dovetail` on Windows. The scripts tell you if it isn't. On Linux
@@ -121,6 +121,15 @@ as you type: headings, list markers and task boxes, quotes, code, bold, italic, 
 links. Nothing is rendered: the text stays exactly as typed, markers and all. Enter continues a
 list or a quote, Tab nests a list item, and Ctrl+B and Ctrl+I put in bold and italic markers (see
 [Keys](#keys)). Scratch and `.txt` files stay plain.
+
+**JSON** files (`.json`), such as Cozy exports, open the same way and are coloured as you type:
+keys in blue, strings in green, numbers in yellow, and `true`, `false` and `null` in orange. Tags
+and `{{macros}}` inside strings are still coloured. A moment after you stop typing, the file is
+checked: if it isn't valid JSON, the status bar says where and why, such as `Invalid JSON at line
+12, column 5: expected , or }`. The menu adds **Format JSON** (each value on its own line, indented
+by your Tab setting) and **Minify JSON** (all on one line). Both change only the spaces and line
+breaks between values, so keys keep their order and numbers their digits, and Ctrl+Z undoes either
+in one step. Neither runs on invalid JSON: the status bar says it can't, next to the problem.
 
 Files must be UTF-8, which almost every editor writes today. Any other file opens empty and
 read-only, and the status bar says why; the file itself is never touched. A file keeps its line

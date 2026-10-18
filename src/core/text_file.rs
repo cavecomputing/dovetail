@@ -1,4 +1,4 @@
-//! Reading plain text documents (`.txt`, and Markdown's `.md`).
+//! Reading plain text documents (`.txt`, Markdown's `.md` and `.json`).
 
 use std::fs;
 use std::io::{self, ErrorKind};
@@ -7,8 +7,8 @@ use std::time::SystemTime;
 
 use crate::core::save::atomic_write;
 
-/// The extensions the Open and save dialogs offer: plain text and Markdown.
-pub const TEXT_EXTENSIONS: [&str; 3] = ["txt", "md", "markdown"];
+/// The extensions the Open and save dialogs offer: plain text, Markdown and JSON.
+pub const TEXT_EXTENSIONS: [&str; 4] = ["txt", "md", "markdown", "json"];
 
 /// The line ending a file used, so saving writes it back the same way.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]

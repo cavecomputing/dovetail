@@ -1,4 +1,5 @@
-//! How the editor colours its text: Markdown in .md files, XML tags and {{macros}}, and in review
+//! How the editor colours its text: Markdown in .md files, JSON in .json files, XML tags and
+//! {{macros}}, and in review
 //! mode the struck and ghost text of suggestions. iced asks for the colours one line at a time.
 
 use std::ops::Range;
@@ -6,16 +7,19 @@ use std::ops::Range;
 use iced::advanced::text::highlighter::{self, Highlighter};
 use iced::{Color, Font, Theme};
 
+use crate::core::json::{Json, json_ranges};
 use crate::core::markdown::{Block, Markdown, markdown_ranges};
 use crate::core::markup::{Markup, markup_ranges};
 use crate::ui::theme::{MONO, Roles, bold};
 
-/// What the highlighter colours: Markdown when `markdown` is on (a .md file), XML tags and
+/// What the highlighter colours: Markdown when `markdown` is on (a .md file), JSON when `json` is
+/// on (a .json file), XML tags and
 /// macros when `markup` is on, and in review mode the struck and ghost text and the room for the
 /// buttons, as (line, byte columns, look).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Colouring {
     pub markdown: bool,
+    pub json: bool,
     pub markup: bool,
     pub review: Vec<(usize, Range<usize>, Highlight)>,
 }
@@ -23,6 +27,7 @@ pub struct Colouring {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Highlight {
     Markdown(Markdown),
+    Json(Json),
     Markup(Markup),
     /// Text a suggestion would replace: muted (the line through it is drawn as paint).
     Struck,
@@ -45,6 +50,12 @@ pub fn highlight_format(highlight: &Highlight, theme: &Theme) -> highlighter::Fo
             }
             Markdown::Bold | Markdown::Italic => None,
         },
+        Highlight::Json(json) => Some(match json {
+            Json::Key => roles.accent_cool,
+            Json::String => roles.accent_aqua,
+            Json::Number => roles.accent_text,
+            Json::Word => roles.accent_warm,
+        }),
         Highlight::Markup(Markup::Tag) | Highlight::Struck => Some(roles.fg_muted),
         Highlight::Markup(Markup::Macro) => Some(roles.accent_cool),
         Highlight::Hidden => Some(Color::TRANSPARENT),
@@ -96,8 +107,8 @@ impl Highlighter for MarkupHighlighter {
         self.blocks.truncate(self.line + 1);
     }
 
-    /// Markdown first, then tags and macros, then suggestions, so suggestion looks win where they
-    /// overlap.
+    /// Markdown or JSON first, then tags and macros (so a {{macro}} inside a JSON string still
+    /// shows), then suggestions, so suggestion looks win where they overlap.
     fn highlight_line(&mut self, text: &str) -> Self::Iterator<'_> {
         let block = self.blocks[self.line];
         let (markdown, next) = match self.colouring.markdown {
@@ -109,6 +120,11 @@ impl Highlighter for MarkupHighlighter {
             .into_iter()
             .map(|(range, markdown)| (range, Highlight::Markdown(markdown)))
             .collect();
+        if self.colouring.json {
+            for (range, json) in json_ranges(text) {
+                found.push((range, Highlight::Json(json)));
+            }
+        }
         if self.colouring.markup {
             for (range, markup) in markup_ranges(text) {
                 found.push((range, Highlight::Markup(markup)));
@@ -135,6 +151,7 @@ mod tests {
     fn markdown_on() -> Colouring {
         Colouring {
             markdown: true,
+            json: false,
             markup: false,
             review: Vec::new(),
         }
@@ -207,6 +224,7 @@ mod tests {
         let line = "# Hi <b>";
         let colouring = Colouring {
             markdown: true,
+            json: false,
             markup: true,
             review: vec![(0, 2..4, Highlight::Ghost)],
         };
@@ -223,6 +241,7 @@ mod tests {
         // Turning Markdown off (another file) starts again from the top, without it.
         highlighter.update(&Colouring {
             markdown: false,
+            json: false,
             markup: true,
             review: Vec::new(),
         });
@@ -230,5 +249,27 @@ mod tests {
         let found: Vec<_> = highlighter.highlight_line("```").collect();
         assert_eq!(found, vec![]);
         assert_eq!(highlighter.highlight_line("# no").count(), 0);
+    }
+
+    #[test]
+    fn a_macro_inside_a_json_string_is_still_coloured() {
+        let colouring = Colouring {
+            markdown: false,
+            json: true,
+            markup: true,
+            review: Vec::new(),
+        };
+        let mut highlighter = MarkupHighlighter::new(&colouring);
+        let found: Vec<_> = highlighter
+            .highlight_line(r#""greeting": "Hi {{user}}""#)
+            .collect();
+        assert_eq!(
+            found,
+            vec![
+                (0..10, Highlight::Json(Json::Key)),
+                (12..25, Highlight::Json(Json::String)),
+                (16..24, Highlight::Markup(Markup::Macro)),
+            ]
+        );
     }
 }
