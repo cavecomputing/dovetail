@@ -10,7 +10,7 @@ use crate::core::opened::{Doc, empty_file, open_in_place, save_as};
 use crate::core::recent::same_file;
 use crate::core::save::failure_reason;
 use crate::core::scratch::clear_scratch;
-use crate::core::text_file::{LineEnding, TEXT_EXTENSIONS, save_text, suggested_file_name};
+use crate::core::text_file::{LineEnding, save_text, suggested_file_name};
 use crate::ui::app::{App, Message};
 
 impl App {
@@ -184,10 +184,10 @@ impl App {
         Task::none()
     }
 
-    /// A save dialog for a .txt or .md, titled `title`, offering `name`, starting beside the open
-    /// file or in the documents folder. The filter lists every extension the app opens: macOS
-    /// adds the first one (.txt) to a name that has none of them, so notes.md would become
-    /// notes.md.txt without .md there, and Windows can do the same to one the filter leaves out.
+    /// A save dialog titled `title`, offering `name`, starting beside the open file or in the
+    /// documents folder. It has no file type filter, so a name is saved as typed: with one,
+    /// macOS and Windows add the filter's first extension to a name it doesn't list, so test.sh
+    /// became test.sh.txt.
     fn save_dialog(&self, title: &str, name: String) -> rfd::AsyncFileDialog {
         let folder = match &self.doc {
             Doc::File { path, .. } => path.parent(),
@@ -195,7 +195,6 @@ impl App {
         };
         let dialog = rfd::AsyncFileDialog::new()
             .set_title(title)
-            .add_filter("Text and config files", &TEXT_EXTENSIONS)
             .set_file_name(name);
         match folder.filter(|folder| folder.is_dir()) {
             Some(folder) => dialog.set_directory(folder),
