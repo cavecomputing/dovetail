@@ -8,7 +8,7 @@ use iced::{Background, Border, Color, Element, Fill, Task, Theme};
 
 use crate::core::find::find_all;
 use crate::ui::app::{App, Message};
-use crate::ui::status_bar::{self, glyph_button, hint, small};
+use crate::ui::status_bar::{self, glyph_button, hint, keys, small};
 use crate::ui::text_editor::{PaintLook, PaintRun};
 use crate::ui::theme::{GLYPH_CLOSE, GLYPH_DOWN, GLYPH_UP, Roles};
 
@@ -160,8 +160,11 @@ pub fn view(app: &App) -> Element<'_, Message> {
         row![
             input,
             small(count),
-            hint(glyph_button(GLYPH_UP, step(-1)), "Previous (Shift+Enter)"),
-            hint(glyph_button(GLYPH_DOWN, step(1)), "Next (Enter)"),
+            hint(
+                glyph_button(GLYPH_UP, step(-1)),
+                keys("Previous (Shift+Enter)")
+            ),
+            hint(glyph_button(GLYPH_DOWN, step(1)), keys("Next (Enter)")),
             space().width(Fill),
             hint(
                 glyph_button(GLYPH_CLOSE, Some(Message::CloseMenu)),
