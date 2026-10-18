@@ -52,9 +52,9 @@ impl App {
             self.opening = Some(doc);
             return Task::none();
         }
-        // Scratch keeps its cursor too, so it is written even with no new text. A read-only
-        // window has nothing of its own to save.
-        let unsaved = self.autosaver.pending() || matches!(self.doc, Doc::Scratch);
+        // Saved unless closing could skip it (so a failed last save is tried again). Scratch keeps
+        // its cursor too, so it is written even then. A read-only window has nothing to save.
+        let unsaved = !self.autosaver.close_allowed() || matches!(self.doc, Doc::Scratch);
         if self.editable() && unsaved && !self.save_before_leaving() {
             return Task::none();
         }
