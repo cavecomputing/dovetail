@@ -1,5 +1,5 @@
-//! The Ctrl+P quick switcher: type a few letters of a recent file, Enter opens it in a new window,
-//! Esc closes.
+//! The Ctrl+P quick switcher: type a few letters of a recent file, Enter opens it (in scratch's
+//! place, or from a file in a new window), Esc closes.
 
 use std::path::{Path, PathBuf};
 
@@ -9,7 +9,7 @@ use iced::{Background, Border, Color, Element, Fill, Padding, Task, Theme};
 use crate::core::opened::Doc;
 use crate::core::paths::display_path;
 use crate::core::recent::{existing_recent_files, match_score};
-use crate::ui::app::{App, Message, open_in_new_window};
+use crate::ui::app::{App, Message};
 use crate::ui::editor;
 use crate::ui::status_bar::file_name;
 use crate::ui::theme::{GLYPH_FILE, Roles, raised_box};
@@ -87,9 +87,8 @@ impl App {
                         .map(|path| path.to_path_buf())
                 });
                 if let Some(path) = picked {
-                    self.switcher = None;
-                    self.set_notice(open_in_new_window(Some(path)).err());
-                    return iced::widget::operation::focus(editor::EDITOR_ID);
+                    let open = self.open_file(path);
+                    return Task::batch([open, iced::widget::operation::focus(editor::EDITOR_ID)]);
                 }
             }
             _ => {}

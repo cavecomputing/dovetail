@@ -1,19 +1,60 @@
-//! App's handlers for the file shortcuts: New file (Ctrl+N), Save (Ctrl+S) and Save as
-//! (Ctrl+Shift+S).
+//! App's handlers for the file shortcuts: opening a file (Ctrl+O, Ctrl+P and Recent), New file
+//! (Ctrl+N), Save (Ctrl+S) and Save as (Ctrl+Shift+S).
 
 use std::path::PathBuf;
 use std::time::Instant;
 
 use iced::Task;
 
-use crate::core::opened::{Doc, empty_file, save_as};
+use crate::core::opened::{Doc, empty_file, open_in_place, save_as};
 use crate::core::recent::same_file;
 use crate::core::save::failure_reason;
-use crate::core::scratch::clear_scratch;
+use crate::core::scratch::{ScratchState, clear_scratch};
 use crate::core::text_file::{LineEnding, TEXT_EXTENSIONS, save_text, suggested_file_name};
 use crate::ui::app::{App, Message, open_in_new_window};
 
 impl App {
+    /// Opens the file at `path`: from a file, in a window of its own; from scratch, in this window
+    /// in scratch's place, once scratch's latest text and cursor are on disk. If that save fails,
+    /// or the file can't be opened, the window stays on scratch and the status bar says why.
+    pub fn open_file(&mut self, path: PathBuf) -> Task<Message> {
+        self.menu_open = false;
+        self.switcher = None;
+        if !matches!(self.doc, Doc::Scratch) {
+            self.set_notice(open_in_new_window(Some(path)).err());
+            return Task::none();
+        }
+        // An autosave still running would land after the save below, over newer text, so wait
+        // for it: its `Saved` comes back here.
+        if self.autosaver.is_saving() {
+            self.opening = Some(path);
+            return Task::none();
+        }
+        // Written now, as the autosave would (a failure shows as one, which keeps the window as
+        // it keeps a closing one). A read-only scratch belongs to another window: nothing to save.
+        if self.editable() {
+            let generation = self.autosaver.begin(Instant::now());
+            let scratch = ScratchState {
+                text: self.pane.model.text().to_string(),
+                view: self.scratch_view(),
+            };
+            let saved = scratch.save(&self.paths.data_dir);
+            let failed = saved.is_err();
+            self.autosaver
+                .finish(generation, saved.map_err(|error| failure_reason(&error)));
+            if failed {
+                return Task::none();
+            }
+        }
+        match open_in_place(&path, &self.paths) {
+            Ok(opened) => self.show(opened),
+            Err(reason) => {
+                self.set_notice(Some(reason));
+                Task::none()
+            }
+        }
+    }
+
     /// Ctrl+N: asks where the new file (.txt or .md) goes; `NewFilePicked` brings the answer.
     pub fn new_file(&mut self) -> Task<Message> {
         self.menu_open = false;
@@ -23,13 +64,15 @@ impl App {
     }
 
     /// Starts the new file at `path` empty (the dialog has already agreed to replace anything
-    /// there) and opens it in its own window.
+    /// there) and opens it (`open_file`).
     pub fn start_new_file(&mut self, path: PathBuf) -> Task<Message> {
-        self.set_notice(match empty_file(&self.paths.data_dir, &self.doc, &path) {
-            Ok(()) => open_in_new_window(Some(path)).err(),
-            Err(reason) => Some(reason),
-        });
-        Task::none()
+        match empty_file(&self.paths.data_dir, &self.doc, &path) {
+            Ok(()) => self.open_file(path),
+            Err(reason) => {
+                self.set_notice(Some(reason));
+                Task::none()
+            }
+        }
     }
 
     /// Ctrl+S. Everything autosaves, so in a file this writes now instead of after the pause.
