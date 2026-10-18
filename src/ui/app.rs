@@ -332,7 +332,7 @@ impl App {
                 let tab_spaces = usize::from(self.settings.tab_spaces);
                 let markdown = self.markdown();
                 let edited = match message {
-                    Message::Indent => self.pane.indent(tab_spaces),
+                    Message::Indent => self.pane.indent(tab_spaces, markdown),
                     Message::Unindent => self.pane.unindent(tab_spaces),
                     Message::NewLine { shift: false } if markdown => {
                         self.pane.markdown_new_line(tab_spaces)
