@@ -3,8 +3,8 @@
 //!
 //! The editor widget stays in charge of what is on screen. After each edit the UI hands the new
 //! text here; `record` works out the one `Change` that was made and keeps it for undo. Changes
-//! made here first (undo, redo, unindent, `replace`) are returned so the UI can replay them into
-//! the widget. All offsets are bytes, the same as iced's columns.
+//! made here first (undo, redo, indent, unindent, `replace`) are returned so the UI can replay
+//! them into the widget. All offsets are bytes, the same as iced's columns.
 
 use std::ops::{Range, RangeInclusive};
 use std::time::{Duration, Instant};
@@ -156,6 +156,24 @@ impl TextModel {
             self.redo.clear();
             self.push_step(changes.clone(), false, Instant::now());
         }
+        changes
+    }
+
+    /// Tab over several lines: puts `tab_spaces` spaces at the start of each of `lines`, as one
+    /// undo step. Returns one change per line, top line first.
+    pub fn indent(&mut self, lines: RangeInclusive<usize>, tab_spaces: usize) -> Vec<Change> {
+        let mut changes = Vec::new();
+        for line in lines {
+            let change = Change {
+                at: offset(&self.text, line, 0),
+                removed: String::new(),
+                inserted: " ".repeat(tab_spaces),
+            };
+            self.apply(&change);
+            changes.push(change);
+        }
+        self.redo.clear();
+        self.push_step(changes.clone(), false, Instant::now());
         changes
     }
 
@@ -536,6 +554,17 @@ mod tests {
             model.unindent(2..=2, 4).is_empty(),
             "nothing to remove is no step"
         );
+    }
+
+    #[test]
+    fn indent_adds_one_indent_to_every_line_as_one_step() {
+        let mut model = TextModel::new("a\n  b\n\nc".to_string());
+        let changes = model.indent(0..=2, 4);
+        assert_eq!(model.text(), "    a\n      b\n    \nc");
+        assert_eq!(changes.len(), 3);
+        assert_eq!(changes[1].at, 6, "after the indent on line 0");
+        model.undo();
+        assert_eq!(model.text(), "a\n  b\n\nc");
     }
 
     #[test]

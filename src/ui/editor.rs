@@ -44,7 +44,6 @@ pub fn view<'a>(
     editable: bool,
     paint: Vec<PaintRun>,
 ) -> Element<'a, Message> {
-    let tab_spaces = usize::from(settings.tab_spaces);
     let reviewing = pane.reviewing();
     let colouring = Colouring {
         markup: settings.colour_markup,
@@ -52,7 +51,7 @@ pub fn view<'a>(
     };
     let editor = TextEditor::new(&pane.content)
         .id(EDITOR_ID)
-        .key_binding(move |press| key_binding(press, tab_spaces, editable, reviewing))
+        .key_binding(move |press| key_binding(press, editable, reviewing))
         .wrapping(if settings.word_wrap {
             Wrapping::WordOrGlyph
         } else {
@@ -95,18 +94,13 @@ fn style(theme: &Theme, editable: bool) -> text_editor::Style {
     }
 }
 
-/// Tab inserts spaces (never a tab character), Shift+Tab unindents, Ctrl+Z undoes, Ctrl+Shift+Z
-/// and Ctrl+Y redo, and the app's own Ctrl shortcuts are left for the app. A pane that isn't
-/// `editable` keeps only iced's own keys (moving, selecting, copying). While `reviewing`, Tab
-/// accepts the suggestion at the caret and Esc rejects it (typing is off, see `Pane::perform`),
-/// and Ctrl+C and Ctrl+X copy through `Message::Clip`, since the widget's text has the
-/// suggestions in it.
-fn key_binding(
-    press: KeyPress,
-    tab_spaces: usize,
-    editable: bool,
-    reviewing: bool,
-) -> Option<Binding<Message>> {
+/// Tab indents (with spaces, never a tab character), Shift+Tab unindents, Ctrl+Z undoes,
+/// Ctrl+Shift+Z and Ctrl+Y redo, and the app's own Ctrl shortcuts are left for the app. A pane
+/// that isn't `editable` keeps only iced's own keys (moving, selecting, copying). While
+/// `reviewing`, Tab accepts the suggestion at the caret and Esc rejects it (typing is off, see
+/// `Pane::perform`), and Ctrl+C and Ctrl+X copy through `Message::Clip`, since the widget's text
+/// has the suggestions in it.
+fn key_binding(press: KeyPress, editable: bool, reviewing: bool) -> Option<Binding<Message>> {
     // A custom binding is used even when the editor isn't focused, so check first.
     if !matches!(press.status, Status::Focused { .. }) {
         return None;
@@ -163,7 +157,7 @@ fn key_binding(
         Key::Named(Named::Tab) if press.modifiers.shift() => {
             Some(Binding::Custom(Message::Unindent))
         }
-        Key::Named(Named::Tab) => Some(Binding::Sequence(vec![Binding::Insert(' '); tab_spaces])),
+        Key::Named(Named::Tab) => Some(Binding::Custom(Message::Indent)),
         _ => Binding::from_key_press(press),
     }
 }
@@ -463,36 +457,63 @@ impl Pane {
         self.replay(&[change]);
     }
 
-    /// Shift+Tab: removes up to one indent (`tab_spaces` spaces) from the start of the cursor's
-    /// line, or of every selected line, and keeps the cursor and selection on the same text.
+    /// Tab: adds one indent (`tab_spaces` spaces) to the start of each line the selection is on.
+    /// With nothing selected, or a selection within one line, it types the spaces instead.
     /// Returns whether the text changed.
+    pub fn indent(&mut self, tab_spaces: usize) -> bool {
+        self.reindent(tab_spaces, true)
+    }
+
+    /// Shift+Tab: removes up to one indent (`tab_spaces` spaces) from the start of the caret's
+    /// line, or of each line the selection is on. Returns whether the text changed.
     pub fn unindent(&mut self, tab_spaces: usize) -> bool {
+        self.reindent(tab_spaces, false)
+    }
+
+    /// Indents (`add`) or unindents the lines for `indent` and `unindent`, as one undo step, and
+    /// keeps the caret and selection on the same text. A last line the selection only reaches
+    /// the start of is left alone, as nothing on it is selected.
+    fn reindent(&mut self, tab_spaces: usize, add: bool) -> bool {
         if self.reviewing() {
             return false;
         }
         let cursor = self.content.cursor();
-        let anchor = cursor.selection.unwrap_or(cursor.position);
-        let first = cursor.position.line.min(anchor.line);
-        let last = cursor.position.line.max(anchor.line);
-        let changes = self.model.unindent(first..=last, tab_spaces);
+        let caret = self.to_text(cursor.position);
+        let anchor = cursor.selection.map_or(caret, |at| self.to_text(at));
+        let (start, end) = (caret.min(anchor), caret.max(anchor));
+        let text = self.model.text();
+        if add && !text[start..end].contains('\n') {
+            let spaces = Arc::new(" ".repeat(tab_spaces));
+            return self.perform(Action::Edit(Edit::Paste(spaces)));
+        }
+        let (first, _) = position(text, start);
+        let (mut last, column) = position(text, end);
+        if column == 0 && last > first {
+            last -= 1;
+        }
+        let changes = match add {
+            true => self.model.indent(first..=last, tab_spaces),
+            false => self.model.unindent(first..=last, tab_spaces),
+        };
         if !self.replay(&changes) {
             return false;
         }
-        // Each change removes spaces at the start of one line; move the cursor back by as many.
-        let text = self.model.text();
-        let shifted = |at: Position| {
-            let removed = changes
-                .iter()
-                .find(|change| position(text, change.at).0 == at.line)
-                .map_or(0, |change| change.removed.len());
-            Position {
-                line: at.line,
-                column: at.column.saturating_sub(removed),
+        // Each change is at the start of a line: what is after it moves with it, and the start
+        // of the line stays put.
+        let moved = |mut at: usize| {
+            for change in &changes {
+                if at > change.at {
+                    let removed_end = change.at + change.removed.len();
+                    at = at.max(removed_end) - change.removed.len() + change.inserted.len();
+                }
             }
+            at
         };
+        let position = self.position(moved(caret), true);
+        let selection = cursor.selection.map(|_| self.position(moved(anchor), true));
         self.content.move_to(Cursor {
-            position: shifted(cursor.position),
-            selection: cursor.selection.map(shifted),
+            position,
+            selection,
         });
         true
     }
@@ -840,7 +861,7 @@ mod tests {
             text: None,
             status: Status::Focused { is_hovered: false },
         };
-        let binding = |reviewing| key_binding(ctrl_c.clone(), 4, true, reviewing);
+        let binding = |reviewing| key_binding(ctrl_c.clone(), true, reviewing);
         assert!(matches!(binding(false), Some(Binding::Copy)));
         assert!(matches!(
             binding(true),
@@ -865,7 +886,7 @@ mod tests {
             text: None,
             status: Status::Focused { is_hovered: false },
         };
-        let Some(Binding::Move(motion)) = key_binding(command_up, 4, true, false) else {
+        let Some(Binding::Move(motion)) = key_binding(command_up, true, false) else {
             panic!("⌘↑ doesn't move the caret");
         };
         let start = if cfg!(target_os = "macos") {
@@ -918,5 +939,63 @@ mod tests {
         // One undo puts both lines back.
         pane.undo();
         assert_eq!(pane.content.text(), "    two levels\n  x");
+    }
+
+    /// Selects from the start of the text to the start of line 2, as Ctrl+Home then Shift+Down
+    /// twice do: only lines 0 and 1 show as selected.
+    fn select_two_lines(pane: &mut Pane) {
+        pane.content.move_to(Cursor {
+            position: Position { line: 2, column: 0 },
+            selection: Some(Position { line: 0, column: 0 }),
+        });
+    }
+
+    #[test]
+    fn tab_indents_each_selected_line_as_one_step() {
+        let mut pane = Pane::new("alpha\nbeta\ngamma\n");
+        select_two_lines(&mut pane);
+        assert!(pane.indent(4));
+        assert_eq!(pane.content.text(), "    alpha\n    beta\ngamma\n");
+        assert_eq!(pane.model.text(), pane.content.text());
+        // The same lines stay selected, indents included.
+        assert_eq!(pane.selection(), Some(0..19));
+        assert!(pane.indent(4), "again, a level deeper");
+        assert_eq!(pane.content.text(), "        alpha\n        beta\ngamma\n");
+        pane.undo();
+        assert_eq!(pane.content.text(), "    alpha\n    beta\ngamma\n");
+
+        // A selection that starts and ends inside lines keeps its ends on the same letters.
+        pane.content.move_to(Cursor {
+            position: Position { line: 1, column: 6 },
+            selection: Some(Position { line: 0, column: 5 }),
+        });
+        assert!(pane.indent(2));
+        assert_eq!(pane.content.text(), "      alpha\n      beta\ngamma\n");
+        assert_eq!(pane.copied().as_deref(), Some("lpha\n      be"));
+    }
+
+    #[test]
+    fn tab_within_one_line_types_spaces() {
+        let mut pane = Pane::new("one two");
+        pane.content.move_to(cursor_at(0, 3));
+        assert!(pane.indent(4));
+        assert_eq!(pane.content.text(), "one     two");
+        // A selection within one line is replaced, as typing would.
+        pane.content.move_to(Cursor {
+            position: Position { line: 0, column: 3 },
+            selection: Some(Position { line: 0, column: 0 }),
+        });
+        assert!(pane.indent(2));
+        assert_eq!(pane.content.text(), "       two");
+        pane.undo();
+        assert_eq!(pane.content.text(), "one     two", "one undo step");
+    }
+
+    #[test]
+    fn shift_tab_leaves_a_line_the_selection_only_reaches_the_start_of() {
+        let mut pane = Pane::new("    alpha\n    beta\n    gamma\n");
+        select_two_lines(&mut pane);
+        assert!(pane.unindent(4));
+        assert_eq!(pane.content.text(), "alpha\nbeta\n    gamma\n");
     }
 }

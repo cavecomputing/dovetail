@@ -81,6 +81,7 @@ pub struct App {
 #[derive(Debug, Clone)]
 pub enum Message {
     Edit(Action),
+    Indent,
     Unindent,
     Undo,
     Redo,
@@ -287,12 +288,17 @@ impl App {
                     return iced::clipboard::write(text);
                 }
             }
-            Message::Unindent => {
+            Message::Indent | Message::Unindent if self.editable() => {
                 let tab_spaces = usize::from(self.settings.tab_spaces);
-                if self.editable() && self.pane.unindent(tab_spaces) {
+                let changed = match message {
+                    Message::Indent => self.pane.indent(tab_spaces),
+                    _ => self.pane.unindent(tab_spaces),
+                };
+                if changed {
                     self.text_changed();
                 }
             }
+            Message::Indent | Message::Unindent => {}
             Message::Undo | Message::Redo if self.editable() => {
                 let changed = match message {
                     Message::Undo => self.pane.undo(),
