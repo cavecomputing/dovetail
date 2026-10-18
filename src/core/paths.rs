@@ -11,7 +11,8 @@ use crate::brand::CONFIG_DIR_NAME;
 pub struct Paths {
     /// `~/.config/<app>`: holds `settings.toml`.
     pub config_dir: PathBuf,
-    /// `~/.local/share/<app>`: holds the scratch space.
+    /// `~/.local/share/<app>`: holds the scratch space, the recent list and the locks. On Windows
+    /// it is in Local AppData rather than Roaming, since these name files on this machine.
     pub data_dir: PathBuf,
     /// `~/Documents`: where the save dialogs (Save as, New file) start when there is no open file
     /// to start beside.
@@ -32,7 +33,7 @@ impl Paths {
             .unwrap_or_else(|| base.home_dir().join("Documents"));
         Paths {
             config_dir: base.config_dir().join(CONFIG_DIR_NAME),
-            data_dir: base.data_dir().join(CONFIG_DIR_NAME),
+            data_dir: base.data_local_dir().join(CONFIG_DIR_NAME),
             documents_dir,
         }
     }
@@ -58,8 +59,9 @@ pub fn display_path(path: &Path) -> String {
             .ok()
             .map(Path::to_path_buf)
     }) {
-        Some(rest) => format!("~/{}", rest.display()),
-        None => path.display().to_string(),
+        // Windows has no `~` (Explorer and cmd don't know it), so paths there are shown whole.
+        Some(rest) if !cfg!(windows) => format!("~/{}", rest.display()),
+        _ => path.display().to_string(),
     }
 }
 
@@ -107,7 +109,12 @@ mod tests {
     #[test]
     fn display_path_shortens_home() {
         let home = BaseDirs::new().unwrap().home_dir().to_path_buf();
-        assert_eq!(display_path(&home.join("notes.txt")), "~/notes.txt");
+        let expected = if cfg!(windows) {
+            home.join("notes.txt").display().to_string()
+        } else {
+            "~/notes.txt".to_string()
+        };
+        assert_eq!(display_path(&home.join("notes.txt")), expected);
         assert_eq!(display_path(Path::new("/etc/hosts")), "/etc/hosts");
     }
 }
