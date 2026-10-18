@@ -347,6 +347,22 @@ pub fn position(text: &str, offset: usize) -> (usize, usize) {
     (line, column)
 }
 
+/// The (line, byte column) of each of `offsets` (in order) in `text`, in one pass over the text
+/// rather than one per offset.
+pub fn positions(text: &str, offsets: &[usize]) -> Vec<(usize, usize)> {
+    let (mut line, mut line_start, mut scanned) = (0, 0, 0);
+    let mut found = Vec::with_capacity(offsets.len());
+    for &offset in offsets {
+        for (at, _) in text[scanned..offset].match_indices('\n') {
+            line += 1;
+            line_start = scanned + at + 1;
+        }
+        scanned = offset;
+        found.push((line, offset - line_start));
+    }
+    found
+}
+
 /// Folds one more typed or deleted character into the step's change, if it carries straight on
 /// from it. Typing stops joining at the start of a new word.
 fn join_typing(last: &mut Change, next: &Change) -> bool {
@@ -375,6 +391,14 @@ fn join_typing(last: &mut Change, next: &Change) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn positions_match_position_for_each_offset() {
+        let text = "ab\ncdé\n\nf";
+        let offsets = [0, 1, 3, 5, 7, 8, 9, 10];
+        let one_by_one: Vec<_> = offsets.iter().map(|&o| position(text, o)).collect();
+        assert_eq!(positions(text, &offsets), one_by_one);
+    }
 
     fn change(at: usize, removed: &str, inserted: &str) -> Option<Change> {
         Some(Change {

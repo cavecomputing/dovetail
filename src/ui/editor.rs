@@ -17,7 +17,7 @@ use crate::core::markup::{Markup, markup_ranges};
 use crate::core::review::{DisplayMap, Review, Shown, Suggestion};
 use crate::core::settings::{ReadingMode, Settings};
 use crate::core::text_file::newlines_only;
-use crate::core::text_model::{Change, TextModel, offset, position};
+use crate::core::text_model::{Change, TextModel, offset, position, positions};
 use crate::project::paint::{IdeaId, Span};
 use crate::ui::app::Message;
 use crate::ui::idea_actions::IdeaAction;
@@ -127,7 +127,23 @@ fn key_binding(
     if press.modifiers.command()
         && matches!(
             press.key.as_ref(),
-            Key::Character("p" | "0" | "," | "i" | "e" | "l" | "w" | "W")
+            Key::Character(
+                "p" | "0"
+                    | ","
+                    | "i"
+                    | "e"
+                    | "l"
+                    | "w"
+                    | "W"
+                    | "s"
+                    | "S"
+                    | "o"
+                    | "n"
+                    | "f"
+                    | "="
+                    | "+"
+                    | "-"
+            )
         )
     {
         return None;
@@ -291,6 +307,35 @@ impl Pane {
         };
         let (line, column) = position(self.shown(), shown_offset);
         Position { line, column }
+    }
+
+    /// Where each of `ranges` (byte ranges of the model's text, in order) is in the widget,
+    /// worked out in one pass over the text, for drawing many at once (the find matches).
+    pub fn widget_ranges(&self, ranges: &[Range<usize>]) -> Vec<(Position, Position)> {
+        let shown = |offset| match &self.display {
+            Some(display) => display.to_display(offset, false),
+            None => offset,
+        };
+        let offsets: Vec<usize> = ranges
+            .iter()
+            .flat_map(|range| [shown(range.start), shown(range.end)])
+            .collect();
+        let at = |(line, column)| Position { line, column };
+        positions(self.shown(), &offsets)
+            .chunks(2)
+            .map(|pair| (at(pair[0]), at(pair[1])))
+            .collect()
+    }
+
+    /// Selects byte range `range` of the model's text with the caret at its end, which scrolls
+    /// it into view.
+    pub fn select(&mut self, range: Range<usize>) {
+        let start = self.position(range.start, false);
+        let end = self.position(range.end, false);
+        self.content.move_to(Cursor {
+            position: end,
+            selection: Some(start),
+        });
     }
 
     /// The suggestions as the editor draws them: the replaced text struck through, the new text

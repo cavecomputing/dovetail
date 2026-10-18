@@ -20,6 +20,7 @@ use crate::core::text_file::{DiskStamp, changed_on_disk, read_text, save_text};
 use crate::project::{DRAFT_FILE, Project, RecentItem, open_project, recent_items, save_draft};
 use crate::ui::assistant_actions::{Assistant, AssistantAction, CardState};
 use crate::ui::editor::{Decision, Pane};
+use crate::ui::find_bar::{self, Find, FindAction};
 use crate::ui::idea_actions::IdeaAction;
 use crate::ui::project_actions::load_version;
 use crate::ui::project_view::{self, ProjectView};
@@ -80,6 +81,8 @@ pub struct App {
     /// The recent files and projects, for the menu.
     pub recent: Vec<RecentItem>,
     pub menu_open: bool,
+    /// The Ctrl+F find bar.
+    pub find: Find,
 
     /// The assistant pane and its conversation, kept while the window is open.
     pub assistant: Assistant,
@@ -115,7 +118,16 @@ pub enum Message {
 
     ToggleMenu,
     CloseMenu,
+    /// Enter outside any text box: commits from the Commit dialog, or steps through the find
+    /// bar's matches (back with Shift).
+    EnterKey {
+        shift: bool,
+    },
+    NewFile,
     OpenDialog,
+    Save,
+    SaveAs,
+    SaveAsPicked(PathBuf),
     OpenPath(PathBuf),
     OpenSettings,
     OpenScratch,
@@ -136,11 +148,14 @@ pub enum Message {
     KeepMine,
 
     Setting(Change),
+    /// Ctrl+= and Ctrl+-: the font a size bigger or smaller.
+    Zoom(f32),
     PollSettings,
     SystemTheme(iced::theme::Mode),
 
     Idea(IdeaAction),
     Assistant(AssistantAction),
+    Find(FindAction),
 }
 
 /// Runs the app on `doc` until its window closes.
@@ -254,6 +269,7 @@ impl App {
             now: Instant::now(),
             closing: false,
             menu_open: false,
+            find: Find::default(),
             assistant: Assistant::default(),
             key_field: KeyField::default(),
             connection: None,
@@ -422,6 +438,7 @@ impl App {
             Message::CloseMenu => {
                 let mut closed = self.menu_open || self.switcher.is_some();
                 closed |= self.commit_note.is_some();
+                closed |= std::mem::take(&mut self.find.open);
                 self.menu_open = false;
                 self.switcher = None;
                 self.commit_note = None;
@@ -435,6 +452,17 @@ impl App {
                 }
                 return iced::widget::operation::focus(editor::EDITOR_ID);
             }
+            Message::EnterKey { shift } => {
+                if self.find.open && self.commit_note.is_none() {
+                    let step = if shift { -1 } else { 1 };
+                    return self.update_find(FindAction::Step(step));
+                }
+                return self.update_project(Message::Commit);
+            }
+            Message::NewFile => return self.new_file(),
+            Message::Save => return self.save_now(),
+            Message::SaveAs => return self.pick_save_path(),
+            Message::SaveAsPicked(path) => return self.save_as(path),
             Message::OpenDialog => {
                 self.menu_open = false;
                 let dialog = rfd::AsyncFileDialog::new()
@@ -522,6 +550,10 @@ impl App {
                 self.save_settings();
                 self.settings_changed();
             }
+            Message::Zoom(step) => {
+                let size = self.settings.font_size + step;
+                return self.update(Message::Setting(Change::FontSize(size)));
+            }
             Message::PollSettings => {
                 // Once a second: also keeps the draft's "autosaved 3 min ago" current.
                 self.now = Instant::now();
@@ -540,6 +572,7 @@ impl App {
             }
             Message::Idea(action) => return self.update_ideas(action),
             Message::Assistant(action) => return self.update_assistant(action),
+            Message::Find(action) => return self.update_find(action),
         }
         Task::none()
     }
@@ -549,6 +582,9 @@ impl App {
         self.autosaver.edited(now);
         self.saving_since.get_or_insert(now);
         self.counts = Counts::of(self.pane.model.text());
+        if self.find.open {
+            self.find_again(self.pane.caret());
+        }
         // Undo, redo and a reload can drop a suggestion the change touched.
         self.settle_cards(CardState::Gone(
             "an edit to the text under it dropped it".to_string(),
@@ -603,7 +639,7 @@ impl App {
     }
 
     /// Writes the current text in the background; `Saved` reports back.
-    fn save(&mut self, now: Instant) -> Task<Message> {
+    pub fn save(&mut self, now: Instant) -> Task<Message> {
         let generation = self.autosaver.begin(now);
         let text = self.pane.model.text().to_string();
         let data_dir = self.paths.data_dir.clone();
@@ -720,7 +756,11 @@ impl App {
         } else {
             // Always inside `responsive`, so opening the pane keeps the editor's state.
             let document = responsive(move |size| assistant_view::beside(self, size.width));
-            column![document, status_bar::view(self)].into()
+            let mut body = column![document];
+            if self.find.open {
+                body = body.push(find_bar::view(self));
+            }
+            body.push(status_bar::view(self)).into()
         };
         let mut page = if show_controls {
             column![window_controls::strip(window), body].into()
@@ -765,23 +805,29 @@ impl App {
     pub fn document_view(&self) -> Element<'_, Message> {
         match &self.project {
             Some(project) => project_view::view(self, project),
-            None => editor::view(
-                &self.pane,
-                &self.settings,
-                self.editable(),
-                editor::EDITOR_ID,
-                Message::Edit,
-                editor::PADDING,
-                self.pane
-                    .suggestion_runs(Roles::of(&self.theme), |_| None, false),
-            ),
+            None => {
+                let mut paint = self
+                    .pane
+                    .suggestion_runs(Roles::of(&self.theme), |_| None, false);
+                paint.extend(self.find_runs());
+                editor::view(
+                    &self.pane,
+                    &self.settings,
+                    self.editable(),
+                    editor::EDITOR_ID,
+                    Message::Edit,
+                    editor::PADDING,
+                    paint,
+                )
+            }
         }
     }
 }
 
 /// App-wide keys. Up and Down move through the switcher's list, and Enter commits from anywhere
-/// in the Commit dialog (each ignored while its panel is closed).
-fn shortcut(event: iced::Event, status: event::Status, _window: window::Id) -> Option<Message> {
+/// in the Commit dialog or steps through the find bar's matches (each ignored while its panel is
+/// closed).
+fn shortcut(event: iced::Event, status: event::Status, window: window::Id) -> Option<Message> {
     let iced::Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) = event else {
         return None;
     };
@@ -789,7 +835,8 @@ fn shortcut(event: iced::Event, status: event::Status, _window: window::Id) -> O
         keyboard::Key::Named(keyboard::key::Named::Escape) => return Some(Message::CloseMenu),
         // A focused note field has already sent its own Commit.
         keyboard::Key::Named(keyboard::key::Named::Enter) if status == event::Status::Ignored => {
-            return Some(Message::Commit);
+            let shift = modifiers.shift();
+            return Some(Message::EnterKey { shift });
         }
         keyboard::Key::Named(keyboard::key::Named::ArrowUp) => {
             return Some(Message::SwitcherMove(-1));
@@ -812,6 +859,14 @@ fn shortcut(event: iced::Event, status: event::Status, _window: window::Id) -> O
         keyboard::Key::Character("w" | "W") if modifiers.shift() => {
             Some(Message::Idea(IdeaAction::ToggleWeights))
         }
+        keyboard::Key::Character("w" | "W") => Some(Message::CloseRequested(window)),
+        keyboard::Key::Character("s" | "S") if modifiers.shift() => Some(Message::SaveAs),
+        keyboard::Key::Character("s" | "S") => Some(Message::Save),
+        keyboard::Key::Character("o") => Some(Message::OpenDialog),
+        keyboard::Key::Character("n") => Some(Message::NewFile),
+        keyboard::Key::Character("f") => Some(Message::Find(FindAction::Open)),
+        keyboard::Key::Character("=" | "+") => Some(Message::Zoom(1.0)),
+        keyboard::Key::Character("-") => Some(Message::Zoom(-1.0)),
         _ => None,
     }
 }

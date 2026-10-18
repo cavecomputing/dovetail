@@ -12,6 +12,7 @@ use crate::core::paths::display_path;
 use crate::core::save::SaveState;
 use crate::ui::app::{App, Message};
 use crate::ui::assistant_actions::AssistantAction;
+use crate::ui::find_bar::FindAction;
 use crate::ui::idea_actions::IdeaAction;
 use crate::ui::theme::{
     self, GLYPH_CLAUDE, GLYPH_MENU, GLYPH_PEN, Roles, icon_button, menu_button, raised_box,
@@ -140,11 +141,10 @@ pub fn bar(content: Element<'_, Message>) -> Element<'_, Message> {
     .into()
 }
 
-/// What the file is: its path, the project's folder, or a reminder that scratch lives in no
-/// file.
+/// What the window shows: scratch, the file's path, or the project's folder.
 fn doc_label(doc: &Doc) -> String {
     match doc {
-        Doc::Scratch => "Scratch · not saved to a file".to_string(),
+        Doc::Scratch => "Scratch".to_string(),
         Doc::File { path, .. } => display_path(path),
         Doc::Project(path) => display_path(path.parent().unwrap_or(path)),
     }
@@ -189,7 +189,7 @@ pub fn dot<'a>(color: Color) -> Element<'a, Message> {
 }
 
 /// A small glyph button; `None` draws it without a click action.
-fn glyph_button<'a>(glyph: &'a str, on_press: Option<Message>) -> Element<'a, Message> {
+pub fn glyph_button<'a>(glyph: &'a str, on_press: Option<Message>) -> Element<'a, Message> {
     button(text(glyph).size(14).center())
         .width(22)
         .height(20)
@@ -263,10 +263,32 @@ pub fn hint<'a>(content: impl Into<Element<'a, Message>>, words: &'a str) -> Ele
 /// The menu panel, raised above the status bar's left end. Clicking anywhere else closes it.
 pub fn menu(app: &App) -> Element<'_, Message> {
     let mut items = column![
-        menu_item("Open…".to_string(), "", Message::OpenDialog),
+        menu_item("New file…".to_string(), "Ctrl+N", Message::NewFile),
+        menu_item("Open…".to_string(), "Ctrl+O", Message::OpenDialog),
         menu_item("Open recent…".to_string(), "Ctrl+P", Message::OpenSwitcher),
-        menu_heading("Recent"),
     ];
+    // Scratch has no file, so Ctrl+S saves it to one; a .txt can move to another (a project
+    // lives in its own folder).
+    items = match &app.doc {
+        Doc::Scratch => items.push(menu_item(
+            "Save to a file…".to_string(),
+            "Ctrl+S",
+            Message::SaveAs,
+        )),
+        Doc::File { .. } => items.push(menu_item(
+            "Save as…".to_string(),
+            "Ctrl+Shift+S",
+            Message::SaveAs,
+        )),
+        Doc::Project(_) => items,
+    };
+    items = items
+        .push(menu_item(
+            "Find…".to_string(),
+            "Ctrl+F",
+            Message::Find(FindAction::Open),
+        ))
+        .push(menu_heading("Recent"));
     let current = match &app.doc {
         Doc::File { path, .. } | Doc::Project(path) => Some(path),
         Doc::Scratch => None,

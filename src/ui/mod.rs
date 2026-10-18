@@ -5,6 +5,8 @@ pub mod assistant_actions;
 pub mod assistant_view;
 pub mod commit_dialog;
 pub mod editor;
+pub mod file_actions;
+pub mod find_bar;
 pub mod idea_actions;
 pub mod idea_panel;
 pub mod ideas_view;

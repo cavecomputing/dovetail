@@ -294,6 +294,7 @@ fn panes<'a>(app: &'a App, project: &'a ProjectView, width: f32) -> Element<'a, 
     let idea_color = |idea| Some(roles.idea(manifest.idea(live_idea(manifest, idea)?)?.colour));
     let mut draft_runs = project.draft_runs.clone();
     draft_runs.extend(app.pane.suggestion_runs(roles, idea_color, true));
+    draft_runs.extend(app.find_runs());
     let draft_pane = column![
         draft_header,
         editor::view(

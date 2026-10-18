@@ -105,9 +105,47 @@ pub fn changed_on_disk(path: &Path, expected: Option<DiskStamp>) -> bool {
     current.is_some() && expected.is_some() && current != expected
 }
 
+/// A file name for saving `text` that has none yet: its first words, or "untitled".
+pub fn suggested_file_name(text: &str) -> String {
+    let first_line = text
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or("");
+    let words: Vec<&str> = first_line.split_whitespace().take(6).collect();
+    // Only letters, digits and a little punctuation, so the name works on any file system.
+    let name: String = words
+        .join(" ")
+        .chars()
+        .filter(|c| c.is_alphanumeric() || matches!(c, ' ' | '-' | '_' | '.' | ','))
+        .take(60)
+        .collect();
+    match name.trim_matches(|c: char| c == ' ' || c == '.') {
+        "" => "untitled.txt".to_string(),
+        name => format!("{name}.txt"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn suggested_name_comes_from_the_first_words() {
+        assert_eq!(
+            suggested_file_name("\n  Meeting notes: Sam\nmore"),
+            "Meeting notes Sam.txt"
+        );
+        assert_eq!(
+            suggested_file_name("<system_instructions>"),
+            "system_instructions.txt"
+        );
+        assert_eq!(
+            suggested_file_name("one two three four five six seven"),
+            "one two three four five six.txt"
+        );
+        assert_eq!(suggested_file_name("  \n../"), "untitled.txt");
+        assert_eq!(suggested_file_name(""), "untitled.txt");
+    }
 
     #[test]
     fn detects_line_endings() {

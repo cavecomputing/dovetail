@@ -1,6 +1,7 @@
 //! Plain-editor logic. Nothing in here imports iced, so all of it can be tested without a window.
 
 pub mod counts;
+pub mod find;
 pub mod lock;
 pub mod markup;
 pub mod opened;
