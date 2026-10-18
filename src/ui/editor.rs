@@ -142,6 +142,7 @@ fn key_binding(press: KeyPress, editable: bool, reviewing: bool) -> Option<Bindi
                     | "n"
                     | "f"
                     | "F"
+                    | "g"
                     | "="
                     | "+"
                     | "-"
@@ -360,6 +361,12 @@ impl Pane {
             .chunks(2)
             .map(|pair| (at(pair[0]), at(pair[1])))
             .collect()
+    }
+
+    /// Ctrl+G: puts the caret at the start of `line` (counted from 0), or at the end of the text
+    /// past its last line, which scrolls it into view.
+    pub fn go_to_line(&mut self, line: usize) {
+        self.put_caret(offset(self.model.text(), line, 0));
     }
 
     /// Selects byte range `range` of the model's text with the caret at its end, which scrolls
@@ -1939,5 +1946,14 @@ mod tests {
             Err(IN_A_SUGGESTION.to_string())
         );
         assert_eq!(pane.model.text(), "cat and cat and cat");
+    }
+
+    #[test]
+    fn go_to_line_puts_the_caret_at_its_start_or_the_end_of_the_text() {
+        let mut pane = Pane::new("one\ntwo\nthree");
+        pane.go_to_line(1);
+        assert_eq!(pane.caret(), 4);
+        pane.go_to_line(9);
+        assert_eq!(pane.caret(), 13);
     }
 }

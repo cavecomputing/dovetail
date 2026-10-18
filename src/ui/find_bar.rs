@@ -1,6 +1,6 @@
 //! The Ctrl+F find bar, just above the status bar: every match lit up in the text, Enter and
 //! Shift+Enter (or the arrows) to step through them, and Esc to close with the match selected.
-//! Ctrl+Shift+F opens it with a Replace box under it.
+//! Ctrl+Shift+F opens it with a Replace box under it. Ctrl+G puts a go to line box in its place.
 
 use std::ops::Range;
 use std::sync::Arc;
@@ -16,6 +16,12 @@ use crate::ui::theme::{GLYPH_CASE, GLYPH_CLOSE, GLYPH_DOWN, GLYPH_UP, GLYPH_WHOL
 
 pub const FIND_ID: &str = "find";
 const REPLACE_ID: &str = "replace";
+const LINE_ID: &str = "line";
+/// Go to line's shortcut, as the menu shows it: ⌘G is the next find match on macOS.
+pub const LINE_KEYS: &str = match cfg!(target_os = "macos") {
+    true => "⌃G",
+    false => "Ctrl+G",
+};
 
 /// The find bar's query and what it found. The query, the replacement and the switches stay for
 /// the next Ctrl+F.
@@ -28,6 +34,8 @@ pub struct Find {
     pub replacement: String,
     pub match_case: bool,
     pub whole_word: bool,
+    /// The go to line box's text while it is open (Ctrl+G).
+    pub line: Option<String>,
     /// Every match in the text being edited, as byte ranges of the model's text, in order.
     pub matches: Vec<Range<usize>>,
     /// The selected match, an index into `matches`.
@@ -46,6 +54,12 @@ pub enum FindAction {
     Step(isize),
     MatchCase,
     WholeWord,
+    /// Ctrl+G: open the go to line box.
+    OpenLine,
+    /// The go to line box's text: the caret goes to that line as it's typed.
+    LineQuery(String),
+    /// Enter in the go to line box: close it and go back to the text.
+    LineDone,
     /// Enter in the Replace box: replace the selected match and select the next. With Ctrl held,
     /// replace them all.
     ReplaceOne,
@@ -87,6 +101,22 @@ impl App {
                 self.select_match();
                 // Clicking the switch took the keyboard from the find box; give it back.
                 return iced::widget::operation::focus(FIND_ID);
+            }
+            FindAction::OpenLine => {
+                self.menu_open = false;
+                self.find.line = Some(String::new());
+                return iced::widget::operation::focus(LINE_ID);
+            }
+            FindAction::LineQuery(query) => {
+                let digits: String = query.chars().filter(char::is_ascii_digit).collect();
+                if let Ok(line @ 1..) = digits.parse::<usize>() {
+                    self.pane.go_to_line(line - 1);
+                }
+                self.find.line = Some(digits);
+            }
+            FindAction::LineDone => {
+                self.find.line = None;
+                return iced::widget::operation::focus(crate::ui::editor::EDITOR_ID);
             }
             FindAction::ReplaceOne if self.modifiers.command() => {
                 return self.update_find(FindAction::ReplaceAll);
@@ -207,6 +237,26 @@ impl App {
 /// status bar, with the Replace box under it while replacing.
 pub fn view(app: &App) -> Element<'_, Message> {
     let find = &app.find;
+    if let Some(line) = &find.line {
+        let lines = app.pane.model.text().split('\n').count();
+        return status_bar::bar(
+            row![
+                bar_input(&format!("Go to line, 1 to {lines}"), line)
+                    .id(LINE_ID)
+                    .on_input(|query| Message::Find(FindAction::LineQuery(query)))
+                    .on_submit(Message::Find(FindAction::LineDone)),
+                small("Enter to go back to the text, Esc to close"),
+                space().width(Fill),
+                hint(
+                    glyph_button(GLYPH_CLOSE, Some(Message::CloseMenu)),
+                    "Close (Esc)"
+                ),
+            ]
+            .spacing(10)
+            .align_y(iced::Center)
+            .into(),
+        );
+    }
     let count = match (find.current, find.matches.len()) {
         _ if find.query.is_empty() => String::new(),
         (_, 0) => "no matches".to_string(),
