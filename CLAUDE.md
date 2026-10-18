@@ -140,14 +140,14 @@ Installing for daily use, from a checkout. Each script builds the release binary
 name from `brand.rs` through `<bin> --print-brand`:
 
 - **Linux**: `scripts/install.sh` copies the binary to `~/.local/bin` and installs the app icon and
-  the `.desktop` file.
+  the `.desktop` file (for plain text and Markdown).
 - **macOS**: `scripts/install-macos.sh` makes an app bundle in `~/Applications` (signed ad hoc, so
   no Apple account is needed) and a terminal command in `~/.local/bin`. The bundle can't be a
   file's "Open With" app yet (winit can't receive the Apple Event macOS opens files with), so open
   files from the terminal or from inside the app.
 - **Windows**: `powershell -ExecutionPolicy Bypass -File scripts\install-windows.ps1` copies the
   exe to `%LOCALAPPDATA%\Programs\<app>` and adds a Start Menu entry and an "Open with" entry for
-  `.txt` files; add `-Uninstall` to remove them.
+  `.txt`, `.md` and `.markdown` files; add `-Uninstall` to remove them.
 
 ### How much verification a change needs
 
@@ -174,7 +174,7 @@ name from `brand.rs` through `<bin> --print-brand`:
 
 ## Architecture
 
-One process per window: launching with no file opens scratch, with a `.txt` opens that file.
+One process per window: launching with no file opens scratch, with a `.txt` or `.md` opens that file.
 Opening another file from inside the app starts a new process of the same binary, so every file
 gets its own window and plays well with tiling window managers. A process has exactly one window:
 Settings, the Ctrl+P switcher and the menu open over it.
@@ -208,7 +208,7 @@ src/
     save.rs              atomic file writes and the save-state machine (saved/saving/failed)
     scratch.rs           the scratch space: text and cursor, resumed on launch; saving it to a
                          file empties it, keeping the text for the next scratch window's Ctrl+Z
-    opened.rs            what a launch opens (scratch or a .txt): the text, the cursor, the lock,
+    opened.rs            what a launch opens (scratch or a file): the text, the cursor, the lock,
                          and whether it's editable
     lock.rs              OS file locks so two windows never edit the same document
     counts.rs            word and token counts (tokenizer loads in the background)
@@ -216,7 +216,7 @@ src/
     markup.rs            where XML tags and {{macros}} are, for colouring them
     markdown.rs          which parts of a Markdown (.md) line to colour, and whether a code fence
                          is open
-    text_file.rs         reading and saving .txt files: line endings, outside-change check
+    text_file.rs         reading and saving .txt and .md files: line endings, outside-change check
     recent.rs            the recently opened files (data folder), fuzzy matching
     text_model.rs        a pane's text and its undo/redo history, in byte offsets
     review.rs            suggested edits waiting in a pane, and the display text that shows

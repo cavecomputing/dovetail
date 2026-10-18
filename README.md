@@ -54,12 +54,12 @@ scripts look for the build in the repository's own `target/` folder, so unset `C
 
 - **Linux**: the binary goes to `~/.local/bin/dovetail`, the icon under
   `~/.local/share/icons/hicolor/`, and a `.desktop` entry in `~/.local/share/applications/`, so app
-  launchers find Dovetail and file managers offer it for text files.
+  launchers find Dovetail and file managers offer it for text and Markdown files.
 - **macOS**: you get `~/Applications/Dovetail.app` (signed ad hoc, so no Apple developer account is
   needed) and a `dovetail` command in `~/.local/bin`. The app can't be a file's "Open With" app
   yet, so open files from the terminal or from inside the app.
 - **Windows**: `dovetail.exe` goes to `%LOCALAPPDATA%\Programs\Dovetail\`, with a Start Menu entry,
-  and Dovetail joins the "Open with" list for `.txt` files.
+  and Dovetail joins the "Open with" list for `.txt`, `.md` and `.markdown` files.
 
 To run `dovetail` from a terminal, its folder must be on your `PATH`: `~/.local/bin` on Linux and
 macOS, `%LOCALAPPDATA%\Programs\Dovetail` on Windows. The scripts tell you if it isn't. On Linux
@@ -108,9 +108,11 @@ Scratch), the save dot, and the file's path (or Scratch); on the right, words an
 assistant button. Tokens are counted with OpenAI's o200k tokenizer (hover to see it), a close
 enough guide for other models.
 
-**Markdown** files (`.md` and `.markdown`) are coloured as you type: headings, list markers and
-task boxes, quotes, code, bold, italic, struck text and links. Nothing is rendered: the text stays
-exactly as typed, markers and all. Scratch and `.txt` files stay plain.
+**Markdown** files (`.md` and `.markdown`) open like `.txt` files, and the Open, New file and Save
+as dialogs offer them alongside `.txt`: type `notes.md` as the name to make one. They are coloured
+as you type: headings, list markers and task boxes, quotes, code, bold, italic, struck text and
+links. Nothing is rendered: the text stays exactly as typed, markers and all. Scratch and `.txt`
+files stay plain.
 
 Files must be UTF-8, which almost every editor writes today. Any other file opens empty and
 read-only, and the status bar says why; the file itself is never touched. A file keeps its line
