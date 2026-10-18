@@ -14,7 +14,7 @@ use iced::widget::text_editor::Motion;
 use iced::{Background, Border, Color, Element, Fill, Font, Padding, Theme};
 
 use crate::core::markup::{Markup, markup_ranges};
-use crate::core::review::{DisplayMap, Review, Shown, Suggestion};
+use crate::core::review::{DisplayMap, Review, Shown, Suggestion, clashes};
 use crate::core::settings::{ReadingMode, Settings};
 use crate::core::text_file::newlines_only;
 use crate::core::text_model::{Change, TextModel, offset, position, positions};
@@ -26,6 +26,8 @@ use crate::ui::text_editor::{
 use crate::ui::theme::{CHAR_WIDTH_RATIO, MONO, Roles};
 
 pub const EDITOR_ID: &str = "doc";
+/// Why an edit to the text a suggestion changes was refused.
+const IN_A_SUGGESTION: &str = "Accept or reject the suggestion there first";
 pub const LINE_HEIGHT: f32 = 1.5;
 /// Text starts near the top left, like any text editor, with just enough room to breathe.
 pub const PADDING: Padding = Padding {
@@ -97,9 +99,8 @@ fn style(theme: &Theme, editable: bool) -> text_editor::Style {
 /// Tab indents (with spaces, never a tab character), Shift+Tab unindents, Ctrl+Z undoes,
 /// Ctrl+Shift+Z and Ctrl+Y redo, and the app's own Ctrl shortcuts are left for the app. A pane
 /// that isn't `editable` keeps only iced's own keys (moving, selecting, copying). While
-/// `reviewing`, Tab accepts the suggestion at the caret and Esc rejects it (typing is off, see
-/// `Pane::perform`), and Ctrl+C and Ctrl+X copy through `Message::Clip`, since the widget's text
-/// has the suggestions in it.
+/// `reviewing`, Tab accepts the suggestion at the caret and Esc rejects it, and Ctrl+C and Ctrl+X
+/// go through `Message::Clip`, since the widget's text has the suggestions in it.
 fn key_binding(press: KeyPress, editable: bool, reviewing: bool) -> Option<Binding<Message>> {
     // A custom binding is used even when the editor isn't focused, so check first.
     if !matches!(press.status, Status::Focused { .. }) {
@@ -129,10 +130,11 @@ fn key_binding(press: KeyPress, editable: bool, reviewing: bool) -> Option<Bindi
         });
     }
     if reviewing
-        && let Some(Binding::<Message>::Cut | Binding::Copy) =
+        && let Some(clip @ (Binding::<Message>::Cut | Binding::Copy)) =
             Binding::from_key_press(press.clone())
     {
-        return Some(Binding::Custom(Message::Clip));
+        let cut = matches!(clip, Binding::Cut);
+        return Some(Binding::Custom(Message::Clip { cut }));
     }
     if !editable {
         return Binding::from_key_press(press);
@@ -180,7 +182,7 @@ pub struct Pane {
     pub model: TextModel,
     review: Review,
     /// While any suggestions wait: the text with them spliced in, which the widget shows, and
-    /// how it maps back to the text. Typing is off meanwhile.
+    /// how it maps back to the text.
     display: Option<DisplayMap>,
 }
 
@@ -194,8 +196,8 @@ impl Pane {
         }
     }
 
-    /// Whether suggestions are waiting (review mode). Typing is off until they're all decided;
-    /// moving, selecting, copying, undo and redo still work.
+    /// Whether suggestions are waiting (review mode). The text around them can still be edited,
+    /// but not the text they change (see `perform`).
     pub fn reviewing(&self) -> bool {
         self.display.is_some()
     }
@@ -386,14 +388,12 @@ impl Pane {
     }
 
     /// Does what the widget asked. An edit is recorded for undo; returns whether the text
-    /// changed. Edits are dropped while suggestions wait.
-    pub fn perform(&mut self, action: Action) -> bool {
+    /// changed. Waiting suggestions move with an edit to the text around them, and an edit to
+    /// the text they change (or to their ghost text) is refused, with the reason.
+    pub fn perform(&mut self, action: Action) -> Result<bool, String> {
         if !action.is_edit() {
             self.content.perform(action);
-            return false;
-        }
-        if self.reviewing() {
-            return false;
+            return Ok(false);
         }
         // Pasted text may hold `\r` line endings, which the model's line arithmetic doesn't know.
         let action = match action {
@@ -404,7 +404,7 @@ impl Pane {
         };
         let cursor = self.content.cursor();
         let anchor = cursor.selection.unwrap_or(cursor.position);
-        let text = self.model.text();
+        let text = self.shown();
         let mut edit_start = offset(text, cursor.position.line, cursor.position.column)
             .min(offset(text, anchor.line, anchor.column));
         // Backspace with nothing selected deletes the character before the cursor.
@@ -415,12 +415,38 @@ impl Pane {
                 .map_or(0, char::len_utf8);
         }
         self.content.perform(action);
-        let changed = self
-            .model
-            .record(self.content.text(), edit_start, Instant::now())
-            .is_some();
-        debug_assert_eq!(self.model.text(), self.content.text());
-        changed
+        let Some(display) = &self.display else {
+            let changed = self
+                .model
+                .record(self.content.text(), edit_start, Instant::now())
+                .is_some();
+            debug_assert_eq!(self.model.text(), self.content.text());
+            return Ok(changed);
+        };
+        // The widget's text has the suggestions in it. The edit counts only if it is all in one
+        // piece of plain text, which is the same in the model's text.
+        let Some(change) =
+            TextModel::change_between(&display.text, &self.content.text(), edit_start)
+        else {
+            return Ok(false);
+        };
+        let removed_end = change.at + change.removed.len();
+        let plain = display.pieces.iter().find(|piece| {
+            piece.shown == Shown::Text
+                && piece.display.start <= change.at
+                && removed_end <= piece.display.end
+        });
+        let Some(piece) = plain else {
+            // Put the widget's text and caret back as they were.
+            self.show_review();
+            self.content.move_to(cursor);
+            return Err(IN_A_SUGGESTION.to_string());
+        };
+        let at = piece.text.start + change.at - piece.display.start;
+        let mut text = self.model.text().to_string();
+        text.replace_range(at..at + change.removed.len(), &change.inserted);
+        let recorded = self.model.record(text, at, Instant::now());
+        Ok(self.replay(recorded.as_slice()))
     }
 
     /// The selected text as a byte range of the model's text, or `None` when nothing is
@@ -459,24 +485,23 @@ impl Pane {
 
     /// Tab: adds one indent (`tab_spaces` spaces) to the start of each line the selection is on.
     /// With nothing selected, or a selection within one line, it types the spaces instead.
-    /// Returns whether the text changed.
-    pub fn indent(&mut self, tab_spaces: usize) -> bool {
+    /// Returns whether the text changed, or why it can't.
+    pub fn indent(&mut self, tab_spaces: usize) -> Result<bool, String> {
         self.reindent(tab_spaces, true)
     }
 
     /// Shift+Tab: removes up to one indent (`tab_spaces` spaces) from the start of the caret's
-    /// line, or of each line the selection is on. Returns whether the text changed.
-    pub fn unindent(&mut self, tab_spaces: usize) -> bool {
+    /// line, or of each line the selection is on. Returns whether the text changed, or why it
+    /// can't.
+    pub fn unindent(&mut self, tab_spaces: usize) -> Result<bool, String> {
         self.reindent(tab_spaces, false)
     }
 
     /// Indents (`add`) or unindents the lines for `indent` and `unindent`, as one undo step, and
     /// keeps the caret and selection on the same text. A last line the selection only reaches
-    /// the start of is left alone, as nothing on it is selected.
-    fn reindent(&mut self, tab_spaces: usize, add: bool) -> bool {
-        if self.reviewing() {
-            return false;
-        }
+    /// the start of is left alone, as nothing on it is selected, and lines with a suggestion on
+    /// them are refused.
+    fn reindent(&mut self, tab_spaces: usize, add: bool) -> Result<bool, String> {
         let cursor = self.content.cursor();
         let caret = self.to_text(cursor.position);
         let anchor = cursor.selection.map_or(caret, |at| self.to_text(at));
@@ -491,12 +516,16 @@ impl Pane {
         if column == 0 && last > first {
             last -= 1;
         }
+        let lines = offset(text, first, 0)..offset(text, last + 1, 0);
+        if self.suggestions().iter().any(|s| clashes(&s.range, &lines)) {
+            return Err(IN_A_SUGGESTION.to_string());
+        }
         let changes = match add {
             true => self.model.indent(first..=last, tab_spaces),
             false => self.model.unindent(first..=last, tab_spaces),
         };
         if !self.replay(&changes) {
-            return false;
+            return Ok(false);
         }
         // Each change is at the start of a line: what is after it moves with it, and the start
         // of the line stays put.
@@ -515,7 +544,7 @@ impl Pane {
             position,
             selection,
         });
-        true
+        Ok(true)
     }
 
     /// Copies changes the model made into the widget, in order. This keeps the scroll position
@@ -665,9 +694,9 @@ mod tests {
         let mut pane = Pane::new("hello world");
         pane.content.move_to(cursor_at(0, 5));
         for c in ",there".chars() {
-            assert!(pane.perform(Action::Edit(Edit::Insert(c))));
+            assert_eq!(pane.perform(Action::Edit(Edit::Insert(c))), Ok(true));
         }
-        pane.perform(Action::Edit(Edit::Backspace));
+        pane.perform(Action::Edit(Edit::Backspace)).unwrap();
         assert_eq!(pane.content.text(), "hello,ther world");
         // The Backspace is one step and the typed word another.
         assert!(pane.undo());
@@ -687,7 +716,8 @@ mod tests {
             position: Position { line: 2, column: 2 },
             selection: Some(Position { line: 0, column: 1 }),
         });
-        pane.perform(Action::Edit(Edit::Paste(Arc::new("X\nY".to_string()))));
+        pane.perform(Action::Edit(Edit::Paste(Arc::new("X\nY".to_string()))))
+            .unwrap();
         assert_eq!(pane.content.text(), "oX\nYree");
         pane.undo();
         assert_eq!(pane.content.text(), "one\ntwo\nthree");
@@ -698,10 +728,11 @@ mod tests {
         let mut pane = Pane::new("");
         pane.perform(Action::Edit(Edit::Paste(Arc::new(
             "a\rb\n\réé".to_string(),
-        ))));
+        ))))
+        .unwrap();
         assert_eq!(pane.content.text(), "a\nb\n\néé");
         pane.content.move_to(cursor_at(1, 1));
-        assert!(pane.perform(Action::Edit(Edit::Backspace)));
+        assert_eq!(pane.perform(Action::Edit(Edit::Backspace)), Ok(true));
         assert_eq!(pane.content.text(), "a\n\n\néé");
         assert!(pane.undo());
         assert_eq!(pane.content.text(), "a\nb\n\néé");
@@ -745,14 +776,77 @@ mod tests {
             format!("Be quick.{z}Take your time.{room} Stay calm{z}steady{room}.")
         );
         assert_eq!(pane.model.text(), "Be quick. Stay calm.");
-        // Typing is off; moving still works.
+        // Typing into the text a suggestion changes is refused and leaves everything as it was;
+        // moving still works.
         pane.content.move_to(cursor_at(0, 3));
-        assert!(!pane.perform(Action::Edit(Edit::Insert('x'))));
-        assert!(!pane.perform(Action::Edit(Edit::Paste(Arc::new("y".to_string())))));
-        pane.perform(Action::Move(Motion::Right));
+        let shown = pane.content.text();
+        let refused = Err(IN_A_SUGGESTION.to_string());
+        assert_eq!(pane.perform(Action::Edit(Edit::Insert('x'))), refused);
+        let pasted = Edit::Paste(Arc::new("y".to_string()));
+        assert_eq!(pane.perform(Action::Edit(pasted)), refused);
+        assert_eq!(pane.content.text(), shown);
+        assert_eq!(pane.content.cursor(), cursor_at(0, 3));
+        pane.perform(Action::Move(Motion::Right)).unwrap();
         assert_eq!(pane.content.cursor().position.column, 4);
         assert_eq!(pane.model.text(), "Be quick. Stay calm.");
-        assert!(!pane.unindent(4));
+        assert_eq!(pane.unindent(4), refused, "the line has a suggestion on it");
+    }
+
+    #[test]
+    fn typing_around_suggestions_moves_them() {
+        let (mut pane, _, _) = reviewing_pane();
+        let (z, room) = (GHOST_START, BUTTON_ROOM);
+        // Right after the first suggestion's buttons.
+        pane.put_caret(9);
+        for c in " Now".chars() {
+            assert_eq!(pane.perform(Action::Edit(Edit::Insert(c))), Ok(true));
+        }
+        assert_eq!(pane.model.text(), "Be quick. Now Stay calm.");
+        assert_eq!(
+            pane.content.text(),
+            format!("Be quick.{z}Take your time.{room} Now Stay calm{z}steady{room}.")
+        );
+        assert_eq!(pane.suggestions()[1].range, 19..23);
+        // Backspace there takes the typing back off, but not the "." the suggestion replaces.
+        for _ in 0..4 {
+            assert_eq!(pane.perform(Action::Edit(Edit::Backspace)), Ok(true));
+        }
+        assert_eq!(
+            pane.perform(Action::Edit(Edit::Backspace)),
+            Err(IN_A_SUGGESTION.to_string())
+        );
+        assert_eq!(pane.model.text(), "Be quick. Stay calm.");
+        // Enter before the first suggestion pushes both along; one undo takes it back out.
+        pane.put_caret(0);
+        assert_eq!(pane.perform(Action::Edit(Edit::Enter)), Ok(true));
+        assert_eq!(pane.suggestions()[0].range, 1..10);
+        assert!(pane.undo());
+        assert_eq!(pane.suggestions()[0].range, 0..9);
+        assert_eq!(
+            pane.content.text(),
+            format!("Be quick.{z}Take your time.{room} Stay calm{z}steady{room}.")
+        );
+        // Pasting over a selection that reaches into a suggestion is refused.
+        pane.select(11..17);
+        let pasted = Edit::Paste(Arc::new("x".to_string()));
+        assert_eq!(
+            pane.perform(Action::Edit(pasted)),
+            Err(IN_A_SUGGESTION.to_string())
+        );
+        assert_eq!(pane.model.text(), "Be quick. Stay calm.");
+    }
+
+    #[test]
+    fn shift_tab_while_reviewing_leaves_lines_with_suggestions() {
+        let mut pane = Pane::new("    one\n    two");
+        pane.suggest(12..15, "2").unwrap();
+        pane.put_caret(5);
+        assert_eq!(pane.unindent(4), Ok(true));
+        assert_eq!(pane.model.text(), "one\n    two");
+        assert_eq!(pane.suggestions()[0].range, 8..11);
+        assert_eq!(pane.caret(), 1, "the caret stays after the \"o\"");
+        pane.put_caret(10);
+        assert_eq!(pane.unindent(4), Err(IN_A_SUGGESTION.to_string()));
     }
 
     #[test]
@@ -773,7 +867,7 @@ mod tests {
         assert_eq!(pane.content.text(), "Take your time. Stay calm.");
         // Typing works again, and one undo takes the accepted text back out.
         pane.content.move_to(cursor_at(0, 0));
-        assert!(pane.perform(Action::Edit(Edit::Insert('>'))));
+        assert_eq!(pane.perform(Action::Edit(Edit::Insert('>'))), Ok(true));
         pane.undo();
         pane.undo();
         assert_eq!(pane.content.text(), "Be quick. Stay calm.");
@@ -865,7 +959,7 @@ mod tests {
         assert!(matches!(binding(false), Some(Binding::Copy)));
         assert!(matches!(
             binding(true),
-            Some(Binding::Custom(Message::Clip))
+            Some(Binding::Custom(Message::Clip { cut: false }))
         ));
         // `Clip` copies the model's text under the selection, without ghost text or buttons.
         let (mut pane, _, _) = reviewing_pane();
@@ -917,7 +1011,7 @@ mod tests {
     fn unindent_removes_one_indent_of_tab_spaces() {
         let mut pane = Pane::new("        two levels\n  x");
         pane.content.move_to(cursor_at(0, 10));
-        assert!(pane.unindent(4));
+        assert_eq!(pane.unindent(4), Ok(true));
         assert_eq!(pane.content.text(), "    two levels\n  x");
         assert_eq!(
             pane.content.cursor().position,
@@ -929,7 +1023,7 @@ mod tests {
             position: Position { line: 1, column: 3 },
             selection: Some(Position { line: 0, column: 4 }),
         });
-        assert!(pane.unindent(4));
+        assert_eq!(pane.unindent(4), Ok(true));
         assert_eq!(pane.content.text(), "two levels\nx");
         assert_eq!(
             pane.content.cursor().position,
@@ -954,12 +1048,12 @@ mod tests {
     fn tab_indents_each_selected_line_as_one_step() {
         let mut pane = Pane::new("alpha\nbeta\ngamma\n");
         select_two_lines(&mut pane);
-        assert!(pane.indent(4));
+        assert_eq!(pane.indent(4), Ok(true));
         assert_eq!(pane.content.text(), "    alpha\n    beta\ngamma\n");
         assert_eq!(pane.model.text(), pane.content.text());
         // The same lines stay selected, indents included.
         assert_eq!(pane.selection(), Some(0..19));
-        assert!(pane.indent(4), "again, a level deeper");
+        assert_eq!(pane.indent(4), Ok(true), "again, a level deeper");
         assert_eq!(pane.content.text(), "        alpha\n        beta\ngamma\n");
         pane.undo();
         assert_eq!(pane.content.text(), "    alpha\n    beta\ngamma\n");
@@ -969,7 +1063,7 @@ mod tests {
             position: Position { line: 1, column: 6 },
             selection: Some(Position { line: 0, column: 5 }),
         });
-        assert!(pane.indent(2));
+        assert_eq!(pane.indent(2), Ok(true));
         assert_eq!(pane.content.text(), "      alpha\n      beta\ngamma\n");
         assert_eq!(pane.copied().as_deref(), Some("lpha\n      be"));
     }
@@ -978,14 +1072,14 @@ mod tests {
     fn tab_within_one_line_types_spaces() {
         let mut pane = Pane::new("one two");
         pane.content.move_to(cursor_at(0, 3));
-        assert!(pane.indent(4));
+        assert_eq!(pane.indent(4), Ok(true));
         assert_eq!(pane.content.text(), "one     two");
         // A selection within one line is replaced, as typing would.
         pane.content.move_to(Cursor {
             position: Position { line: 0, column: 3 },
             selection: Some(Position { line: 0, column: 0 }),
         });
-        assert!(pane.indent(2));
+        assert_eq!(pane.indent(2), Ok(true));
         assert_eq!(pane.content.text(), "       two");
         pane.undo();
         assert_eq!(pane.content.text(), "one     two", "one undo step");
@@ -995,7 +1089,7 @@ mod tests {
     fn shift_tab_leaves_a_line_the_selection_only_reaches_the_start_of() {
         let mut pane = Pane::new("    alpha\n    beta\n    gamma\n");
         select_two_lines(&mut pane);
-        assert!(pane.unindent(4));
+        assert_eq!(pane.unindent(4), Ok(true));
         assert_eq!(pane.content.text(), "alpha\nbeta\n    gamma\n");
     }
 }

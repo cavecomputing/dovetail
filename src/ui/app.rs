@@ -22,7 +22,7 @@ use crate::ui::editor::{Decision, Pane};
 use crate::ui::find_bar::{self, Find, FindAction};
 use crate::ui::settings_panel::{self, Change, Connection, KeyField};
 use crate::ui::switcher::{self, Switcher};
-use crate::ui::text_editor::{Action, Cursor, Position};
+use crate::ui::text_editor::{Action, Cursor, Edit, Position};
 use crate::ui::theme::{self, Roles};
 use crate::ui::{assistant_view, editor, key_guard, status_bar, window_controls};
 
@@ -85,8 +85,11 @@ pub enum Message {
     Unindent,
     Undo,
     Redo,
-    /// Ctrl+X or Ctrl+C while reviewing: copy the selected text, without the suggestions.
-    Clip,
+    /// Ctrl+X or Ctrl+C while reviewing: copy the selected text, without the suggestions, and
+    /// delete it for Ctrl+X (`cut`).
+    Clip {
+        cut: bool,
+    },
     /// Accept or reject suggested edits (their buttons in the text, Tab or Esc).
     Decide(Decision),
     Tick(Instant),
@@ -276,26 +279,32 @@ impl App {
         match message {
             // A read-only window still scrolls, selects and copies, but never changes the text.
             Message::Edit(action) if action.is_edit() && !self.editable() => {}
-            Message::Edit(action) => {
-                if self.pane.perform(action) {
-                    self.text_changed();
-                }
-            }
+            Message::Edit(action) => match self.pane.perform(action) {
+                Ok(true) => self.text_changed(),
+                Ok(false) => {}
+                Err(reason) => self.set_notice(Some(reason)),
+            },
             // The widget's text has the suggestions in it, so the clipboard gets the text from
             // the model instead.
-            Message::Clip => {
+            Message::Clip { cut } => {
                 if let Some(text) = self.pane.copied() {
-                    return iced::clipboard::write(text);
+                    let delete = match cut {
+                        true => self.update(Message::Edit(Action::Edit(Edit::Delete))),
+                        false => Task::none(),
+                    };
+                    return Task::batch([delete, iced::clipboard::write(text)]);
                 }
             }
             Message::Indent | Message::Unindent if self.editable() => {
                 let tab_spaces = usize::from(self.settings.tab_spaces);
-                let changed = match message {
+                let edited = match message {
                     Message::Indent => self.pane.indent(tab_spaces),
                     _ => self.pane.unindent(tab_spaces),
                 };
-                if changed {
-                    self.text_changed();
+                match edited {
+                    Ok(true) => self.text_changed(),
+                    Ok(false) => {}
+                    Err(reason) => self.set_notice(Some(reason)),
                 }
             }
             Message::Indent | Message::Unindent => {}
@@ -794,7 +803,7 @@ fn modified_time(paths: &Paths) -> Option<SystemTime> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::text_editor::{Content, Edit};
+    use crate::ui::text_editor::Content;
     use iced::widget::text_editor::Motion;
 
     #[test]
