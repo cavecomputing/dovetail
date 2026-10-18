@@ -68,6 +68,8 @@ pub struct App {
     closing: bool,
     /// A document to open in this one's place once the save running now ends (see `open_here`).
     pub opening: Option<Doc>,
+    /// A Save as to make once the save running now ends (see `save_as`).
+    pub saving_as: Option<PathBuf>,
 
     /// The text's word and token counts. The token count lags behind typing (see `TOKEN_PAUSE`).
     pub counts: Counts,
@@ -307,6 +309,7 @@ impl App {
             now: Instant::now(),
             closing: false,
             opening: None,
+            saving_as: None,
             menu_open: false,
             find: Find::default(),
             modifiers: keyboard::Modifiers::default(),
@@ -490,7 +493,10 @@ impl App {
                 } else if self.closing {
                     return self.continue_closing();
                 } else if let Some(doc) = self.opening.take() {
+                    self.saving_as = None;
                     return self.open_here(doc);
+                } else if let Some(path) = self.saving_as.take() {
+                    return self.save_as(path);
                 }
             }
             Message::TokenizerReady => return self.count_tokens(),
@@ -509,8 +515,10 @@ impl App {
             Message::CursorToMiddle(size) => return self.scroll_cursor_to_middle(size),
             Message::CloseRequested => {
                 self.closing = true;
-                // Closing replaces a pending open; a close that fails doesn't bring it back.
+                // Closing replaces a pending open or Save as; a close that fails doesn't bring
+                // them back.
                 self.opening = None;
+                self.saving_as = None;
                 // A reply on its way is cancelled; it never holds the window open.
                 self.assistant.stop();
                 if matches!(self.doc, Doc::Scratch) && self.editable() {
@@ -1176,6 +1184,29 @@ mod tests {
         let _ = app.update(Message::Saved(0, generation, Ok(None)));
         assert!(matches!(&app.doc, Doc::File { path, .. } if *path == notes));
         assert_eq!(ScratchState::load(&paths.data_dir).unwrap().text, "ab");
+    }
+
+    #[test]
+    fn save_as_from_scratch_waits_for_an_autosave_already_running() {
+        let (dir, paths, mut app, _notes) = scratch_window("a");
+        let generation = app.autosaver.begin(Instant::now());
+        let saved = dir.path().join("saved.txt");
+        let _ = app.update(Message::SaveAsPicked(0, saved.clone()));
+        assert!(
+            matches!(app.doc, Doc::Scratch),
+            "not while scratch is being written"
+        );
+        // The autosave lands, with the text as it was when it began.
+        ScratchState {
+            text: "a".to_string(),
+            view: app.scratch_view(),
+        }
+        .save(&paths.data_dir)
+        .unwrap();
+        let _ = app.update(Message::Saved(0, generation, Ok(None)));
+        assert!(matches!(&app.doc, Doc::File { path, .. } if *path == saved));
+        assert_eq!(std::fs::read_to_string(&saved).unwrap(), "a");
+        assert_eq!(ScratchState::load(&paths.data_dir).unwrap().text, "");
     }
 
     #[test]
