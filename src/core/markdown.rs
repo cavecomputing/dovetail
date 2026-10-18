@@ -245,8 +245,9 @@ fn next_marker(marker: &str) -> String {
 
 /// Ctrl+B and Ctrl+I: puts `marker` around `selection` (a byte range of `text`, empty for just
 /// the caret), or takes it off when the selection already has it, just outside or at its ends.
-/// Returns the range of `text` to replace, what to put there, and what to select afterwards: the
-/// same text, or the caret between a new pair.
+/// With just the caret, only an empty pair around it comes off, not the end of one span and the
+/// start of the next. Returns the range of `text` to replace, what to put there, and what to
+/// select afterwards: the same text, or the caret between a new pair.
 pub fn toggle_marker(
     text: &str,
     selection: Range<usize>,
@@ -254,7 +255,10 @@ pub fn toggle_marker(
 ) -> (Range<usize>, String, Range<usize>) {
     let (start, end, length) = (selection.start, selection.end, marker.len());
     let selected = &text[selection.clone()];
-    if text[..start].ends_with(marker) && text[end..].starts_with(marker) {
+    if text[..start].ends_with(marker)
+        && text[end..].starts_with(marker)
+        && (start < end || opens_a_pair(text, start, marker))
+    {
         let outer = start - length..end + length;
         return (outer, selected.to_string(), start - length..end - length);
     }
@@ -264,6 +268,19 @@ pub fn toggle_marker(
     }
     let wrapped = format!("{marker}{selected}{marker}");
     (selection, wrapped, start + length..end + length)
+}
+
+/// Whether the `marker` that ends just before byte `at` of `text` opens a pair rather than closing
+/// one: it is the odd one out of the markers on its line so far. A `_` inside a word, as in
+/// snake_case, isn't a marker.
+fn opens_a_pair(text: &str, at: usize, marker: &str) -> bool {
+    let line = &text[text[..at].rfind('\n').map_or(0, |newline| newline + 1)..at];
+    let word = |c: Option<char>| c.is_some_and(char::is_alphanumeric);
+    let markers = line.match_indices(marker).filter(|&(found, _)| {
+        let (before, after) = (&line[..found], &line[found + marker.len()..]);
+        marker != ITALIC || !(word(before.chars().next_back()) && word(after.chars().next()))
+    });
+    markers.count() % 2 == 1
 }
 
 /// Code spans, bold, italic, struck text and links in `line`, from byte `from`.
@@ -753,6 +770,23 @@ mod tests {
         assert_eq!(
             toggle_marker("", 0..0, ITALIC),
             (0..0, "__".to_string(), 1..1)
+        );
+        assert_eq!(
+            toggle_marker("**a** x****", 9..9, BOLD),
+            (7..11, String::new(), 7..7)
+        );
+        assert_eq!(
+            toggle_marker("snake_case __", 12..12, ITALIC),
+            (11..13, String::new(), 11..11)
+        );
+        // Between two spans, a new pair goes in rather than the spans running together.
+        assert_eq!(
+            toggle_marker("**a****b**", 5..5, BOLD),
+            (5..5, "****".to_string(), 7..7)
+        );
+        assert_eq!(
+            toggle_marker("_a__b_", 3..3, ITALIC),
+            (3..3, "__".to_string(), 4..4)
         );
     }
 }
