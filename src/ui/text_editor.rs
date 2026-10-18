@@ -9,6 +9,8 @@
 //!   cosmic-text already keeps on the cursor (upstream ignores it, so long lines were cut off).
 //! - `Content::scroll_line` reports the top line and `Content::scroll_to_line` restores it.
 //! - `Content::move_to` with no selection drops the one the editor had (upstream keeps it).
+//! - `Content::cursor` reports a double or triple click's selection as the whole words or lines
+//!   shown selected (upstream reports only the points clicked and dragged to).
 //! - Paint: `TextEditor::paint` draws runs under the glyphs: find matches, and in review mode the
 //!   looks of suggested edits (struck, ghost) and each suggestion's Accept and Reject buttons,
 //!   drawn and clicked inside the widget (`TextEditor::on_decide`). The widget uses iced's own
@@ -40,6 +42,8 @@ use std::ops;
 use std::ops::DerefMut;
 use std::sync::Arc;
 
+// ours: word bounds for a double click's selection, as cosmic-text finds them.
+use unicode_segmentation::UnicodeSegmentation;
 // ours: the palette for the buttons.
 use crate::ui::theme::{Roles, bold};
 
@@ -340,6 +344,17 @@ where
     // last edit's, but an undo or an indent can make several edits at once, and Markdown colours
     // depend on the lines above, so colouring must start again from the first.
     changed_from: Option<usize>,
+    // ours: what a double or triple click selected, whole words or whole lines, kept while a drag
+    // or Shift+arrow grows it. iced's `cursor()` reports such a selection as only the points
+    // clicked and dragged to, so `Content::cursor` widens it to what is shown selected.
+    whole: Option<Whole>,
+}
+
+/// ours: the unit a double click (words) or a triple click (lines) selects in.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Whole {
+    Words,
+    Lines,
 }
 
 impl<R> Content<R>
@@ -357,6 +372,7 @@ where
             editor: R::Editor::with_text(text),
             scroll_to: None,
             changed_from: None,
+            whole: None,
         }))
     }
 
@@ -368,7 +384,16 @@ where
         // caret lands on (Backspace at a line's start joins it to the one above).
         let before = internal.editor.cursor();
         let edit = action.is_edit();
+        // ours: a drag, Shift+arrow or scroll keeps a word or line selection's unit; any other
+        // action ends it, and so does the selection going.
+        let whole = match action {
+            Action::SelectWord => Some(Whole::Words),
+            Action::SelectLine => Some(Whole::Lines),
+            Action::Drag(_) | Action::Select(_) | Action::Scroll { .. } => internal.whole,
+            _ => None,
+        };
         internal.editor.perform(action);
+        internal.whole = whole.filter(|_| internal.editor.cursor().selection.is_some());
         if edit {
             let anchor = before.selection.unwrap_or(before.position);
             let first =
@@ -387,11 +412,56 @@ where
             internal.editor.perform(Action::Move(Motion::Left));
         }
         internal.editor.move_to(cursor);
+        internal.whole = None;
     }
 
     /// Returns the current cursor position of the [`Content`].
     pub fn cursor(&self) -> Cursor {
-        self.0.borrow().editor.cursor()
+        let internal = self.0.borrow();
+        let cursor = internal.editor.cursor();
+        // ours: a word or line selection reaches out to the whole words or lines, as cosmic-text
+        // finds them for drawing and copying it (`Editor::selection_bounds`).
+        let (Some(whole), Some(anchor)) = (internal.whole, cursor.selection) else {
+            return cursor;
+        };
+        let key = |at: Position| (at.line, at.column);
+        let backwards = key(cursor.position) < key(anchor);
+        let (mut start, mut end) = match backwards {
+            true => (cursor.position, anchor),
+            false => (anchor, cursor.position),
+        };
+        let text_of = |index| {
+            internal
+                .editor
+                .line(index)
+                .map_or(String::new(), |line| line.text.into_owned())
+        };
+        let end_text = text_of(end.line);
+        match whole {
+            Whole::Lines => (start.column, end.column) = (0, end_text.len()),
+            Whole::Words => {
+                start.column = text_of(start.line)
+                    .unicode_word_indices()
+                    .map(|(at, _)| at)
+                    .rfind(|&at| at < start.column)
+                    .unwrap_or(0);
+                end.column = end_text
+                    .unicode_word_indices()
+                    .map(|(at, word)| at + word.len())
+                    .find(|&at| at > end.column)
+                    .unwrap_or(end_text.len());
+            }
+        }
+        match backwards {
+            true => Cursor {
+                position: start,
+                selection: Some(end),
+            },
+            false => Cursor {
+                position: end,
+                selection: Some(start),
+            },
+        }
     }
 
     /// Returns the amount of lines of the [`Content`].

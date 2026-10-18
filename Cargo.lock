@@ -905,6 +905,7 @@ dependencies = [
  "tiktoken-rs",
  "tokio",
  "toml",
+ "unicode-segmentation",
 ]
 
 [[package]]
