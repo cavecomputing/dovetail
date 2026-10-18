@@ -234,6 +234,11 @@ time after the copy): `hscroll = buffer.scroll().horizontal`, which cosmic-text 
 following the cursor. Subtract it in draw (above) and add it to click and drag points before
 `Action::Click` / `Action::Drag`.
 
+**Recolouring after several edits:** iced's editor tells the highlighter only the line of the last
+edit since the last layout, and an undo or indent replays several. `Content::perform` keeps the
+first line any of them changed and the widget's `layout` passes it to `change_line`, as Markdown
+colours depend on the lines above (an open code fence).
+
 **Scroll report/restore:** `Content::scroll_line()` returns `buffer().scroll().line`, so scratch
 and projects can save the exact top line. Restore stays `Action::Scroll { lines }` after the first
 layout, as today.

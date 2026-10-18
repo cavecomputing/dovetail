@@ -62,6 +62,7 @@ Rewriting a prompt usually means two windows side by side: the old version on th
 - Reading mode is either **Full width** (the default) or **Comfort**, which caps lines at a number of characters (80 by default, adjustable), still anchored left.
 - The Tab key inserts **4 spaces** by default (configurable) and never writes a tab character; with several lines selected it indents each of them.
 - Optional colouring for XML tags and `{{macros}}`. This matters for prompts that use `<system_instructions status="enabled">`, `{{char}}`, `{{user}}` and `{{#x}}…{{/x}}` blocks. Plain prose has to work just as well.
+- Markdown files (`.md` and `.markdown`, 2026-10-18) are coloured as they're typed: `#` headings in the accent and bold, list bullets, numbers and task boxes, quotes muted, fenced code and `code spans` in aqua, bold and italic in the bundled bold and italic faces, `~~struck~~` text subtle, and links with their text in the cool accent and the `(url)` subtle. The markers stay visible and the text stays exactly as typed. Scratch and `.txt` files stay plain.
 - There's no markdown rendering. It isn't needed.
 
 ## 6. Status bar
