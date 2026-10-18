@@ -330,6 +330,8 @@ impl App {
             }
 
             Message::WindowOpened => {
+                #[cfg(target_os = "macos")]
+                window_controls::quit_closes_window();
                 let focus = iced::widget::operation::focus(editor::EDITOR_ID);
                 if self.scroll_restored {
                     return focus;
