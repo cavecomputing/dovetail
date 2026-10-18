@@ -1,8 +1,8 @@
 //! The text editing widget: the text column, Tab as spaces, Enter and Backspace that know about
-//! indents (and Enter and Tab about Markdown lists), deleting a word, moving lines, Markdown's bold
-//! and italic markers, undo and redo (its colours come from `highlighter`). A `Pane` pairs the
-//! widget's content with the text model behind it, and shows suggested edits inside the text
-//! until each is accepted or rejected (review mode).
+//! indents (and Enter and Tab about Markdown lists, and in code about blocks and pairs), deleting
+//! a word, moving lines, Markdown's bold and italic markers, undo and redo (its colours come from
+//! `highlighter`). A `Pane` pairs the widget's content with the text model behind it, and shows
+//! suggested edits inside the text until each is accepted or rejected (review mode).
 
 use std::ops::Range;
 use std::sync::Arc;
@@ -21,6 +21,7 @@ use crate::core::settings::{ReadingMode, Settings};
 use crate::core::syntax::Syntax;
 use crate::core::text_file::newlines_only;
 use crate::core::text_model::{Change, TextModel, offset, position, positions, selected_lines};
+use crate::core::typing::{enter, in_empty_pair, typed};
 use crate::ui::app::Message;
 use crate::ui::highlighter::{Colouring, Highlight, MarkupHighlighter, highlight_format};
 use crate::ui::scroll_bar::scroll_bar;
@@ -833,6 +834,57 @@ impl Pane {
         }
     }
 
+    /// Enter in code (a shell script or JSON): indents after a line that opens a block, opens up
+    /// a pair of brackets the caret is between, and lines up a line that ends a block (see
+    /// `typing::enter`). Anywhere else it is `new_line`. Returns whether the text changed, or why
+    /// it can't.
+    pub fn code_new_line(&mut self, tab_spaces: usize, syntax: Syntax) -> Result<bool, String> {
+        if !self.others.is_empty() {
+            return self.new_line();
+        }
+        let cursor = self.content.cursor();
+        let caret = self.caret();
+        let range = self.selection().unwrap_or(caret..caret);
+        let Some((replaced, with, caret)) = enter(self.model.text(), range, tab_spaces, syntax)
+        else {
+            return self.new_line();
+        };
+        self.select(replaced);
+        let edited = self.perform_or_put_back(Edit::Paste(Arc::new(with)), cursor)?;
+        self.put_caret(caret);
+        Ok(edited)
+    }
+
+    /// Typing `typed` in code (a shell script or JSON): brackets and quotes close themselves, wrap
+    /// a selection, and step over their closer (see `typing::typed`). Anything else, or with
+    /// Ctrl+D's other places, is typed as usual. Returns whether the text changed, or why it
+    /// can't.
+    pub fn type_in_code(&mut self, typed_char: char, syntax: Syntax) -> Result<bool, String> {
+        let cursor = self.content.cursor();
+        let caret = self.caret();
+        let selection = self.selection().unwrap_or(caret..caret);
+        let paired = match self.others.is_empty() {
+            true => typed(self.model.text(), selection.clone(), typed_char, syntax),
+            false => None,
+        };
+        let Some((replaced, with, selected)) = paired else {
+            return self.perform(Action::Edit(Edit::Insert(typed_char)));
+        };
+        // Stepping over a closer changes nothing; the caret just moves past it.
+        let mut edited = false;
+        if self.model.text()[replaced.clone()] != with {
+            if replaced != selection {
+                self.select(replaced);
+            }
+            edited = self.perform_or_put_back(Edit::Paste(Arc::new(with)), cursor)?;
+        }
+        match selected.is_empty() {
+            true => self.put_caret(selected.start),
+            false => self.select(selected),
+        }
+        Ok(edited)
+    }
+
     /// Ctrl+B and Ctrl+I in a Markdown file: puts `marker` (`**`, or `_` or inside a word `*`
     /// for italic) around the selection and keeps the same text selected, or with nothing
     /// selected puts in a pair with the caret between. When the markers are already there, just
@@ -859,9 +911,10 @@ impl Pane {
     }
 
     /// Backspace. In the spaces at the start of a line it deletes back to the previous indent
-    /// stop (a multiple of `tab_spaces`), so one press takes back a Tab; anywhere else, or with a
-    /// selection, it deletes as usual. Returns whether the text changed, or why it can't.
-    pub fn backspace(&mut self, tab_spaces: usize) -> Result<bool, String> {
+    /// stop (a multiple of `tab_spaces`), so one press takes back a Tab; in code (`syntax`)
+    /// between an empty pair, such as `(|)`, it deletes both; anywhere else, or with a selection,
+    /// it deletes as usual. Returns whether the text changed, or why it can't.
+    pub fn backspace(&mut self, tab_spaces: usize, syntax: Syntax) -> Result<bool, String> {
         if !self.others.is_empty() {
             return self.perform(Action::Edit(Edit::Backspace));
         }
@@ -871,6 +924,12 @@ impl Pane {
         let line_start = text[..caret].rfind('\n').map_or(0, |at| at + 1);
         let column = caret - line_start;
         let in_indent = column > 0 && text[line_start..caret].bytes().all(|byte| byte == b' ');
+        if self.selection().is_none() && in_empty_pair(text, caret, syntax) {
+            let opener = text[..caret].chars().next_back().map_or(0, char::len_utf8);
+            let closer = text[caret..].chars().next().map_or(0, char::len_utf8);
+            self.select(caret - opener..caret + closer);
+            return self.perform_or_put_back(Edit::Delete, cursor);
+        }
         if self.selection().is_some() || !in_indent {
             return self.perform(Action::Edit(Edit::Backspace));
         }
@@ -1635,10 +1694,10 @@ mod tests {
     fn backspace_in_an_indent_goes_back_to_the_last_stop() {
         let mut pane = Pane::new("      x\n");
         pane.content.move_to(cursor_at(0, 6));
-        assert_eq!(pane.backspace(4), Ok(true));
+        assert_eq!(pane.backspace(4, Syntax::Plain), Ok(true));
         assert_eq!(pane.content.text(), "    x\n");
         assert_eq!(pane.content.cursor(), cursor_at(0, 4));
-        assert_eq!(pane.backspace(4), Ok(true));
+        assert_eq!(pane.backspace(4, Syntax::Plain), Ok(true));
         assert_eq!(pane.content.text(), "x\n");
         assert_eq!(pane.model.text(), pane.content.text());
         pane.undo();
@@ -1646,10 +1705,10 @@ mod tests {
         // From one space, back to the start of the line.
         let mut pane = Pane::new("a\n x");
         pane.content.move_to(cursor_at(1, 1));
-        assert_eq!(pane.backspace(4), Ok(true));
+        assert_eq!(pane.backspace(4, Syntax::Plain), Ok(true));
         assert_eq!(pane.content.text(), "a\nx");
         // At the start of the line, it joins the line to the one above as usual.
-        assert_eq!(pane.backspace(4), Ok(true));
+        assert_eq!(pane.backspace(4, Syntax::Plain), Ok(true));
         assert_eq!(pane.content.text(), "ax");
     }
 
@@ -1657,12 +1716,12 @@ mod tests {
     fn backspace_after_text_or_over_a_selection_deletes_as_usual() {
         let mut pane = Pane::new("  é  ");
         pane.content.move_to(cursor_at(0, 6));
-        assert_eq!(pane.backspace(4), Ok(true));
+        assert_eq!(pane.backspace(4, Syntax::Plain), Ok(true));
         assert_eq!(pane.content.text(), "  é ");
         // A tab isn't an indent of spaces.
         let mut pane = Pane::new("\t\t");
         pane.content.move_to(cursor_at(0, 2));
-        assert_eq!(pane.backspace(4), Ok(true));
+        assert_eq!(pane.backspace(4, Syntax::Plain), Ok(true));
         assert_eq!(pane.content.text(), "\t");
         // A selection is deleted, and nothing else.
         let mut pane = Pane::new("        x");
@@ -1670,7 +1729,7 @@ mod tests {
             position: Position { line: 0, column: 7 },
             selection: Some(Position { line: 0, column: 6 }),
         });
-        assert_eq!(pane.backspace(4), Ok(true));
+        assert_eq!(pane.backspace(4, Syntax::Plain), Ok(true));
         assert_eq!(pane.content.text(), "       x");
         assert!(matches!(
             binding_for(Named::Backspace, Modifiers::empty()),
@@ -1683,7 +1742,7 @@ mod tests {
         let mut pane = Pane::new("        one\ntwo");
         pane.suggest(12..15, "2").unwrap();
         pane.put_caret(8);
-        assert_eq!(pane.backspace(4), Ok(true));
+        assert_eq!(pane.backspace(4, Syntax::Plain), Ok(true));
         assert_eq!(pane.model.text(), "    one\ntwo");
         assert_eq!(pane.suggestions()[0].range, 8..11);
         // In spaces a suggestion changes, it is refused and the caret stays put.
@@ -1691,7 +1750,10 @@ mod tests {
         pane.suggest(5..6, "").unwrap();
         pane.put_caret(8);
         let cursor = pane.content.cursor();
-        assert_eq!(pane.backspace(4), Err(IN_A_SUGGESTION.to_string()));
+        assert_eq!(
+            pane.backspace(4, Syntax::Plain),
+            Err(IN_A_SUGGESTION.to_string())
+        );
         assert_eq!(pane.content.cursor(), cursor);
         assert_eq!(pane.model.text(), "        x");
     }
@@ -2165,7 +2227,7 @@ mod tests {
     fn backspace_and_enter_replace_a_double_or_triple_click_selection() {
         let mut pane = Pane::new("a\n    indented line\nb");
         click(&mut pane, 1, 2, Action::SelectLine);
-        assert_eq!(pane.backspace(4), Ok(true));
+        assert_eq!(pane.backspace(4, Syntax::Plain), Ok(true));
         assert_eq!(pane.content.text(), "a\n\nb");
         assert_eq!(pane.model.text(), pane.content.text());
         let mut pane = Pane::new("a\n    indented line\nb");
@@ -2284,7 +2346,7 @@ mod tests {
             "the widget's own caret, after the last cow"
         );
         assert_eq!(pane.others, vec![3..3]);
-        assert_eq!(pane.backspace(4), Ok(true));
+        assert_eq!(pane.backspace(4, Syntax::Plain), Ok(true));
         assert_eq!(pane.content.text(), "co dog co");
         assert!(pane.undo());
         assert_eq!(pane.content.text(), "cow dog cow");
@@ -2321,5 +2383,39 @@ mod tests {
         );
         assert_eq!(pane.caret(), 0);
         assert!(pane.others.is_empty(), "the two carets met, so they're one");
+    }
+
+    #[test]
+    fn typing_a_block_in_code_closes_pairs_and_indents() {
+        let shell = Syntax::Shell;
+        let mut pane = Pane::new("main() ");
+        pane.content.move_to(cursor_at(0, 7));
+        assert_eq!(pane.type_in_code('{', shell), Ok(true));
+        assert_eq!(pane.content.text(), "main() {}");
+        assert_eq!(pane.content.cursor(), cursor_at(0, 8));
+        assert_eq!(pane.code_new_line(4, shell), Ok(true));
+        assert_eq!(pane.content.text(), "main() {\n    \n}");
+        assert_eq!(pane.content.cursor(), cursor_at(1, 4));
+        assert_eq!(pane.type_in_code('"', shell), Ok(true));
+        assert_eq!(pane.content.text(), "main() {\n    \"\"\n}");
+        // Backspace between the quotes takes both, and is one undo step.
+        assert_eq!(pane.backspace(4, shell), Ok(true));
+        assert_eq!(pane.content.text(), "main() {\n    \n}");
+        assert_eq!(pane.model.text(), pane.content.text());
+        pane.undo();
+        assert_eq!(pane.content.text(), "main() {\n    \"\"\n}");
+        // Typing the closer steps over it.
+        pane.content.move_to(cursor_at(1, 5));
+        assert_eq!(pane.type_in_code('"', shell), Ok(false));
+        assert_eq!(pane.content.cursor(), cursor_at(1, 6));
+        // A selection gets the pair around it and stays selected.
+        let mut pane = Pane::new("echo $x");
+        pane.select(5..7);
+        assert_eq!(pane.type_in_code('"', shell), Ok(true));
+        assert_eq!(pane.content.text(), "echo \"$x\"");
+        assert_eq!(pane.selection(), Some(6..8));
+        // Other characters are typed as usual.
+        assert_eq!(pane.type_in_code('a', shell), Ok(true));
+        assert_eq!(pane.content.text(), "echo \"a\"");
     }
 }

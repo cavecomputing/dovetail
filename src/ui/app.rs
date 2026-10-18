@@ -19,6 +19,7 @@ use crate::core::scratch::{ScratchState, ScratchView};
 use crate::core::settings::{ReadingMode, Settings, Theme as ThemeSetting};
 use crate::core::syntax::Syntax;
 use crate::core::text_file::{DiskStamp, TEXT_EXTENSIONS, changed_on_disk, read_text, save_text};
+use crate::core::typing::is_code;
 use crate::ui::assistant_actions::{Assistant, AssistantAction, CardState};
 use crate::ui::editor::{Decision, Pane};
 use crate::ui::find_bar::{self, Find, FindAction};
@@ -387,6 +388,11 @@ impl App {
         match message {
             // A read-only window still scrolls, selects and copies, but never changes the text.
             Message::Edit(action) if action.is_edit() && !self.editable() => {}
+            // In code, brackets and quotes close themselves.
+            Message::Edit(Action::Edit(Edit::Insert(typed))) if is_code(self.syntax()) => {
+                let edited = self.pane.type_in_code(typed, self.syntax());
+                self.after_edit(edited);
+            }
             Message::Edit(action) => match self.pane.perform(action) {
                 Ok(true) => self.text_changed(),
                 Ok(false) => {}
@@ -424,15 +430,19 @@ impl App {
                     self.pane.clear_others();
                 }
                 let tab_spaces = usize::from(self.settings.tab_spaces);
-                let markdown = self.markdown();
+                let syntax = self.syntax();
+                let markdown = syntax == Syntax::Markdown;
                 let edited = match message {
                     Message::Indent => self.pane.indent(tab_spaces, markdown),
                     Message::Unindent => self.pane.unindent(tab_spaces),
                     Message::NewLine { shift: false } if markdown => {
                         self.pane.markdown_new_line(tab_spaces)
                     }
+                    Message::NewLine { shift: false } if is_code(syntax) => {
+                        self.pane.code_new_line(tab_spaces, syntax)
+                    }
                     Message::NewLine { .. } => self.pane.new_line(),
-                    Message::Backspace => self.pane.backspace(tab_spaces),
+                    Message::Backspace => self.pane.backspace(tab_spaces, syntax),
                     Message::DeleteTo(motion) => self.pane.delete_to(motion),
                     Message::MoveLines { up } => self.pane.move_lines(up),
                     Message::DuplicateLines => self.pane.duplicate_lines(),
@@ -979,12 +989,6 @@ impl App {
             self.syntax(),
             paint,
         )
-    }
-
-    /// Whether the document is a Markdown file (.md or .markdown), which is coloured and has the
-    /// Markdown keys. Scratch never is.
-    fn markdown(&self) -> bool {
-        self.syntax() == Syntax::Markdown
     }
 
     /// The kind of text the document is, by its file's extension (or a script's `#!` line):

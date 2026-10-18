@@ -235,6 +235,8 @@ src/
     text_file.rs         reading and saving text files: line endings, outside-change check
     recent.rs            the recently opened files (data folder), fuzzy matching
     text_model.rs        a pane's text and its undo/redo history, in byte offsets
+    typing.rs            typing in shell scripts and JSON: pairs that close themselves, and Enter
+                         that indents a block and lines up the line that ends one
     review.rs            suggested edits waiting in a pane, and the display text that shows
                          them inside the document (review mode)
   ui/                    everything iced: windows, widgets, styling
