@@ -1,6 +1,6 @@
 # Dovetail: implementation spec
 
-A native Linux desktop text editor, written in Rust. By default it's a fast, minimal plain-text editor and scratchpad. On top of that, it has a project mode for iterating on roleplay system prompts, character cards and other writing across versions. That mode keeps track of which ideas from the old version made it into the new one, and how much space each one takes.
+A native desktop text editor, written in Rust, for Linux first; it also builds and runs on macOS and Windows (2026-10-18). By default it's a fast, minimal plain-text editor and scratchpad. On top of that, it has a project mode for iterating on roleplay system prompts, character cards and other writing across versions. That mode keeps track of which ideas from the old version made it into the new one, and how much space each one takes.
 
 - Mockups, drawn under the old working name Word Designer. The boards are plain doc, writing view, Claude pane, idea weights, commit check and settings. They're drawn in HTML only to show the native UI.
 - Running brainstorm log: [notes.md](notes.md)
@@ -24,6 +24,7 @@ Rewriting a prompt usually means two windows side by side: the old version on th
 - **Font:** JetBrains Mono Nerd Font everywhere, in both the UI and the editor, in its NL build without ligatures (2026-10-18: ligatures like `</` looked cramped). Default size 14. This deliberately overrides the design system's system-fonts rule. The Nerd Font glyphs can double as the app's icons.
 - **Top strip:** about 32px tall, no border, same colour as the page. It holds **only the window controls**, which are plain glyphs, not GNOME circles. No GTK-style big header bars.
   - Auto-sense: hide the app-drawn controls under a tiling WM. On Hyprland, check `HYPRLAND_INSTANCE_SIGNATURE` and/or the Wayland decoration support. Show them everywhere else, since not every machine is tiling. Can be overridden in Settings.
+  - Per OS (2026-10-18): on Linux and Windows the window is undecorated, so the strip holds the app's glyph controls and the window's edges, top included, resize it. Windows adds a drop shadow, and rounded corners on Windows 11. On macOS the window keeps the system's see-through, untitled title bar: its traffic lights sit in the strip, macOS resizes the window, and the strip is always there with nothing of ours in it, so Settings has no Window row there.
 - **Status bar** at the bottom, VS Code style, 24px, mono 11px. See §6.
 
 ## 3. Opening behaviour
@@ -40,17 +41,18 @@ Rewriting a prompt usually means two windows side by side: the old version on th
 - `Ctrl+,` opens Settings, a panel over the window (2026-10-18: not a separate window). See §10.
 - `Ctrl+L` opens and closes the assistant pane.
 - The usual editor keys too (2026-10-18): `Ctrl+N` new file (asks where, opens in its own window), `Ctrl+O` open, `Ctrl+S` save (see §4), `Ctrl+Shift+S` save as, `Ctrl+W` close the window, `Ctrl+F` find, `Ctrl+=` / `Ctrl+-` font size.
+- On macOS each `Ctrl` shortcut is `⌘` instead, and the menu and hints write shortcuts the macOS way (`⇧⌘S`). macOS also gets its usual `⌘↑` / `⌘↓` (start and end of the text), `⌘M` (minimize) and `⌘G` / `⇧⌘G` (next and previous match), and `Ctrl+A` / `Ctrl+E` keep their macOS meaning of line start and end. `⌘Q` closes the window, so it waits for the save like any close (§4).
 - **Find** (`Ctrl+F`): a bar just above the status bar. Matches ignore case and are lit up in the text, the current one outlined; Enter and Shift+Enter step through them, Esc closes the bar and leaves the match selected. On the `rewrite` branch, in a project it searches the draft.
 - Startup has to be near-instant: launch, jot, close. This is a key reason to prefer pure Rust over a webview.
 - Launch from the app menu or a short terminal command.
-- Register as a `.desktop` app that can open `.txt` files. The `rewrite` branch also registers a MIME type for `.dovetail`.
+- Install for the current user from a checkout, one script per OS (2026-10-18). On Linux it registers a `.desktop` app that can open `.txt` files (the `rewrite` branch also registers a MIME type for `.dovetail`). On Windows it adds a Start Menu entry and an "Open with" entry for `.txt` files. On macOS it makes an app bundle in `~/Applications` that registers no file types: Finder hands a file to an app in an Apple Event, which winit 0.30 can't receive, so for now files open from the terminal command or from inside the app.
 
 ## 4. Saving
 
 - **Everything autosaves**, scratch included. There's never a "save changes?" prompt.
 - `Ctrl+S` still does something useful (2026-10-18). In a `.txt` (or a project, on the `rewrite` branch) it writes now instead of after the pause. Scratch has no file, so there it asks where to save: the window becomes that `.txt`, and scratch is cleared with its text kept for the next scratch window's undo (as after a Rewrite, on the `rewrite` branch).
 - `Ctrl+Shift+S` (Save as) moves a `.txt` to a new file and keeps editing there; the old file keeps its last save. On the `rewrite` branch, projects live in their own folder, so they have no Save as.
-- **Closing waits for the save.** The window only closes once the latest autosave has been written. If a save fails, the window stays open and says why.
+- **Closing waits for the save.** The window only closes once the latest autosave has been written. If a save fails, the window stays open and says why. Known gap on macOS: Quit from the Dock and logging out end the app without waiting (`⌘Q` and the app menu's Quit do wait).
 - The scratch space persists between launches as a single document.
 - Plain docs are ordinary `.txt` files.
 
@@ -129,11 +131,11 @@ This is what makes the app different. It's the agreed direction, with details to
 - **Context:** in a project, it can always see everything: both versions, every idea, the feeling notes and the weights. In a plain doc, it sees the document. Small chips mark what the owner is focused on (the selection, the current idea or topic).
 - **Suggest-only in v1.** Proposed edits (from its propose-edit tool) show up in the document as ghost text that can be accepted or rejected piece by piece. In a project, accepted text takes on the idea's colour, so tracking is never lost.
 - It can answer questions like "does this still feel warm but guarded?" or "which idea shrank most since v3?"
-- **Backend: any OpenAI-compatible API** (decided 2026-10-17), so it can point at any provider: Claude via a compatible endpoint, OpenRouter, Ollama, LM Studio, llama.cpp, vLLM. Settings hold the base URL, the API key (stored in the system keyring) and the model name. The default request format is the Responses API (`/v1/responses`), the owner's choice (2026-10-17); a setting switches to Chat Completions (`/v1/chat/completions`) for servers that only speak that. It's plain HTTP from Rust, with no SDK. Streaming replies. Keep the shared context (both versions, ideas, notes, weights) at the start of the prompt so providers that cache prompt prefixes keep repeat questions cheap.
+- **Backend: any OpenAI-compatible API** (decided 2026-10-17), so it can point at any provider: Claude via a compatible endpoint, OpenRouter, Ollama, LM Studio, llama.cpp, vLLM. Settings hold the base URL, the API key (stored in the system keyring: the Secret Service on Linux, the Keychain on macOS, Credential Manager on Windows) and the model name. The default request format is the Responses API (`/v1/responses`), the owner's choice (2026-10-17); a setting switches to Chat Completions (`/v1/chat/completions`) for servers that only speak that. It's plain HTTP from Rust, with no SDK. Streaming replies. Keep the shared context (both versions, ideas, notes, weights) at the start of the prompt so providers that cache prompt prefixes keep repeat questions cheap.
 
 ## 10. Settings
 
-A settings panel that opens over the app, from the menu or `Ctrl+,`, in whichever window it was asked for (scratch, a `.txt`, or a project on the `rewrite` branch), with the document dimmed behind it (2026-10-18: not a separate window). It scrolls when taller than the window; Esc, its close glyph or a click on the dimmed document closes it. While it's open, typing goes only to its fields and the document's shortcuts are off. Changes apply instantly, and other open windows pick them up too. Settings are stored in `~/.config/<app>/settings.toml`, so they can be edited by hand.
+A settings panel that opens over the app, from the menu or `Ctrl+,`, in whichever window it was asked for (scratch, a `.txt`, or a project on the `rewrite` branch), with the document dimmed behind it (2026-10-18: not a separate window). It scrolls when taller than the window; Esc, its close glyph or a click on the dimmed document closes it. While it's open, typing goes only to its fields and the document's shortcuts are off. Changes apply instantly, and other open windows pick them up too. Settings are stored in `settings.toml` in the app's config folder, so they can be edited by hand: `~/.config/<app>/` on Linux, `~/Library/Application Support/<app>/` on macOS, `%APPDATA%\<app>\` on Windows. The panel shows the exact path.
 
 | Section | Settings |
 |---|---|
@@ -141,7 +143,7 @@ A settings panel that opens over the app, from the menu or `Ctrl+,`, in whicheve
 | Editor | Tab inserts N spaces (**default 4**, never tabs), word wrap (**on** by default), XML and macro colouring |
 | Saving | Autosave timing (the `rewrite` branch adds the projects folder) |
 | Assistant | Base URL, API key (keyring), model, request format (Responses, default / Chat Completions), test connection |
-| Window | Window controls: Auto / Always show / Always hide |
+| Window | Window controls: Auto / Always show / Always hide (Linux and Windows; macOS always shows its own) |
 
 ## 11. Counting
 
@@ -155,7 +157,7 @@ A settings panel that opens over the app, from the menu or `Ctrl+,`, in whicheve
   - UI candidates: **iced** (used by COSMIC, Linux-first) or **GPUI** (Zed's toolkit, excellent text, thinner docs). egui and Slint are possible but weaker for long text.
   - Tauri remains a fallback if a native editor gets too hard. It's slower to start.
 - Likely crates: `git2` or `gix` for history, `tiktoken-rs` for counts, `serde` and `serde_json` for the manifest, `toml` for settings, `reqwest` for the OpenAI-compatible API, `keyring` for the API key, plus `notify`/`directories` as needed.
-- **No name is hardcoded.** The app name (Dovetail), the project extension (`.dovetail`), the config folder (`~/.config/dovetail/`), the projects folder and the `.desktop`/MIME IDs all come from one constants module (`src/brand.rs`), so renaming later still means changing one file.
+- **No name is hardcoded.** The app name (Dovetail), the project extension (`.dovetail`), the config folder name (`dovetail`), the projects folder and the `.desktop`/MIME IDs all come from one constants module (`src/brand.rs`), so renaming later still means changing one file.
 - Before writing code, write a `CLAUDE.md` for this Rust project. The owner is new to Rust, so it should also explain cargo, crates and the build, test and run commands in plain terms.
 
 ## 13. Suggested build order

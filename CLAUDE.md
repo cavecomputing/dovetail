@@ -2,10 +2,12 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-The app is **Dovetail**, a native Linux text editor written in Rust. On `main` it is a fast,
-minimal plain-text editor and scratchpad, with an assistant pane that reads the text and suggests
-edits. The full design is in [docs/spec.md](docs/spec.md); read the section you are building
-before you start.
+The app is **Dovetail**, a native desktop text editor written in Rust. Linux (tiling
+Wayland setups like Hyprland) comes first, and it also builds and runs on macOS and Windows: a change
+for one OS must leave the others working, Linux above all. On `main` it is a fast, minimal
+plain-text editor and scratchpad, with an assistant pane that reads the text and suggests edits.
+The full design is in [docs/spec.md](docs/spec.md); read the section you are building before you
+start.
 
 Project mode (Rewrite, ideas, paint, versions) lives on the `rewrite` branch, and project work
 happens there.
@@ -32,12 +34,15 @@ to land where it can be seen.
 
 ## No hardcoded app name
 
-The name (Dovetail), the app id, the config folder and the `.desktop` file all come from
-**[src/brand.rs](src/brand.rs)**. Renaming the app again must mean editing that one file.
+The name (Dovetail), the app id, the config folder, the `.desktop` file, the macOS app bundle and
+the Windows Start Menu entry all come from **[src/brand.rs](src/brand.rs)**. Renaming the app
+again must mean editing that one file.
 
 - Never write "Dovetail", `dovetail` or a path containing them anywhere else in `src/`. Use the constants. A grep for those strings outside `brand.rs` should find only docs.
 - The binary name in `Cargo.toml` is the one unavoidable exception; it is listed next to the
   constants in `brand.rs` so a rename touches both.
+- The install scripts in `scripts/` read every name from the binary (`<bin> --print-brand`), so
+  they hardcode none either.
 
 ## Least code that does the job
 
@@ -93,6 +98,14 @@ Renaming existing code is its own task. Don't fold a rename into an unrelated ch
   return the error to my caller".
 - **`unwrap()` / `expect()`**: crash if the value is an error or missing. Fine in tests; in app code
   only where failure is genuinely impossible, with `expect("why this can't fail")`.
+- **`#[cfg(...)]`**: compile the next item only on some platforms: `#[cfg(unix)]` is Linux and
+  macOS, `#[cfg(windows)]` is Windows, `#[cfg(target_os = "macos")]` is one OS. `cfg!(...)` is the
+  same test as a plain true or false inside a function, where both branches still have to compile.
+  Code behind a cfg for another OS isn't even compiled on this one, which is why CI builds on all
+  three.
+- **Target**: the OS and processor a build is for, such as `x86_64-pc-windows-gnu`. Cargo builds
+  for the machine it runs on unless given `--target`; `rustup target add <target>` downloads the
+  standard library another target needs.
 
 ## Build / run / test
 
@@ -105,19 +118,51 @@ cargo test autosave               # run only tests whose name contains "autosave
 cargo clippy --all-targets        # the linter: catches common mistakes and non-idiomatic code
 cargo fmt                         # reformat all code to the standard style (4-space indents)
 
-cargo build --release             # the optimised binary, at target/release/<bin name>
+cargo build --release             # the optimised binary, at target/release/<bin name> (.exe on Windows)
 ```
 
-Installing for daily use (Linux): `scripts/install.sh` builds the release binary, copies it to
-`~/.local/bin`, and installs the app icon and the `.desktop` file, all generated from the constants
-in `brand.rs`.
+What each OS needs before the first build:
 
-Linux needs a few system libraries to open a window (Ubuntu/Debian package names):
-`libxkbcommon-x11-0 libwayland-client0 libvulkan1`. Omarchy/Arch already has them.
+- **Linux**: Rust (rustup) and a C compiler (`base-devel` on Arch, `build-essential` on Ubuntu),
+  for the TLS library under `reqwest`. To open a window it also needs a few system libraries
+  (Ubuntu names): `libxkbcommon-x11-0 libwayland-client0 libvulkan1`. Omarchy/Arch already has
+  them.
+- **macOS**: Rust (rustup) and Xcode's command line tools (`xcode-select --install`), which bring
+  the C compiler and linker.
+- **Windows**: Rust (rustup-init.exe, which picks the MSVC toolchain) and Visual Studio Build Tools
+  with the "Desktop development with C++" workload, for the linker and the Windows SDK;
+  rustup-init offers to install them. No NASM or CMake is needed. On ARM64 Windows also add the
+  "C++ Clang Compiler for Windows" component. A debug build (`cargo run`) opens a console window
+  beside the app for its error messages; the release build doesn't.
+
+Installing for daily use, from a checkout. Each script builds the release binary and takes every
+name from `brand.rs` through `<bin> --print-brand`:
+
+- **Linux**: `scripts/install.sh` copies the binary to `~/.local/bin` and installs the app icon and
+  the `.desktop` file.
+- **macOS**: `scripts/install-macos.sh` makes an app bundle in `~/Applications` (signed ad hoc, so
+  no Apple account is needed) and a terminal command in `~/.local/bin`. The bundle can't be a
+  file's "Open With" app yet (winit can't receive the Apple Event macOS opens files with), so open
+  files from the terminal or from inside the app.
+- **Windows**: `powershell -ExecutionPolicy Bypass -File scripts\install-windows.ps1` copies the
+  exe to `%LOCALAPPDATA%\Programs\<app>` and adds a Start Menu entry and an "Open with" entry for
+  `.txt` files; add `-Uninstall` to remove them.
 
 ### How much verification a change needs
 
 - Every change: `cargo build`, `cargo test` and `cargo clippy --all-targets` with no warnings.
+  CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs the same three on Linux, macOS and
+  Windows, plus `cargo fmt --check`, on every push. After pushing, check that run (the Actions tab
+  on GitHub, or `gh run list`): a red OS is a red build, so fix it before moving on.
+- Code that only one OS needs goes behind `#[cfg(unix)]`, `#[cfg(windows)]` or
+  `#[cfg(target_os = "...")]` (or `cfg!(...)` inside a function), with a comment saying what the
+  other OSes do, even when that is nothing. A test that uses one OS's API gets the same cfg.
+- To check the Windows side from Linux before pushing: `rustup target add x86_64-pc-windows-gnu`,
+  install MinGW (`mingw-w64-gcc` on Arch, `gcc-mingw-w64-x86-64` on Ubuntu), then
+  `cargo clippy --all-targets --target x86_64-pc-windows-gnu -- -D warnings`. With wine installed,
+  `CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUNNER=wine cargo test --target x86_64-pc-windows-gnu` runs
+  the tests too. Only CI builds and tests macOS, so write macOS-only code against the crate sources
+  and treat its first CI run as its first real test.
 - Logic (saving, counting, undo, finding, suggested edits, the assistant's tools): unit tests next
   to the code, in a `#[cfg(test)] mod tests` block at the bottom of the file. Keep that logic out of
   UI code so it can be tested without a window.
@@ -144,11 +189,15 @@ never import iced**, so all the logic can be tested without opening a window, an
 drawing and event wiring.
 
 ```
+.github/workflows/ci.yml build, test, clippy and fmt on Linux, macOS and Windows for every push
 Cargo.toml, Cargo.lock   dependencies (see "Rust in plain terms")
 assets/fonts/            the bundled JetBrains Mono NL Nerd Font (no ligatures) and its licence
-assets/icon/             the app icon (SVGs for the installer, a 64px raw RGBA copy for the window)
+assets/icon/             the app icon: SVGs for Linux, icon.icns for macOS, icon.ico for Windows,
+                         and a 64px raw RGBA copy for the window (see its README)
 docs/                    spec.md (the design), design-tokens.json (the Gruvbox palette)
-scripts/install.sh       installs the binary, app icon and .desktop file
+scripts/                 per-OS installers: install.sh (Linux: binary, icon, .desktop file),
+                         install-macos.sh (an app bundle in ~/Applications), install-windows.ps1
+                         (Start Menu and Open with entries)
 src/
   main.rs                entry point: reads the command line, decides what to open
   brand.rs               every name (see above)
@@ -176,11 +225,14 @@ src/
                          and review mode (suggestions as ghost text, Accept and Reject)
     text_editor.rs       a copy of iced's text editor widget (draws find matches, suggested edits
                          and their buttons), changes marked `ours:`
+    key_guard.rs         keeps Ctrl+digit and Ctrl+punctuation (and ⌘ plus a letter on macOS) from
+                         typing into text boxes; widgets still get the key for their shortcuts
     status_bar.rs        the bottom bar (save dot, path, counts, assistant toggle) and its menu
     switcher.rs          the Ctrl+P quick switcher over recent files
     find_bar.rs          the Ctrl+F find bar: its matches, stepping through them, how they're lit
     file_actions.rs      App's handlers for New file (Ctrl+N), Save (Ctrl+S) and Save as
-    window_controls.rs   the top strip's window controls and the resize edges
+    window_controls.rs   the top strip's window controls and the resize edges; on macOS, Quit
+                         pointed at closing the window
     settings_panel.rs    the Settings panel over the window (Ctrl+,) and how each change applies
     assistant_view.rs    the assistant pane (Ctrl+L, every window): chips, chat, suggestion cards,
                          composer, and how it sits beside or over the document
@@ -211,6 +263,14 @@ files (`pub mod save;`); keep that list current. Tests sit at the bottom of the 
 - **Startup must stay near-instant.** Anything slow (loading the tokenizer, network) happens
   off the UI thread after the first frame. The window shows text first and fills in counts later.
 - **Tab never writes a tab character.** It inserts N spaces (default 4, from settings).
+- **Shortcuts are written Ctrl+X but mean ⌘X on macOS.** Check a shortcut with iced's
+  `modifiers.command()` (⌘ on macOS, Ctrl elsewhere), never `control()`; build test key presses
+  with `Modifiers::COMMAND`, not `Modifiers::CTRL`; and show a shortcut through
+  `status_bar::keys()`, which writes it the macOS way there (`⇧⌘S`).
+- **Each OS frames the window its own way** (spec §2). Linux and Windows get an undecorated window
+  with our glyph controls in the top strip and our resize edges, both left out under a tiling WM.
+  macOS keeps its see-through title bar, with the traffic lights in our strip, and resizes the
+  window itself.
 - **Colours come from roles, not hex.** `ui/theme.rs` maps the cavecomputing Gruvbox tokens
   ([docs/design-tokens.json](docs/design-tokens.json)) to roles: `bg-surface` window, `bg-page`
   status bar, `bg-raised` cards and chips, `fg`/`fg-muted` text, `accent-text` (yellow) for focus
@@ -222,5 +282,9 @@ files (`pub mod save;`); keep that list current. Tests sit at the bottom of the 
   in the UI and the editor. Nerd Font glyphs are the in-app icons; the only image is the app icon in
   [assets/icon/](assets/icon/).
 - **No branding in the UI**: no logo, no app name in the window.
-- **Settings** live in `~/.config/<config dir>/settings.toml` (hand-editable), apply instantly, and
+- **Settings** live in `settings.toml` (hand-editable) in the OS's config folder:
+  `~/.config/<config dir>/` on Linux, `~/Library/Application Support/<config dir>/` on macOS,
+  `%APPDATA%\<config dir>\` on Windows. Scratch, the recent list and the locks live in the data
+  folder: `~/.local/share/<config dir>/` on Linux, the same folder as settings on macOS, and
+  `%LOCALAPPDATA%\<config dir>\` on Windows (see `core/paths.rs`). Settings apply instantly, and
   unknown or missing keys fall back to defaults instead of failing.

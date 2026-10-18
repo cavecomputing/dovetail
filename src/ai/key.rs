@@ -1,9 +1,11 @@
-//! The assistant's API key. It lives in the system keyring (the Secret Service on Linux, which
-//! gnome-keyring and KeePassXC provide). Only when no keyring is running does it go in
-//! settings.toml, which is then readable by its owner only; the Settings window says which.
+//! The assistant's API key. It lives in the system keyring: the Secret Service on Linux, which
+//! gnome-keyring and KeePassXC provide, the Keychain on macOS and Credential Manager on Windows.
+//! Only when no keyring is running does it go in settings.toml, which is then readable by its
+//! owner only; the Settings window says which. macOS and Windows always have theirs, so that is
+//! Linux only in practice.
 //!
-//! These calls talk to the keyring over D-Bus and can block (it may ask to unlock), so call them
-//! off the UI thread.
+//! These calls can block (on Linux they talk to the keyring over D-Bus, and it may ask to
+//! unlock), so call them off the UI thread.
 
 use keyring::{Entry, Error};
 
@@ -17,7 +19,7 @@ const KEY_USER: &str = "api-key";
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum KeyStore {
     Keyring,
-    /// settings.toml, mode 0600, because no keyring is running.
+    /// settings.toml, readable by its owner only, because no keyring is running (Linux only).
     SettingsFile,
 }
 
