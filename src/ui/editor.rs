@@ -18,7 +18,7 @@ use crate::core::find::{find_all, word_at};
 use crate::core::markdown::{BOLD, ITALIC, ListEnter, is_list_item, list_enter, toggle_marker};
 use crate::core::review::{DisplayMap, Review, Shown, Suggestion, clashes};
 use crate::core::settings::{ReadingMode, Settings};
-use crate::core::syntax::Syntax;
+use crate::core::syntax::{Syntax, toggle_comments};
 use crate::core::text_file::newlines_only;
 use crate::core::text_model::{Change, TextModel, offset, position, positions, selected_lines};
 use crate::core::typing::{enter, in_empty_pair, typed};
@@ -212,6 +212,7 @@ fn key_binding(press: KeyPress, editable: bool, reviewing: bool) -> Option<Bindi
             Key::Character("y" | "Y") => Some(Binding::Custom(Message::Redo)),
             Key::Character("b" | "B") => Some(Binding::Custom(Message::ToggleMarker(BOLD))),
             Key::Character("i" | "I") => Some(Binding::Custom(Message::ToggleMarker(ITALIC))),
+            Key::Character("/") => Some(Binding::Custom(Message::ToggleComment)),
             Key::Character("d" | "D") if press.modifiers.shift() => {
                 Some(Binding::Custom(Message::DuplicateLines))
             }
@@ -1095,11 +1096,44 @@ impl Pane {
         if !self.replay(&changes) {
             return Ok(false);
         }
-        // Each change is at the start of a line: what is after it moves with it, and the start
-        // of the line stays put, except on a nested list item, which moves as a whole.
+        self.follow(&changes, caret, cursor.selection.map(|_| anchor), nest);
+        Ok(true)
+    }
+
+    /// Ctrl+/ in a script or config file: comments out the caret's line, or every line the
+    /// selection is on, with `marker` (see `syntax::toggle_comments`), or uncomments them when
+    /// they all are already, as one undo step. Lines with a suggestion on them are refused.
+    /// Returns whether the text changed, or why it can't.
+    pub fn toggle_comment(&mut self, marker: &str) -> Result<bool, String> {
+        let cursor = self.content.cursor();
+        let caret = self.to_text(cursor.position);
+        let anchor = cursor.selection.map_or(caret, |at| self.to_text(at));
+        let text = self.model.text();
+        let (first, last) = selected_lines(text, caret, anchor);
+        if self.suggestion_on(first, last) {
+            return Err(IN_A_SUGGESTION.to_string());
+        }
+        let edits = toggle_comments(text, first..=last, marker);
+        let edits: Vec<_> = edits
+            .iter()
+            .map(|(range, with)| (range.clone(), with.as_str()))
+            .collect();
+        let changes = self.model.replace_each(&edits);
+        if !self.replay(&changes) {
+            return Ok(false);
+        }
+        self.follow(&changes, caret, cursor.selection.map(|_| anchor), false);
+        Ok(true)
+    }
+
+    /// After `changes` put in or took out text at the start of lines, puts the caret and any
+    /// selection's other end (`caret` and `anchor`, offsets from before them) back on the same
+    /// text: what is after a change moves with it, and the start of the line stays put, unless
+    /// `whole` (a nested list item, which moves as a whole).
+    fn follow(&mut self, changes: &[Change], caret: usize, anchor: Option<usize>, whole: bool) {
         let moved = |mut at: usize| {
-            for change in &changes {
-                if at > change.at || nest {
+            for change in changes {
+                if at > change.at || whole {
                     let removed_end = change.at + change.removed.len();
                     at = at.max(removed_end) - change.removed.len() + change.inserted.len();
                 }
@@ -1107,12 +1141,11 @@ impl Pane {
             at
         };
         let position = self.position(moved(caret), true);
-        let selection = cursor.selection.map(|_| self.position(moved(anchor), true));
+        let selection = anchor.map(|anchor| self.position(moved(anchor), true));
         self.content.move_to(Cursor {
             position,
             selection,
         });
-        Ok(true)
     }
 
     /// Copies changes the model made into the widget, in order. This keeps the scroll position
@@ -2417,5 +2450,25 @@ mod tests {
         // Other characters are typed as usual.
         assert_eq!(pane.type_in_code('a', shell), Ok(true));
         assert_eq!(pane.content.text(), "echo \"a\"");
+    }
+
+    #[test]
+    fn ctrl_slash_comments_the_selected_lines_and_keeps_them_selected() {
+        let mut pane = Pane::new("a=1\n  b=2\nc=3");
+        pane.select(2..7);
+        assert_eq!(pane.toggle_comment("#"), Ok(true));
+        assert_eq!(pane.content.text(), "# a=1\n#   b=2\nc=3");
+        assert_eq!(pane.selection(), Some(4..11), "still from `=1` to `b=`");
+        assert_eq!(pane.toggle_comment("#"), Ok(true));
+        assert_eq!(pane.content.text(), "a=1\n  b=2\nc=3");
+        assert_eq!(pane.selection(), Some(2..7));
+        pane.undo();
+        assert_eq!(pane.content.text(), "# a=1\n#   b=2\nc=3", "one undo step");
+        // With only the caret, its line.
+        let mut pane = Pane::new("x\ny");
+        pane.content.move_to(cursor_at(1, 1));
+        assert_eq!(pane.toggle_comment("#"), Ok(true));
+        assert_eq!(pane.content.text(), "x\n# y");
+        assert_eq!(pane.content.cursor(), cursor_at(1, 3));
     }
 }

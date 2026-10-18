@@ -132,6 +132,9 @@ pub enum Message {
     /// italic's `_`, a `*` inside a word) around the selection, or take it off
     /// (`Pane::toggle_marker`).
     ToggleMarker(&'static str),
+    /// Ctrl+/ in the editor: in a script or config file, comment out the lines or uncomment them
+    /// (`Pane::toggle_comment`).
+    ToggleComment,
     Undo,
     Redo,
     /// Ctrl+X or Ctrl+C while reviewing: copy the selected text, without the suggestions, and
@@ -420,6 +423,7 @@ impl App {
             | Message::DeleteLines
             | Message::SelectNextMatch
             | Message::ToggleMarker(_)
+            | Message::ToggleComment
                 if self.editable() =>
             {
                 // Ctrl+D's other places take Backspace and Enter; any other key lets them go.
@@ -449,6 +453,10 @@ impl App {
                     Message::DeleteLines => self.pane.delete_lines(),
                     Message::SelectNextMatch => self.pane.select_next_match(),
                     Message::ToggleMarker(marker) if markdown => self.pane.toggle_marker(marker),
+                    Message::ToggleComment => match syntax.comment_marker() {
+                        Some(marker) => self.pane.toggle_comment(marker),
+                        None => Ok(false),
+                    },
                     // Ctrl+B and Ctrl+I outside Markdown do nothing, and the arm's pattern lets
                     // no other message in.
                     _ => Ok(false),
@@ -464,7 +472,8 @@ impl App {
             | Message::DuplicateLines
             | Message::DeleteLines
             | Message::SelectNextMatch
-            | Message::ToggleMarker(_) => {}
+            | Message::ToggleMarker(_)
+            | Message::ToggleComment => {}
             Message::Undo | Message::Redo if self.editable() => {
                 let changed = match message {
                     Message::Undo => self.pane.undo(),
