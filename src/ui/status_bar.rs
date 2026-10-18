@@ -28,11 +28,16 @@ pub fn view(app: &App) -> Element<'_, Message> {
     if app.editable() {
         left = left.push(save_status(app, roles));
     }
-    left = left.push(small(doc_label(&app.doc)));
-    match app.pane.suggestions().len() {
-        0 => {}
-        1 => left = left.push(small("1 suggestion")),
-        waiting => left = left.push(small(format!("{waiting} suggestions"))),
+    // A save refused because the file changed on disk: never leave the window stuck. The buttons
+    // sit right after the reason, short enough to fit a 640px window.
+    if app.disk_conflict {
+        let reload = word_button("Reload".to_string(), Some(Message::ReloadFromDisk));
+        let words = keys("Replace this text with the file on disk (Ctrl+Z brings it back)");
+        left = left.push(hint(reload, words));
+        left = left.push(word_button(
+            "Keep mine".to_string(),
+            Some(Message::KeepMine),
+        ));
     }
     // Warnings in orange, each in words: why the text is read-only, anything a menu action
     // couldn't do, and a settings problem (short here, the whole reason on hover).
@@ -43,17 +48,13 @@ pub fn view(app: &App) -> Element<'_, Message> {
         let label = small("Settings problem").color(roles.accent_warm);
         left = left.push(hint(label, reason.as_str()));
     }
-    // A save refused because the file changed on disk: never leave the window stuck.
-    if app.disk_conflict {
-        left = left.push(word_button(
-            "Reload from disk".to_string(),
-            Some(Message::ReloadFromDisk),
-        ));
-        left = left.push(word_button(
-            "Keep mine".to_string(),
-            Some(Message::KeepMine),
-        ));
+    match app.pane.suggestions().len() {
+        0 => {}
+        1 => left = left.push(small("1 suggestion")),
+        waiting => left = left.push(small(format!("{waiting} suggestions"))),
     }
+    // The path comes last, so in a narrow window a long one is what gets cut.
+    left = left.push(small(doc_label(&app.doc)));
 
     let tokens = match app.counts.tokens {
         Some(count) => format!("{count} tokens"),
@@ -186,7 +187,7 @@ fn assistant_toggle<'a>(open: bool) -> Element<'a, Message> {
     hint(toggle, keys(words))
 }
 
-/// A small framed word button, such as "Reload from disk".
+/// A small framed word button, such as "Keep mine".
 fn word_button<'a>(label: String, on_press: Option<Message>) -> Element<'a, Message> {
     button(small(label))
         .padding([1, 8])
