@@ -190,9 +190,9 @@ Shortcuts are written with Ctrl; on macOS use ⌘ (the app's menu and hints show
 | Esc | Close the menu, the switcher, the command palette or Settings, or else the go to line box, the find bar, or Ctrl+D's extra selections, and put the keyboard back in the text (from the assistant's box, say) |
 | Tab | Insert spaces at the cursor, never a tab character (text selected within one line is replaced); with several lines selected, indent each. In a Markdown file, on a list item it indents the whole line instead, nesting the item |
 | Shift+Tab | Unindent the line, or each selected line |
-| Enter | New line, indented like the line the cursor is on (as far as the cursor). On a line of only spaces, the spaces move down too, so the line left behind is empty. In a Markdown file, on a list item or quote it starts the next one: the same bullet, the next number, an empty `[ ]` task box, the same `>`. On an empty item it ends the list instead: an indented item moves out a level, any other loses its marker. In fenced code it's a plain new line |
+| Enter | New line, indented like the line the cursor is on (as far as the cursor). On a line of only spaces, the spaces move down too, so the line left behind is empty. In a Markdown file, on a list item or quote it starts the next one: the same bullet, the next number, an empty `[ ]` task box, the same `>`. On an empty item it ends the list instead: an indented item moves out a level, any other loses its marker. In fenced code it's a plain new line. In a shell script or JSON file it knows about blocks (see below) |
 | Shift+Enter | New line, indented like Enter's, but never a new list item |
-| Backspace | In the spaces at the start of a line, delete back to the previous indent, so one press takes back a Tab; anywhere else, one character |
+| Backspace | In the spaces at the start of a line, delete back to the previous indent, so one press takes back a Tab; in a shell script or JSON file, between an empty pair such as `()` or `""`, delete both; anywhere else, one character |
 | Ctrl+Backspace and Ctrl+Delete | Delete the word before or after the cursor (or just the selection). On macOS these are ⌥⌫ and ⌥⌦, and ⌘⌫ and ⌘⌦ delete to the start and end of the line |
 | Alt+↑ and Alt+↓ | Move the line, or every selected line, up or down past the next one (⌥↑ and ⌥↓ on macOS) |
 | Ctrl+Shift+D | Duplicate the line, or every selected line: the copy goes just below, and the cursor moves onto it |
@@ -203,6 +203,19 @@ Shortcuts are written with Ctrl; on macOS use ⌘ (the app's menu and hints show
 | Ctrl+Shift+Z or Ctrl+Y | Redo |
 | Ctrl+A, C, X, V | Select all, copy, cut, paste |
 | Tab or Esc on a suggestion | Accept or reject the suggestion the cursor is on |
+
+**In shell scripts and JSON files**, typing helps with blocks, as in a code editor:
+
+- A bracket or quote closes itself: typing `{` gives `{}` with the cursor between, and typing the
+  `}` when you get there steps over the one already in. Script files pair `( [ { " '` and the
+  backtick, JSON files `[ { "`. With text selected, the pair goes around it. A quote right after a
+  letter (`it's`) and a bracket right before a word are typed on their own.
+- Enter after a line that opens a block indents the new line a step: after `{`, `[` or `(`, and in
+  a script after `then`, `do`, `else`, `case … in` and a case's `pattern)`. After a case's `;;` it
+  goes back a step. Enter between a pair like `{}` puts the closer on its own line below, with the
+  cursor on an indented line between.
+- Enter on a line that ends a block lines it up with the block's start, wherever you typed it:
+  `}`, `]` and `)`, and in a script `fi`, `done`, `esac`, `else` and `elif`.
 | Enter, in the assistant's box | Send (Shift+Enter starts a new line) |
 
 While Settings is open, only Esc, Ctrl+W, Ctrl+=, Ctrl+- and Ctrl+Shift+L (and ⌘M on macOS) work.
