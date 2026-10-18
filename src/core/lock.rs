@@ -32,7 +32,15 @@ pub fn locked_elsewhere(lock_path: &Path) -> bool {
 /// Where the lock for the text file at `path` lives: one small file per document in the data
 /// folder, named from a hash of the document's real path (a symlink and its target share one).
 pub fn file_lock_path(data_dir: &Path, path: &Path) -> PathBuf {
-    let real_path = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let real_path = match fs::canonicalize(path) {
+        Ok(real_path) => real_path,
+        // A file not made yet is named by its folder's real path, so the name stays the same once
+        // it exists (Windows writes real paths as `\\?\C:\...`, so the plain path would differ).
+        Err(_) => match (path.parent().map(fs::canonicalize), path.file_name()) {
+            (Some(Ok(dir)), Some(name)) => dir.join(name),
+            _ => path.to_path_buf(),
+        },
+    };
     let mut hasher = DefaultHasher::new();
     real_path.hash(&mut hasher);
     data_dir
@@ -54,6 +62,15 @@ mod tests {
         drop(first);
         assert!(!locked_elsewhere(&path));
         assert!(claim_lock(&path).is_ok());
+    }
+
+    #[test]
+    fn a_file_keeps_its_lock_once_it_exists() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("new.txt");
+        let before = file_lock_path(dir.path(), &path);
+        fs::write(&path, "x").unwrap();
+        assert_eq!(file_lock_path(dir.path(), &path), before);
     }
 
     #[cfg(unix)]
