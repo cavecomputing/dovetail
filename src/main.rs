@@ -4,6 +4,11 @@
 //! - a path: that text file, created if missing
 //! - `--print-brand`: prints the names from `brand.rs` for `scripts/install.sh`, then exits
 
+// A release build on Windows is a GUI program, so no console window opens beside it. Its output
+// still reaches a pipe or a file (`--print-brand` in a script); debug builds keep the console, for
+// error messages.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod ai;
 mod brand;
 mod core;
