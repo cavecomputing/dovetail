@@ -152,15 +152,3 @@ pub fn bold() -> Font {
         ..MONO
     }
 }
-
-/// A row of a menu or panel: filled only while hovered.
-pub fn menu_button(theme: &Theme, status: button::Status) -> button::Style {
-    let roles = Roles::of(theme);
-    let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
-    button::Style {
-        background: hovered.then_some(Background::Color(roles.bg_inset)),
-        text_color: roles.fg,
-        border: Border::default().rounded(4),
-        ..button::Style::default()
-    }
-}

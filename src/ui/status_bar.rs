@@ -12,10 +12,10 @@ use crate::core::paths::display_path;
 use crate::core::save::SaveState;
 use crate::ui::app::{App, Message};
 use crate::ui::assistant_actions::AssistantAction;
+use crate::ui::assistant_view::{LINE, SIZE, line, subtle};
 use crate::ui::find_bar::{FindAction, LINE_KEYS};
-use crate::ui::theme::{
-    self, GLYPH_CLAUDE, GLYPH_MENU, Roles, icon_button, menu_button, raised_box,
-};
+use crate::ui::switcher::row_style;
+use crate::ui::theme::{self, GLYPH_CLAUDE, GLYPH_MENU, Roles, icon_button, raised_box};
 
 pub const HEIGHT: f32 = 24.0;
 const TEXT_SIZE: f32 = 11.0;
@@ -259,60 +259,39 @@ pub fn keys(shortcut: &str) -> String {
 /// The menu panel, raised above the status bar's left end. Clicking anywhere else closes it.
 pub fn menu(app: &App) -> Element<'_, Message> {
     let mut items = column![
-        menu_item("New file…".to_string(), "Ctrl+N", Message::NewFile),
-        menu_item("Open…".to_string(), "Ctrl+O", Message::OpenDialog),
-        menu_item("Open recent…".to_string(), "Ctrl+P", Message::OpenSwitcher),
+        menu_item("new file", "Ctrl+N", Message::NewFile),
+        menu_item("open", "Ctrl+O", Message::OpenDialog),
+        menu_item("open recent", "Ctrl+P", Message::OpenSwitcher),
     ];
     // Scratch has no file, so Ctrl+S saves it to one; a file can move to another.
     items = match &app.doc {
-        Doc::Scratch => items.push(menu_item(
-            "Save to a file…".to_string(),
-            "Ctrl+S",
-            Message::SaveAs,
-        )),
-        Doc::File { .. } => items.push(menu_item(
-            "Save as…".to_string(),
-            "Ctrl+Shift+S",
-            Message::SaveAs,
-        )),
+        Doc::Scratch => items.push(menu_item("save to a file", "Ctrl+S", Message::SaveAs)),
+        Doc::File { .. } => items.push(menu_item("save as", "Ctrl+Shift+S", Message::SaveAs)),
     };
     let line_numbers = match app.settings.line_numbers {
-        true => "Hide line numbers",
-        false => "Show line numbers",
+        true => "hide line numbers",
+        false => "show line numbers",
     };
     items = items
+        .push(menu_item("find", "Ctrl+F", Message::Find(FindAction::Open)))
         .push(menu_item(
-            "Find…".to_string(),
-            "Ctrl+F",
-            Message::Find(FindAction::Open),
-        ))
-        .push(menu_item(
-            "Replace…".to_string(),
+            "replace",
             "Ctrl+Shift+F",
             Message::Find(FindAction::OpenReplace),
         ))
         .push(menu_item(
-            "Go to line…".to_string(),
+            "go to line",
             LINE_KEYS,
             Message::Find(FindAction::OpenLine),
         ))
         .push(menu_item(
-            line_numbers.to_string(),
+            line_numbers,
             "Ctrl+Shift+L",
             Message::ToggleLineNumbers,
         ))
-        .push(menu_item(
-            "Settings".to_string(),
-            "Ctrl+,",
-            Message::OpenSettings,
-        ))
-        .push(menu_item(
-            "Scratch".to_string(),
-            "Ctrl+0",
-            Message::OpenScratch,
-        ));
+        .push(menu_item("settings", "Ctrl+,", Message::OpenSettings))
+        .push(menu_item("scratch", "Ctrl+0", Message::OpenScratch));
     // The recent files come last, so the commands above stay put however many there are.
-    items = items.push(menu_heading("Recent"));
     let current = match &app.doc {
         Doc::File { path, .. } => Some(path),
         Doc::Scratch => None,
@@ -322,15 +301,21 @@ pub fn menu(app: &App) -> Element<'_, Message> {
         .iter()
         .filter(|path| Some(*path) != current)
         .collect();
-    if recent.is_empty() {
-        items = items.push(menu_heading("  nothing yet"));
-    }
+    let mut files = column![menu_heading(match recent.is_empty() {
+        true => "# recent: nothing yet",
+        false => "# recent",
+    })];
     for path in recent {
-        let message = Message::OpenPath(path.clone());
-        items = items.push(menu_item(file_name(path), "", message));
+        files = files.push(menu_item(
+            file_name(path),
+            "",
+            Message::OpenPath(path.clone()),
+        ));
     }
 
-    let panel = container(items.width(300)).padding(4).style(raised_box);
+    // Drawn like the Ctrl+P switcher: plain rows in the assistant pane's type, `#` for a heading.
+    let items = column![items, files].spacing(SIZE * LINE * 0.5).width(300);
+    let panel = container(items).padding([8, 0]).style(raised_box);
     iced::widget::stack![
         mouse_area(space().width(Fill).height(Fill)).on_press(Message::CloseMenu),
         container(panel)
@@ -345,35 +330,29 @@ pub fn menu(app: &App) -> Element<'_, Message> {
     .into()
 }
 
-/// A menu row: its label, and a shortcut on the right.
-pub fn menu_item<'a>(label: String, shortcut: &str, message: Message) -> Element<'a, Message> {
-    button(
-        row![
-            container(text(label).size(13).wrapping(Wrapping::None))
-                .width(Fill)
-                .clip(true),
-            text(keys(shortcut))
-                .size(11)
-                .wrapping(Wrapping::None)
-                .style(|theme: &Theme| text::Style {
-                    color: Some(Roles::of(theme).fg_muted),
-                })
-        ]
-        .align_y(iced::Center),
-    )
+/// A menu row: its label, and its shortcut dimmed on the right.
+fn menu_item<'a>(
+    label: impl Into<String>,
+    shortcut: &str,
+    message: Message,
+) -> Element<'a, Message> {
+    let label = text(label.into())
+        .size(SIZE)
+        .line_height(LINE)
+        .wrapping(Wrapping::None);
+    button(row![
+        container(label).width(Fill).clip(true),
+        line(keys(shortcut), subtle).wrapping(Wrapping::None),
+    ])
     .width(Fill)
-    .padding([4, 8])
-    .style(menu_button)
+    .padding([0, 12])
+    .style(|theme, status| row_style(theme, status, false))
     .on_press(message)
     .into()
 }
 
 fn menu_heading<'a>(label: &'a str) -> Element<'a, Message> {
-    container(text(label).size(11).style(|theme: &Theme| text::Style {
-        color: Some(Roles::of(theme).fg_subtle),
-    }))
-    .padding([4, 8])
-    .into()
+    container(line(label, subtle)).padding([0, 12]).into()
 }
 
 /// The file name for the window title.
