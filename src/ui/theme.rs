@@ -20,6 +20,7 @@ pub const GLYPH_MAXIMIZE: &str = "\u{eab9}";
 pub const GLYPH_CLOSE: &str = "\u{eab8}";
 pub const GLYPH_MENU: &str = "\u{eb94}";
 pub const GLYPH_FILE: &str = "\u{ea7b}";
+pub const GLYPH_FOLDER: &str = "\u{ea83}";
 pub const GLYPH_CLAUDE: &str = "\u{ea6b}";
 pub const GLYPH_UP: &str = "\u{eaa1}";
 pub const GLYPH_DOWN: &str = "\u{ea9a}";

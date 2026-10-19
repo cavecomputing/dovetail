@@ -1,7 +1,8 @@
 //! Entry point: reads the command line and decides what this window opens.
 //!
 //! - no arguments: the scratch space
-//! - a path: that text file, created if missing
+//! - a path: that text file, created if missing; or a folder, shown in the folder pane beside
+//!   the scratch space
 //! - `--print-brand`: prints the names from `brand.rs`, and the version, for the install scripts,
 //!   then exits
 
@@ -25,10 +26,15 @@ fn main() -> iced::Result {
         // Finder may start a macOS app with a -psn_... process number, which isn't a file.
         .filter(|arg| !(cfg!(target_os = "macos") && arg.to_string_lossy().starts_with("-psn_")))
         .map(PathBuf::from);
+    let mut folder = None;
     let doc = match argument {
         Some(flag) if flag == Path::new("--print-brand") => {
             print_brand();
             return Ok(());
+        }
+        Some(path) if path.is_dir() => {
+            folder = Some(std::path::absolute(&path).unwrap_or(path));
+            Doc::Scratch
         }
         Some(path) => Doc::File {
             // An absolute path, so a window opened from here still finds it.
@@ -45,7 +51,7 @@ fn main() -> iced::Result {
     if let Some(base) = directories::BaseDirs::new() {
         let _ = std::env::set_current_dir(base.home_dir());
     }
-    ui::app::run(doc)
+    ui::app::run(doc, folder)
 }
 
 /// Shell variable lines, e.g. `APP_NAME='...'`, for the install scripts: the bash ones `eval`

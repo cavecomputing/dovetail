@@ -384,12 +384,16 @@ pub fn title(doc: &Doc) -> String {
     }
 }
 
-/// `path`'s file name, for the title and the recent lists.
+/// `path`'s file name, for the title and the recent lists, with a `/` after a folder's.
 pub fn file_name(path: &Path) -> String {
-    path.file_name()
+    let name = path
+        .file_name()
         .unwrap_or(path.as_os_str())
-        .to_string_lossy()
-        .to_string()
+        .to_string_lossy();
+    match path.is_dir() {
+        true => format!("{name}/"),
+        false => name.to_string(),
+    }
 }
 
 #[cfg(test)]
