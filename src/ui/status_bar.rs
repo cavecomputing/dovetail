@@ -300,6 +300,7 @@ pub fn menu(app: &App) -> Element<'_, Message> {
         .recent
         .iter()
         .filter(|path| Some(*path) != current)
+        .take(MENU_RECENT)
         .collect();
     let mut files = column![menu_heading(match recent.is_empty() {
         true => "# recent: nothing yet",
@@ -329,6 +330,9 @@ pub fn menu(app: &App) -> Element<'_, Message> {
     ]
     .into()
 }
+
+/// The most recent files the menu lists; Ctrl+P has the rest.
+const MENU_RECENT: usize = 6;
 
 /// A menu row: its label, and its shortcut dimmed on the right.
 fn menu_item<'a>(
