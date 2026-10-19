@@ -266,7 +266,7 @@ fn search_style(theme: &Theme, _status: text_input::Status) -> text_input::Style
 }
 
 /// A row's look: lit while hovered, and in the focus colour while `selected`.
-fn row_style(theme: &Theme, status: button::Status, selected: bool) -> button::Style {
+pub fn row_style(theme: &Theme, status: button::Status, selected: bool) -> button::Style {
     let roles = Roles::of(theme);
     let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
     button::Style {
