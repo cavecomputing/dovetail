@@ -10,7 +10,7 @@ use iced::window::{self, Direction};
 use iced::{Element, Size, Subscription, Task, Theme, event, keyboard};
 
 use crate::core::config::yaml_indent;
-use crate::core::counts::{Counts, load_tokenizer_in_background, token_count, word_count};
+use crate::core::counts::{Counts, load_tokenizer_in_background, word_count};
 use crate::core::json::reformat;
 use crate::core::opened::{Doc, OpenedDoc, open_doc};
 use crate::core::paths::Paths;
@@ -83,9 +83,9 @@ pub struct App {
     /// A Save as to make once the save running now ends (see `save_as`).
     pub saving_as: Option<PathBuf>,
 
-    /// The text's word and token counts. The token count lags behind typing (see `TOKEN_PAUSE`).
+    /// The text's word and token counts. They lag behind typing (see `COUNT_PAUSE`).
     pub counts: Counts,
-    /// When the latest edit the token count doesn't include yet was made.
+    /// When the latest edit the counts don't include yet was made.
     uncounted_edit: Option<Instant>,
     /// The recent files, for the menu.
     pub recent: Vec<PathBuf>,
@@ -153,7 +153,8 @@ pub enum Message {
     /// how it went.
     Saved(u64, u64, Result<Option<DiskStamp>, String>),
     TokenizerReady,
-    TokensCounted(Option<usize>),
+    /// The counts of the document with this number (`App::document`).
+    Counted(u64, Counts),
     /// The syntax check of the document with this number (`App::document`) ended.
     SyntaxChecked(u64, Option<String>),
     /// Format (`minify` off) or Minify a .json file's text.
@@ -275,9 +276,9 @@ fn window_settings() -> window::Settings {
     }
 }
 
-/// How long typing must pause before the token count is redone. Counting a long text takes a
-/// while (about 25 ms for 1 MB), too long to do on every key.
-const TOKEN_PAUSE: Duration = Duration::from_millis(300);
+/// How long typing must pause before the counts are redone. Counting a long text takes a while
+/// (about 2 ms for 1 MB of words, 40 ms of tokens), too long to do on every key.
+const COUNT_PAUSE: Duration = Duration::from_millis(300);
 
 /// How long a notice stays in the status bar: long enough to read, gone before it goes stale.
 const NOTICE_TIME: Duration = Duration::from_secs(6);
@@ -380,7 +381,7 @@ impl App {
         self.assistant.new_chat();
         self.syntax_problem = None;
         let focus = iced::widget::operation::focus(editor::EDITOR_ID);
-        Task::batch([self.count_tokens(), self.check_syntax(), focus])
+        Task::batch([self.count(), self.check_syntax(), focus])
     }
 
     fn title(&self, _window: window::Id) -> String {
@@ -492,10 +493,10 @@ impl App {
                 let mut tasks = Vec::new();
                 if self
                     .uncounted_edit
-                    .is_some_and(|edited| now.duration_since(edited) >= TOKEN_PAUSE)
+                    .is_some_and(|edited| now.duration_since(edited) >= COUNT_PAUSE)
                 {
                     self.uncounted_edit = None;
-                    tasks.push(self.count_tokens());
+                    tasks.push(self.count());
                     tasks.push(self.check_syntax());
                 }
                 // Over a file changed on disk, saves wait for Reload or Keep mine.
@@ -531,8 +532,9 @@ impl App {
                     return self.save_as(path);
                 }
             }
-            Message::TokenizerReady => return self.count_tokens(),
-            Message::TokensCounted(tokens) => self.counts.tokens = tokens,
+            Message::TokenizerReady => return self.count(),
+            Message::Counted(document, counts) if document == self.document => self.counts = counts,
+            Message::Counted(..) => {}
             Message::SyntaxChecked(document, problem) if document == self.document => {
                 self.syntax_problem = problem;
             }
@@ -770,7 +772,6 @@ impl App {
         let now = Instant::now();
         self.autosaver.edited(now);
         self.saving_since.get_or_insert(now);
-        self.counts.words = word_count(self.pane.model.text());
         self.uncounted_edit = Some(now);
         if self.find.open {
             self.find_again(self.pane.caret());
@@ -817,11 +818,14 @@ impl App {
         self.theme = theme::gruvbox(dark);
     }
 
-    /// Counts the text's tokens in the background, as it takes a while on a long text;
-    /// `TokensCounted` brings the number back.
-    fn count_tokens(&self) -> Task<Message> {
+    /// Counts the text's words and tokens in the background, as it takes a while on a long text;
+    /// `Counted` brings the numbers back.
+    fn count(&self) -> Task<Message> {
         let text = self.pane.model.text().to_string();
-        Task::perform(async move { token_count(&text) }, Message::TokensCounted)
+        let document = self.document;
+        Task::perform(async move { Counts::of(&text) }, move |counts| {
+            Message::Counted(document, counts)
+        })
     }
 
     /// In a JSON, YAML, TOML or INI file or a shell script, checks the text is valid in the
@@ -932,7 +936,7 @@ impl App {
             iced::system::theme_changes().map(Message::SystemTheme),
         ];
         // While anything is waiting to be saved or counted: check the autosave delay and the
-        // token count's pause, and animate the dot.
+        // counts' pause, and animate the dot.
         if self.autosaver.state() != SaveState::Saved || self.uncounted_edit.is_some() {
             subscriptions.push(iced::time::every(Duration::from_millis(50)).map(Message::Tick));
         }
