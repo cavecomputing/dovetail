@@ -350,7 +350,7 @@ impl App {
             .filter(|item| matches!(item, Item::User { .. }))
             .count();
         for suggestion in new {
-            let range = suggestion.at..suggestion.at + suggestion.find.len();
+            let range = suggestion.range();
             let state = match self.pane.suggest(range, &suggestion.replace) {
                 Ok(id) => CardState::Waiting(id),
                 Err(reason) => CardState::Gone(reason),

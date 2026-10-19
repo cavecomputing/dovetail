@@ -25,6 +25,11 @@ pub struct Change {
 }
 
 impl Change {
+    /// Where the text it takes out is, before the change.
+    pub fn removed_range(&self) -> Range<usize> {
+        self.at..self.at + self.removed.len()
+    }
+
     /// The change that undoes this one.
     fn inverse(&self) -> Change {
         Change {
@@ -281,10 +286,8 @@ impl TextModel {
     }
 
     fn apply(&mut self, change: &Change) {
-        self.text.replace_range(
-            change.at..change.at + change.removed.len(),
-            &change.inserted,
-        );
+        self.text
+            .replace_range(change.removed_range(), &change.inserted);
     }
 
     fn push_step(&mut self, changes: Vec<Change>, typing: bool, at: Instant) {
@@ -547,18 +550,12 @@ mod tests {
         let mut widget = model.text().to_string();
         for _ in 0..2 {
             for change in model.undo() {
-                widget.replace_range(
-                    change.at..change.at + change.removed.len(),
-                    &change.inserted,
-                );
+                widget.replace_range(change.removed_range(), &change.inserted);
             }
             assert_eq!(widget, model.text());
         }
         for change in model.redo() {
-            widget.replace_range(
-                change.at..change.at + change.removed.len(),
-                &change.inserted,
-            );
+            widget.replace_range(change.removed_range(), &change.inserted);
         }
         assert_eq!(widget, model.text());
     }
@@ -665,10 +662,7 @@ mod tests {
         assert_eq!(model.text(), "café\nnaïve");
         let mut widget = "naïve\ncafé".to_string();
         for change in &changes {
-            widget.replace_range(
-                change.at..change.at + change.removed.len(),
-                &change.inserted,
-            );
+            widget.replace_range(change.removed_range(), &change.inserted);
         }
         assert_eq!(widget, model.text());
         model.move_lines(0..=0, false);
@@ -750,10 +744,7 @@ mod tests {
         // The changes replay in order onto the old text.
         let mut widget = "Be quick. Stay calm.".to_string();
         for change in &changes {
-            widget.replace_range(
-                change.at..change.at + change.removed.len(),
-                &change.inserted,
-            );
+            widget.replace_range(change.removed_range(), &change.inserted);
         }
         assert_eq!(widget, model.text());
         model.undo();

@@ -175,7 +175,7 @@ impl Conversation {
             let (output, suggestion) = tools::run(call, snapshot);
             if let Some(suggestion) = suggestion {
                 // The next call in this reply may not overlap it either.
-                let range = suggestion.at..suggestion.at + suggestion.find.len();
+                let range = suggestion.range();
                 snapshot.waiting.push(range);
                 self.new_suggestions.push(suggestion);
             }
