@@ -127,15 +127,7 @@ impl TextModel {
 
     /// Replaces `range` with `text` as its own undo step, and returns the change to replay.
     pub fn replace(&mut self, range: Range<usize>, text: &str) -> Change {
-        let change = Change {
-            at: range.start,
-            removed: self.text[range].to_string(),
-            inserted: text.to_string(),
-        };
-        self.apply(&change);
-        self.redo.clear();
-        self.push_step(vec![change.clone()], false, Instant::now());
-        change
+        self.replace_each(&[(range, text)]).remove(0)
     }
 
     /// Accepts `suggestions` (in text order, not overlapping) as one undo step: each puts its
