@@ -271,7 +271,7 @@ src/
     window_controls.rs   the top strip's window controls and the resize edges; on macOS, Quit
                          pointed at closing the window
     settings_panel.rs    the Settings panel over the text (Ctrl+,), laid out like settings.toml,
-                         and how each change applies
+                         how each change applies, and the list of keyboard shortcuts
     assistant_view.rs    the assistant pane (Ctrl+L, every window), drawn like a transcript: its
                          # header, the chat, suggested edits as diffs, the > prompt, and how it
                          sits beside or over the document

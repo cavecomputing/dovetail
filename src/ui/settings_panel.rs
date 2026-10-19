@@ -296,6 +296,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
     if !cfg!(target_os = "macos") {
         page = page.push(window);
     }
+    page = page.push(shortcuts());
     // Laid out like settings.toml, in the editor's type, starting where the text does. Taller
     // than the window, it scrolls, with the bar at the window's right edge like the editor's.
     let page = container(page).padding(Padding {
@@ -309,6 +310,136 @@ pub fn view(app: &App) -> Element<'_, Message> {
         .height(Fill)
         .style(|theme: &Theme| theme::fill(Roles::of(theme).bg_surface));
     iced::widget::opaque(page)
+}
+
+/// A keyboard shortcut: the keys as Linux and Windows write them, as macOS does where `keys()`
+/// can't work it out ("" when it can; no first keys means it's macOS's alone), and what it does.
+type Shortcut = (&'static str, &'static str, &'static str);
+
+/// Every keyboard shortcut, by group.
+const SHORTCUTS: [(&str, &[Shortcut]); 5] = [
+    (
+        "files",
+        &[
+            ("Ctrl+N", "", "new file"),
+            ("Ctrl+O", "", "open a file, or a folder in the folder pane"),
+            ("Ctrl+P", "", "scratch and the recent files and folders"),
+            ("Ctrl+0", "", "back to scratch"),
+            ("Ctrl+S", "", "save now; in scratch, save to a file"),
+            ("Ctrl+Shift+S", "", "save as"),
+            (
+                "Ctrl+W",
+                "",
+                "close the window, once the latest save is written",
+            ),
+            ("", "⌘Q", "close the window, as ⌘W does"),
+            ("", "⌘M", "minimise the window"),
+        ],
+    ),
+    (
+        "view",
+        &[
+            ("Ctrl+Shift+E", "", "show or hide the folder pane"),
+            ("Ctrl+L", "", "open or close the assistant pane"),
+            (
+                "Ctrl+Shift+P",
+                "",
+                "the command palette: the open file's tools",
+            ),
+            ("Ctrl+,", "", "settings"),
+            ("Ctrl+Shift+L", "", "line numbers on or off"),
+            ("Ctrl+= / Ctrl+-", "", "bigger or smaller text"),
+            (
+                "Esc",
+                "",
+                "close what's open over the text and go back to it",
+            ),
+        ],
+    ),
+    (
+        "find",
+        &[
+            ("Ctrl+F", "", "find"),
+            ("Ctrl+Shift+F", "", "find and replace"),
+            (
+                "Enter / Shift+Enter",
+                "",
+                "next or previous match, in the find box",
+            ),
+            ("", "⌘G / ⇧⌘G", "next or previous match"),
+            ("Ctrl+Enter", "", "replace every match, in the replace box"),
+            ("Ctrl+G", "⌃G", "go to line"),
+        ],
+    ),
+    (
+        "editing",
+        &[
+            ("Tab / Shift+Tab", "", "indent or unindent, with spaces"),
+            ("Shift+Enter", "", "new line, never a new list item"),
+            (
+                "Ctrl+D",
+                "",
+                "select the word, then the next place it appears",
+            ),
+            ("Ctrl+Z", "", "undo"),
+            ("Ctrl+Shift+Z / Ctrl+Y", "", "redo"),
+            ("Alt+↑ / Alt+↓", "⌥↑ / ⌥↓", "move the lines up or down"),
+            ("Ctrl+Shift+D", "", "duplicate the lines"),
+            ("Ctrl+Shift+K", "", "delete the lines"),
+            (
+                "Ctrl+Backspace / Ctrl+Delete",
+                "⌥⌫ / ⌥⌦",
+                "delete the word before or after",
+            ),
+            ("", "⌘⌫ / ⌘⌦", "delete to the start or end of the line"),
+            ("", "⌘↑ / ⌘↓", "go to the start or end of the text"),
+            (
+                "Ctrl+/",
+                "",
+                "comment the lines out, in scripts and config files",
+            ),
+            ("Ctrl+B / Ctrl+I", "", "bold or italic, in Markdown"),
+            ("Ctrl+A, C, X, V", "", "select all, copy, cut, paste"),
+        ],
+    ),
+    (
+        "assistant",
+        &[
+            (
+                "Enter / Shift+Enter",
+                "",
+                "send, or a new line, in the assistant's box",
+            ),
+            (
+                "Ctrl+Enter",
+                "",
+                "accept the suggestion at the caret, or else the first",
+            ),
+            ("Ctrl+Backspace", "", "reject it"),
+            ("Ctrl+Shift+Enter", "", "accept every suggestion"),
+            ("Ctrl+Shift+Backspace", "", "reject every suggestion"),
+        ],
+    ),
+];
+
+/// The shortcuts section: every one of `SHORTCUTS` on this OS, the keys coloured as a key.
+fn shortcuts<'a>() -> Element<'a, Message> {
+    let mut rows = vec![comment("for reference; they can't be changed yet")];
+    for (group, shortcuts) in SHORTCUTS {
+        rows.push(space().height(LINE).into());
+        rows.push(comment(group));
+        for &(others, mac, what) in shortcuts {
+            let shown = match (cfg!(target_os = "macos"), mac) {
+                (true, "") => keys(others),
+                (true, mac) => mac.to_string(),
+                (false, _) if others.is_empty() => continue,
+                (false, _) => others.to_string(),
+            };
+            let what = text(what).size(SIZE).line_height(editor::LINE_HEIGHT);
+            rows.push(row![coloured(shown, Token::Key).width(30.0 * CH), what].into());
+        }
+    }
+    section("shortcuts", rows)
 }
 
 /// The status bar while Settings is open: where the settings are saved, or why they can't be.

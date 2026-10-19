@@ -163,6 +163,7 @@ A settings panel that opens over the app, from the menu or `Ctrl+,`, in whicheve
 | Saving | Autosave timing (the `rewrite` branch adds the projects folder) |
 | Assistant | Base URL, API key (keyring), model, request format (Responses, default / Chat Completions), test connection |
 | Window | Window controls: Auto / Always show / Always hide (Linux and Windows; macOS always shows its own) |
+| Shortcuts | Every keyboard shortcut, grouped (files, view, find, editing, assistant) and written the way this OS writes them, for reference only: they can't be changed yet (2026-10-19) |
 
 ## 11. Counting
 
