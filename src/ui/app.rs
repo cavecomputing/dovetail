@@ -19,12 +19,14 @@ use crate::core::save::{Autosaver, SaveState, failure_reason};
 use crate::core::scratch::{ScratchState, ScratchView};
 use crate::core::settings::{ReadingMode, Settings, Theme as ThemeSetting};
 use crate::core::syntax::Syntax;
-use crate::core::text_file::{DiskStamp, TEXT_EXTENSIONS, changed_on_disk, read_text, save_text};
+use crate::core::text_file::{DiskStamp, changed_on_disk, read_text, save_text};
 use crate::core::typing::is_code;
 use crate::ui::assistant_actions::{Assistant, AssistantAction, CardState};
 use crate::ui::editor::{Decision, Pane};
 use crate::ui::find_bar::{self, Find, FindAction};
+use crate::ui::folder_pane::{self, FolderAction, FolderPane};
 use crate::ui::palette::{self, Palette};
+use crate::ui::picker::{self, Picker, PickerAction};
 use crate::ui::settings_panel::{self, Change, Connection, KeyField};
 use crate::ui::switcher::{self, Switcher};
 use crate::ui::text_editor::{Action, Cursor, Edit, Motion, Position};
@@ -50,6 +52,8 @@ pub struct App {
     pub pane: Pane,
     /// The Ctrl+P switcher, while it is open.
     pub switcher: Option<Switcher>,
+    /// The Ctrl+O picker, while it is open.
+    pub picker: Option<Picker>,
     /// The Ctrl+Shift+P palette, while it is open.
     pub palette: Option<Palette>,
     /// Whether the Settings panel is open over the document.
@@ -92,6 +96,8 @@ pub struct App {
     /// The modifier keys held now, for the Replace box's Ctrl+Enter.
     pub modifiers: keyboard::Modifiers,
 
+    /// The folder pane (Ctrl+Shift+E) and the folder it shows.
+    pub folder: Option<FolderPane>,
     /// The assistant pane and its conversation, kept while the window is open.
     pub assistant: Assistant,
     /// The Settings panel's API key field, and how its last connection test went.
@@ -211,6 +217,8 @@ pub enum Message {
     SystemTheme(iced::theme::Mode),
 
     Assistant(AssistantAction),
+    Folder(FolderAction),
+    Picker(PickerAction),
     Find(FindAction),
     /// The modifier keys held changed.
     Modifiers(keyboard::Modifiers),
@@ -221,17 +229,21 @@ pub enum Message {
     },
 }
 
-/// Runs the app on `doc` until its window closes.
-pub fn run(doc: Doc) -> iced::Result {
-    iced::daemon(move || App::new(doc.clone()), App::update, App::view)
-        .title(App::title)
-        .theme(App::theme)
-        .subscription(App::subscription)
-        .font(theme::FONT_REGULAR)
-        .font(theme::FONT_BOLD)
-        .font(theme::FONT_ITALIC)
-        .default_font(theme::MONO)
-        .run()
+/// Runs the app on `doc`, with `folder` in the folder pane, until its window closes.
+pub fn run(doc: Doc, folder: Option<PathBuf>) -> iced::Result {
+    iced::daemon(
+        move || App::new(doc.clone(), folder.clone()),
+        App::update,
+        App::view,
+    )
+    .title(App::title)
+    .theme(App::theme)
+    .subscription(App::subscription)
+    .font(theme::FONT_REGULAR)
+    .font(theme::FONT_BOLD)
+    .font(theme::FONT_ITALIC)
+    .default_font(theme::MONO)
+    .run()
 }
 
 // macOS sets all three of its fields below, which clippy would call a needless `..Default`.
@@ -282,8 +294,10 @@ const NOTICE_TIME: Duration = Duration::from_secs(6);
 const APP_ICON_RGBA: &[u8] = include_bytes!("../../assets/icon/icon-64.rgba");
 
 impl App {
-    fn new(doc: Doc) -> (App, Task<Message>) {
-        App::with_paths(doc, Paths::detect())
+    fn new(doc: Doc, folder: Option<PathBuf>) -> (App, Task<Message>) {
+        let (app, tasks) = App::with_paths(doc, Paths::detect());
+        let folder = folder.map(|folder| Task::done(Message::Folder(FolderAction::Open(folder))));
+        (app, Task::batch([tasks, folder.unwrap_or_else(Task::none)]))
     }
 
     /// `new` with its folders given, for tests.
@@ -321,6 +335,7 @@ impl App {
             document: 0,
             pane,
             switcher: None,
+            picker: None,
             palette: None,
             settings_open: false,
             scroll_restored: opened.scroll_line.is_some(),
@@ -338,6 +353,7 @@ impl App {
             menu_open: false,
             find: Find::default(),
             modifiers: keyboard::Modifiers::default(),
+            folder: None,
             assistant: Assistant::default(),
             key_field: KeyField::default(),
             connection: None,
@@ -371,6 +387,10 @@ impl App {
         self.autosaver = Autosaver::new(Duration::from_millis(self.settings.autosave_delay_ms));
         self.saving_since = None;
         self.recent = existing_recent_files(&self.paths.data_dir);
+        // A Save as or New file may have added a file to the folder.
+        if let Some(folder) = &mut self.folder {
+            folder.refresh(folder_pane::current_file(&self.doc));
+        }
         self.find = Find::default();
         self.assistant.stop();
         self.assistant.conversation = Default::default();
@@ -608,6 +628,7 @@ impl App {
             Message::CloseMenu => {
                 let mut closed = self.menu_open || self.switcher.is_some();
                 closed |= self.palette.take().is_some();
+                closed |= self.picker.take().is_some();
                 closed |= std::mem::take(&mut self.settings_open);
                 self.menu_open = false;
                 self.switcher = None;
@@ -639,20 +660,18 @@ impl App {
             Message::Save => return self.save_now(),
             Message::SaveAs => return self.pick_save_path(),
             Message::SaveAsPicked(_, path) => return self.save_as(path),
-            Message::OpenDialog => {
-                self.menu_open = false;
-                let mut dialog = rfd::AsyncFileDialog::new();
-                // macOS puts every filter's extensions in one list, where "*" isn't a wildcard,
-                // so only .txt and .md could be picked; with no filter it allows any file.
-                if !cfg!(target_os = "macos") {
-                    dialog = dialog
-                        .add_filter("Text, config and script files", &TEXT_EXTENSIONS)
-                        .add_filter("All files", &["*"]);
+            Message::OpenDialog => return self.open_picker(),
+            Message::Picker(action) => return self.update_picker(action),
+            Message::SwitcherMove(step) if self.picker.is_some() => {
+                if let Some(picker) = &mut self.picker {
+                    picker.move_selection(step);
                 }
-                let dialog = dialog.pick_file();
-                // Cancelling leaves everything as it was.
-                return Task::perform(dialog, |picked| picked)
-                    .and_then(|file| Task::done(Message::OpenPath(file.path().to_path_buf())));
+            }
+            Message::FocusNext { .. } if self.picker.is_some() => {
+                return self.update_picker(PickerAction::Complete);
+            }
+            Message::OpenPath(path) if path.is_dir() => {
+                return self.update_folder(FolderAction::Open(path));
             }
             Message::OpenPath(path) => return self.open_file(path),
             Message::OpenSettings => {
@@ -757,6 +776,7 @@ impl App {
                 self.settings_changed();
             }
             Message::Assistant(action) => return self.update_assistant(action),
+            Message::Folder(action) => return self.update_folder(action),
             Message::Find(action) => return self.update_find(action),
             Message::Modifiers(modifiers) => self.modifiers = modifiers,
             Message::FocusNext { back: true } => return iced::widget::operation::focus_previous(),
@@ -970,6 +990,7 @@ impl App {
         let layers = [
             self.menu_open.then(|| status_bar::menu(self)),
             self.switcher.as_ref().map(switcher::view),
+            self.picker.as_ref().map(picker::view),
             (self.palette.as_ref()).map(|open| palette::view(open, self.syntax())),
         ];
         let page = stack![page].extend(layers.map(|layer| layer.unwrap_or_else(|| space().into())));
@@ -1114,6 +1135,9 @@ fn shortcut(event: iced::Event, status: event::Status, _window: window::Id) -> O
         keyboard::Key::Character("0") => Some(Message::OpenScratch),
         keyboard::Key::Character("p" | "P") if modifiers.shift() => Some(Message::OpenPalette),
         keyboard::Key::Character("p") => Some(Message::OpenSwitcher),
+        keyboard::Key::Character("e" | "E") if modifiers.shift() => {
+            Some(Message::Folder(FolderAction::Toggle))
+        }
         keyboard::Key::Character("l" | "L") if modifiers.shift() => {
             Some(Message::ToggleLineNumbers)
         }

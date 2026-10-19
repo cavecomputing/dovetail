@@ -14,10 +14,10 @@ Dovetail is built from this repository on your machine. First install what it ne
   `sudo pacman -S --needed base-devel` on Arch and Omarchy, `sudo apt install build-essential` on
   Ubuntu. On Ubuntu, also the libraries that open a window:
   `sudo apt install libxkbcommon-x11-0 libwayland-client0 libvulkan1` (Arch and Omarchy have them).
-  The Open and Save dialogs need a file-chooser portal (xdg-desktop-portal with its -gtk, -gnome or
+  The Save dialogs need a file-chooser portal (xdg-desktop-portal with its -gtk, -gnome or
   -kde backend) or `zenity`. GNOME and KDE come with one; on Hyprland, Sway and other tiling setups,
-  install `xdg-desktop-portal-gtk` next to the compositor's own portal. Without one, Ctrl+O, Ctrl+N
-  and Save as do nothing.
+  install `xdg-desktop-portal-gtk` next to the compositor's own portal. Without one, Ctrl+N
+  and Save as do nothing. Ctrl+O is the app's own and needs neither.
 - **macOS**: Xcode's command line tools: `xcode-select --install`.
 - **Windows**: [Git](https://git-scm.com/download/win), which Windows doesn't come with. Then
   rustup-init.exe from rustup.rs: when it says the C++ build tools are missing, take its quick
@@ -98,6 +98,7 @@ clear its field in Settings first.
 ```sh
 dovetail              # opens scratch (or start it from your app launcher)
 dovetail notes.txt    # opens that file, creating it if it doesn't exist
+dovetail ~/code/app   # opens scratch with that folder in the folder pane
 ```
 
 **Scratch** is one continuous notepad that comes back exactly as you left it: text, cursor and
@@ -111,14 +112,26 @@ fails, or the new one can't be opened, the window stays as it was and the status
 document is edited in one window at a time: a second window on the same file, or on scratch, opens
 read-only and says why, and opening one that another window has open is refused.
 
+**Opening** (Ctrl+O) shows a box holding a path, starting at the open file's folder, with
+what's in that folder below it. Type to narrow the list by name (hidden files show once you type
+a `.`). Tab, or a click on a folder, goes into it; Backspace back over the `/` goes up. Enter
+opens the highlighted row: a file in this window, a folder in the folder pane. With nothing typed
+after the last `/`, the first row is `./`, the folder itself.
+
+**The folder pane** (Ctrl+Shift+E) sits left of the text and shows a folder as a tree: click a
+folder to open or close it, a file to open it in this window, where the open file is lit in
+yellow. Type in its `>` filter to list every file under the folder whose path matches instead
+(↑ ↓ and Enter, Esc to clear). Ctrl+Shift+E hides and shows it; with no folder open it opens the
+open file's folder. The `.git` and `node_modules` folders are left out. Folders you open show in
+Ctrl+P and Recent with a `/` after their name.
+
 **The status bar**, left to right: the ☰ menu (New file, Open, Open recent, Save as, Find,
 Replace, Go to line, Line numbers, Settings, Scratch, then the recent files), the save dot, any problem
 in orange (a failed save, a file that isn't valid JSON, say), and the file's path (or Scratch); on
 the right, words and tokens, the line and column if switched on, then the assistant button. Tokens are counted with OpenAI's o200k tokenizer (hover to
 see it), a close enough guide for other models.
 
-**Markdown** files (`.md` and `.markdown`) open like `.txt` files, and the Open dialog offers them
-alongside `.txt`: type `notes.md` as the name in New file or Save as to make one. Those two save
+**Markdown** files (`.md` and `.markdown`) open like `.txt` files: type `notes.md` as the name in New file or Save as to make one. Those two save
 a name exactly as you type it, whatever its extension (`test.sh` stays `test.sh`). They are coloured
 as you type: headings, list markers and task boxes, quotes, code, bold, italic, struck text and
 links. Nothing is rendered: the text stays exactly as typed, markers and all. Enter continues a
@@ -173,8 +186,9 @@ Shortcuts are written with Ctrl; on macOS use ⌘ (the app's menu and hints show
 | Key | What it does |
 |---|---|
 | Ctrl+N | New file: asks where, then opens it, empty, as Ctrl+O would. Choosing an existing file empties it (the dialog asks first); a file open in any window is refused |
-| Ctrl+O | Open a file in this window |
-| Ctrl+P | Scratch and the recent files, numbered 0 (scratch) to 9: type part of a name, ↑ and ↓ to choose, Enter to open. With nothing typed a row's number opens it; Ctrl+number does at any time |
+| Ctrl+O | Open a file in this window, or a folder in the folder pane: Tab goes into a folder, Enter opens |
+| Ctrl+Shift+E | Show or hide the folder pane |
+| Ctrl+P | Scratch and the recent files and folders, numbered 0 (scratch) to 9: type part of a name, ↑ and ↓ to choose, Enter to open. With nothing typed a row's number opens it; Ctrl+number does at any time |
 | Ctrl+Shift+P | The command palette: the tools for the kind of file open (Format JSON and Minify JSON in a `.json` file). Type part of a name, ↑ and ↓ to choose, Enter to run |
 | Ctrl+0 | Back to scratch in this window (if another window has it, the status bar says so instead) |
 | Ctrl+S | Save now; in scratch, save to a file |
