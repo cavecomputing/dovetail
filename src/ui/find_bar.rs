@@ -5,7 +5,7 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-use iced::widget::{column, row, space, text_input};
+use iced::widget::{Row, column, row, space, text_input};
 use iced::{Background, Border, Color, Element, Fill, Task, Theme};
 
 use crate::core::find::find_all;
@@ -239,23 +239,15 @@ pub fn view(app: &App) -> Element<'_, Message> {
     let find = &app.find;
     if let Some(line) = &find.line {
         let lines = app.pane.model.text().split('\n').count();
-        return status_bar::bar(
-            row![
-                bar_input(&format!("Go to line, 1 to {lines}"), line)
-                    .id(LINE_ID)
-                    .on_input(|query| Message::Find(FindAction::LineQuery(query)))
-                    .on_submit(Message::Find(FindAction::LineDone)),
-                small("Enter to go back to the text, Esc to close"),
-                space().width(Fill),
-                hint(
-                    glyph_button(GLYPH_CLOSE, Some(Message::CloseMenu)),
-                    "Close (Esc)"
-                ),
-            ]
-            .spacing(10)
-            .align_y(iced::Center)
-            .into(),
-        );
+        return bar_row(row![
+            bar_input(&format!("Go to line, 1 to {lines}"), line)
+                .id(LINE_ID)
+                .on_input(|query| Message::Find(FindAction::LineQuery(query)))
+                .on_submit(Message::Find(FindAction::LineDone)),
+            small("Enter to go back to the text, Esc to close"),
+            space().width(Fill),
+            close(),
+        ]);
     }
     let count = match (find.current, find.matches.len()) {
         _ if find.query.is_empty() => String::new(),
@@ -269,67 +261,67 @@ pub fn view(app: &App) -> Element<'_, Message> {
     let step = |by| (!find.matches.is_empty()).then_some(Message::Find(FindAction::Step(by)));
     let toggle =
         |glyph, on, action, words| hint(glyph_toggle(glyph, on, Message::Find(action)), words);
-    let find_row = status_bar::bar(
-        row![
-            input,
-            small(count),
-            toggle(
-                GLYPH_CASE,
-                find.match_case,
-                FindAction::MatchCase,
-                "Match case"
-            ),
-            toggle(
-                GLYPH_WHOLE_WORD,
-                find.whole_word,
-                FindAction::WholeWord,
-                "Whole word"
-            ),
-            hint(
-                glyph_button(GLYPH_UP, step(-1)),
-                keys("Previous (Shift+Enter)")
-            ),
-            hint(glyph_button(GLYPH_DOWN, step(1)), keys("Next (Enter)")),
-            space().width(Fill),
-            hint(
-                glyph_button(GLYPH_CLOSE, Some(Message::CloseMenu)),
-                "Close (Esc)"
-            ),
-        ]
-        .spacing(10)
-        .align_y(iced::Center)
-        .into(),
-    );
+    let find_row = bar_row(row![
+        input,
+        small(count),
+        toggle(
+            GLYPH_CASE,
+            find.match_case,
+            FindAction::MatchCase,
+            "Match case"
+        ),
+        toggle(
+            GLYPH_WHOLE_WORD,
+            find.whole_word,
+            FindAction::WholeWord,
+            "Whole word"
+        ),
+        hint(
+            glyph_button(GLYPH_UP, step(-1)),
+            keys("Previous (Shift+Enter)")
+        ),
+        hint(glyph_button(GLYPH_DOWN, step(1)), keys("Next (Enter)")),
+        space().width(Fill),
+        close(),
+    ]);
     if !find.replacing {
         return find_row;
     }
     let any = (!find.matches.is_empty() && app.editable()).then_some(());
-    let replace_row = status_bar::bar(
-        row![
-            bar_input("Replace", &find.replacement)
-                .id(REPLACE_ID)
-                .on_input(|replacement| Message::Find(FindAction::Replacement(replacement)))
-                .on_submit(Message::Find(FindAction::ReplaceOne)),
-            hint(
-                word_button(
-                    "Replace".to_string(),
-                    any.map(|_| Message::Find(FindAction::ReplaceOne))
-                ),
-                keys("Replace this match and find the next (Enter)"),
+    let replace_row = bar_row(row![
+        bar_input("Replace", &find.replacement)
+            .id(REPLACE_ID)
+            .on_input(|replacement| Message::Find(FindAction::Replacement(replacement)))
+            .on_submit(Message::Find(FindAction::ReplaceOne)),
+        hint(
+            word_button(
+                "Replace".to_string(),
+                any.map(|_| Message::Find(FindAction::ReplaceOne))
             ),
-            hint(
-                word_button(
-                    "All".to_string(),
-                    any.map(|_| Message::Find(FindAction::ReplaceAll))
-                ),
-                keys("Replace every match (Ctrl+Enter)"),
+            keys("Replace this match and find the next (Enter)"),
+        ),
+        hint(
+            word_button(
+                "All".to_string(),
+                any.map(|_| Message::Find(FindAction::ReplaceAll))
             ),
-        ]
-        .spacing(10)
-        .align_y(iced::Center)
-        .into(),
-    );
+            keys("Replace every match (Ctrl+Enter)"),
+        ),
+    ]);
     column![find_row, replace_row].into()
+}
+
+/// One row of the bar, its parts spaced and centred.
+fn bar_row<'a>(parts: Row<'a, Message>) -> Element<'a, Message> {
+    status_bar::bar(parts.spacing(10).align_y(iced::Center).into())
+}
+
+/// The close glyph at the bar's end.
+fn close<'a>() -> Element<'a, Message> {
+    hint(
+        glyph_button(GLYPH_CLOSE, Some(Message::CloseMenu)),
+        "Close (Esc)",
+    )
 }
 
 /// A text box for the bar, outlined in the focus colour while it has the keyboard.
