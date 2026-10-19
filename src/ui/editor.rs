@@ -1164,10 +1164,7 @@ impl Pane {
         let mut text = self.content.text();
         for change in changes {
             self.copy_change(&text, change);
-            text.replace_range(
-                change.at..change.at + change.removed.len(),
-                &change.inserted,
-            );
+            text.replace_range(change.removed_range(), &change.inserted);
         }
         debug_assert_eq!(self.model.text(), self.content.text());
         !changes.is_empty()

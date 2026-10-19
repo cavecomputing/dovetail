@@ -2,6 +2,8 @@
 //! Every tool only reads; `propose_edit` records a suggestion for the user to accept or reject.
 //! Results are plain text or JSON, written for the model.
 
+use std::ops::Range;
+
 use serde_json::{Value, json};
 
 use crate::ai::client::ToolCall;
@@ -38,6 +40,13 @@ pub struct Suggestion {
     pub replace: String,
     /// The model's reason, for the suggestion card.
     pub why: String,
+}
+
+impl Suggestion {
+    /// The bytes of the snapshot's text it replaces.
+    pub fn range(&self) -> Range<usize> {
+        self.at..self.at + self.find.len()
+    }
 }
 
 /// The tools on offer.
@@ -572,9 +581,7 @@ mod tests {
                 .contains("changes nothing")
         );
         assert!(refused(json!({}), &snapshot).contains("changes nothing"));
-        snapshot
-            .waiting
-            .push(suggestion.at..suggestion.at + suggestion.find.len());
+        snapshot.waiting.push(suggestion.range());
         let overlapping = json!({ "find": "it short", "replace": "x" });
         assert!(refused(overlapping, &snapshot).contains("overlaps"));
         // Next to a waiting suggestion is fine.
