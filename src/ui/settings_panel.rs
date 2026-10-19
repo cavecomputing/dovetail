@@ -323,6 +323,7 @@ const SHORTCUTS: [(&str, &[Shortcut]); 5] = [
         &[
             ("Ctrl+N", "", "new file"),
             ("Ctrl+O", "", "open a file"),
+            ("→ / ←", "", "into a folder or up one, in Ctrl+O"),
             ("Ctrl+P", "", "scratch and the recent files"),
             ("Ctrl+0", "", "back to scratch"),
             ("Ctrl+S", "", "save now; in scratch, save to a file"),

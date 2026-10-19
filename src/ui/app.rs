@@ -1095,6 +1095,13 @@ fn shortcut(event: iced::Event, status: event::Status, _window: window::Id) -> O
         keyboard::Key::Named(keyboard::key::Named::ArrowDown) => {
             return Some(Message::SwitcherMove(1));
         }
+        // The Ctrl+O picker's way in and out of folders; with no picker open they do nothing.
+        keyboard::Key::Named(keyboard::key::Named::ArrowRight) if modifiers.is_empty() => {
+            return Some(Message::Picker(PickerAction::Into));
+        }
+        keyboard::Key::Named(keyboard::key::Named::ArrowLeft) if modifiers.is_empty() => {
+            return Some(Message::Picker(PickerAction::Up));
+        }
         _ => {}
     }
     // Go to line is ⌃G on macOS, as in VS Code there, since ⌘G is the next find match.

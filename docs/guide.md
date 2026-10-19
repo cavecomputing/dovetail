@@ -113,9 +113,9 @@ read-only and says why, and opening one that another window has open is refused.
 
 **Opening** (Ctrl+O) shows a box holding a path, starting at the open file's folder, with
 what's in that folder below it. Type to narrow the list by name (hidden files show once you type
-a `.`). Enter, Tab or a click on a folder goes into it, and on a file opens it in this window.
-With nothing typed after the last `/`, the first row is `../`, which goes up a folder (so does
-Backspace back over the `/`).
+a `.`). Enter, Tab, → or a click on a folder goes into it, and Enter or a click on a file opens
+it in this window. ← goes up a folder, with the one you left highlighted, and with nothing typed
+after the last `/` the first row is `../`, which does the same.
 
 **The status bar**, left to right: the ☰ menu (New file, Open, Open recent, Save as, Find,
 Replace, Go to line, Line numbers, Settings, Scratch, then the recent files), the save dot, any problem
@@ -178,7 +178,7 @@ Shortcuts are written with Ctrl; on macOS use ⌘ (the app's menu and hints show
 | Key | What it does |
 |---|---|
 | Ctrl+N | New file: asks where, then opens it, empty, as Ctrl+O would. Choosing an existing file empties it (the dialog asks first); a file open in any window is refused |
-| Ctrl+O | Open a file in this window: Enter goes into a folder (`../` is the one above) or opens a file |
+| Ctrl+O | Open a file in this window: Enter or → goes into a folder, ← goes up one, Enter opens a file |
 | Ctrl+P | Scratch and the recent files, numbered 0 (scratch) to 9: type part of a name, ↑ and ↓ to choose, Enter to open. With nothing typed a row's number opens it; Ctrl+number does at any time |
 | Ctrl+Shift+P | The command palette: the tools for the kind of file open (Format JSON and Minify JSON in a `.json` file). Type part of a name, ↑ and ↓ to choose, Enter to run |
 | Ctrl+0 | Back to scratch in this window (if another window has it, the status bar says so instead) |

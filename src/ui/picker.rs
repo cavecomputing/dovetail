@@ -1,7 +1,10 @@
 //! The Ctrl+O picker: a box holding a path, starting at the open file's folder, and what's in
 //! that folder below it. Typing filters the folder by name; Tab, Enter or a click goes into the
 //! highlighted folder (`..` is the one above), and Enter or a click opens the highlighted file in
-//! this window.
+//! this window. → goes into the highlighted folder and ← up to the one above, so the arrows alone
+//! get around.
+
+use std::path::PathBuf;
 
 use iced::widget::operation::{focus, move_cursor_to_end};
 use iced::widget::{column, text, text_input};
@@ -37,6 +40,10 @@ pub enum PickerAction {
     Choose,
     /// A row clicked: as Enter on it.
     Pick(usize),
+    /// →: into the highlighted folder.
+    Into,
+    /// ←: up to the folder above the one listed.
+    Up,
 }
 
 impl Picker {
@@ -51,10 +58,7 @@ impl Picker {
     }
 
     fn set_typed(&mut self, typed: String) {
-        let home = directories::BaseDirs::new()
-            .map(|base| base.home_dir().to_path_buf())
-            .unwrap_or_default();
-        let (folder, name) = split_typed(&typed, &home);
+        let (folder, name) = split_typed(&typed, &home());
         self.rows = picker_rows(&folder, &name);
         self.typed = typed;
         // The first entry is highlighted, not `..`, so Enter doesn't go up by surprise.
@@ -98,6 +102,26 @@ impl App {
                     return move_cursor_to_end(PICKER_ID);
                 }
             }
+            PickerAction::Into => {
+                if picker
+                    .rows
+                    .get(picker.selected)
+                    .is_some_and(|row| row.is_dir)
+                {
+                    return self.update_picker(PickerAction::Complete);
+                }
+            }
+            PickerAction::Up => {
+                let (folder, _) = split_typed(&picker.typed, &home());
+                if let Some(above) = folder.parent() {
+                    picker.set_typed(typed_folder(display_path(above)));
+                    // The folder just left is highlighted, so → goes back into it.
+                    if let Some(at) = picker.rows.iter().position(|row| row.path == folder) {
+                        picker.selected = at;
+                    }
+                    return move_cursor_to_end(PICKER_ID);
+                }
+            }
             PickerAction::Pick(index) => {
                 picker.selected = index;
                 return Task::batch([self.update_picker(PickerAction::Choose), focus(PICKER_ID)]);
@@ -115,6 +139,13 @@ impl App {
         }
         Task::none()
     }
+}
+
+/// The home folder, which `~` and a relative path in the box start from.
+fn home() -> PathBuf {
+    directories::BaseDirs::new()
+        .map(|base| base.home_dir().to_path_buf())
+        .unwrap_or_default()
 }
 
 /// The picker panel near the top of the window: what it does, the `>` prompt holding the path,
@@ -151,7 +182,7 @@ pub fn view(picker: &Picker) -> Element<'_, Message> {
                 0 => String::new(),
                 more => format!("{more} more · "),
             };
-            format!("# {more}Enter goes in or opens · {}", keys("Ctrl+O closes"))
+            format!("# {more}→ goes in · ← goes up · {}", keys("Ctrl+O closes"))
         }
     };
     panel(column![prompt(search), rows, comment(foot)])
