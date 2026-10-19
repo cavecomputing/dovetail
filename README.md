@@ -86,9 +86,8 @@ your text and suggests edits. Test connection will tell you if it doesn't.
 | Key | What it does |
 |---|---|
 | Ctrl+N | New file |
-| Ctrl+O | Open a file or a folder |
-| Ctrl+Shift+E | Show or hide the folder pane |
-| Ctrl+P | Scratch and the recent files and folders |
+| Ctrl+O | Open a file |
+| Ctrl+P | Scratch and the recent files |
 | Ctrl+Shift+P | The open file's tools (Format and Minify JSON) |
 | Ctrl+F | Find |
 | Ctrl+Shift+F | Find and replace |

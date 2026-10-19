@@ -183,11 +183,11 @@ name from `brand.rs` through `<bin> --print-brand`:
 ## Architecture
 
 One process per window: launching with no file opens scratch, with a file (`.txt`, `.md`, `.json`,
-...) opens that file, with a folder opens scratch and that folder in the folder pane. Each launch gets its own window, which plays well with tiling window managers. Opening another
+...) opens that file. Each launch gets its own window, which plays well with tiling window managers. Opening another
 document from inside the app (Ctrl+O, Ctrl+P, Recent, Ctrl+N, Ctrl+0) replaces the one in the same
 window, once the one being left is saved (`App::open_here`). A process has exactly one window:
 Settings, the Ctrl+O picker, the Ctrl+P switcher, the Ctrl+Shift+P palette and the menu open over
-it; the folder pane (Ctrl+Shift+E) and the assistant pane sit beside the text.
+it; the assistant pane sits beside the text.
 
 The UI is [iced](https://iced.rs) (Elm-style: `update` handles a `Message` and changes state, `view`
 draws the state; nothing else mutates state). Logic modules do not depend on iced, so they can be
@@ -227,8 +227,8 @@ src/
                          YAML's indent step
     counts.rs            word and token counts (tokenizer loads in the background)
     find.rs              every match of a find query, ignoring case
-    folder.rs            what's in a folder (the folder pane's tree, the Ctrl+O picker's rows),
-                         every file under one for the pane's filter, and reading a typed path
+    folder.rs            what's in a folder (the Ctrl+O picker's rows, `..` first) and reading
+                         the path typed into the picker
     markup.rs            where XML tags and {{macros}} are, for colouring them
     markdown.rs          which parts of a Markdown (.md) line to colour, whether a code fence is
                          open, what Enter and Tab do in a list, and Ctrl+B and Ctrl+I's markers
@@ -259,12 +259,9 @@ src/
     key_guard.rs         keeps Ctrl+digit and Ctrl+punctuation (and ⌘ plus a letter on macOS) from
                          typing into text boxes; widgets still get the key for their shortcuts
     status_bar.rs        the bottom bar (save dot, path, counts, assistant toggle) and its menu
-    switcher.rs          the Ctrl+P quick switcher: scratch and the recent files and folders,
-                         numbered 0-9
-    picker.rs            the Ctrl+O picker: a path box and the folder's entries; opens a file
-                         here or a folder in the folder pane
-    folder_pane.rs       the folder pane left of the text (Ctrl+Shift+E): a tree, and a filter
-                         over every file under the folder
+    switcher.rs          the Ctrl+P quick switcher: scratch and the recent files, numbered 0-9
+    picker.rs            the Ctrl+O picker: a path box and the folder's entries; goes into a
+                         folder or opens a file here
     palette.rs           the Ctrl+Shift+P command palette: the open file's tools (Format JSON...)
     find_bar.rs          the Ctrl+F find bar: its matches, stepping through them, how they're lit
     file_actions.rs      App's handlers for opening a document in the window's place (Ctrl+O,

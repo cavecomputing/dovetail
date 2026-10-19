@@ -1,6 +1,6 @@
-//! The Ctrl+P quick switcher: scratch, then the recent files and folders, numbered 0 to 9. Type
-//! a few letters of a name, Enter opens the highlighted row (a file in this window, a folder in the
-//! folder pane), a row's number (Ctrl+number once something is typed) opens that row, Esc closes.
+//! The Ctrl+P quick switcher: scratch, then the recent files, numbered 0 to 9. Type a few letters
+//! of a file's name, Enter opens the highlighted row in this window, a row's number (Ctrl+number
+//! once something is typed) opens that row, Esc closes.
 
 use std::path::PathBuf;
 
@@ -13,7 +13,7 @@ use crate::core::recent::{existing_recent_files, match_score};
 use crate::ui::app::{App, Message};
 use crate::ui::editor;
 use crate::ui::status_bar::{file_name, title};
-use crate::ui::theme::{GLYPH_FILE, GLYPH_FOLDER, Roles, raised_box};
+use crate::ui::theme::{GLYPH_FILE, Roles, raised_box};
 
 pub const SWITCHER_ID: &str = "switcher";
 
@@ -128,11 +128,6 @@ impl App {
     fn open_row(&mut self, row: usize) -> Task<Message> {
         let picked = self.switcher.as_ref().map(Switcher::rows);
         match picked.and_then(|rows| rows.into_iter().nth(row)) {
-            // A folder opens in the folder pane.
-            Some(Doc::File { path, .. }) if path.is_dir() => {
-                self.switcher = None;
-                self.update(Message::OpenPath(path))
-            }
             Some(doc) => {
                 let open = self.open_here(doc);
                 Task::batch([open, iced::widget::operation::focus(editor::EDITOR_ID)])
@@ -189,16 +184,9 @@ pub fn panel<'a>(content: iced::widget::Column<'a, Message>) -> Element<'a, Mess
 
 /// One row: its number (rows 0 to 9), a file glyph, the name, and where it lives.
 fn match_row<'a>(doc: Doc, index: usize, selected: bool) -> Element<'a, Message> {
-    let (folder, glyph) = match &doc {
-        Doc::File { path, .. } => (
-            path.parent().map(display_path).unwrap_or_default(),
-            if path.is_dir() {
-                GLYPH_FOLDER
-            } else {
-                GLYPH_FILE
-            },
-        ),
-        Doc::Scratch => (String::new(), GLYPH_FILE),
+    let folder = match &doc {
+        Doc::File { path, .. } => path.parent().map(display_path).unwrap_or_default(),
+        Doc::Scratch => String::new(),
     };
     let number = match index {
         0..=9 => index.to_string(),
@@ -210,7 +198,7 @@ fn match_row<'a>(doc: Doc, index: usize, selected: bool) -> Element<'a, Message>
     button(
         row![
             text(number).size(11).width(8).style(subtle),
-            text(glyph).size(14),
+            text(GLYPH_FILE).size(14),
             text(title(&doc)).size(13),
             space::horizontal(),
             text(folder).size(11).style(subtle),

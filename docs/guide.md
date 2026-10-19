@@ -98,7 +98,6 @@ clear its field in Settings first.
 ```sh
 dovetail              # opens scratch (or start it from your app launcher)
 dovetail notes.txt    # opens that file, creating it if it doesn't exist
-dovetail ~/code/app   # opens scratch with that folder in the folder pane
 ```
 
 **Scratch** is one continuous notepad that comes back exactly as you left it: text, cursor and
@@ -114,16 +113,9 @@ read-only and says why, and opening one that another window has open is refused.
 
 **Opening** (Ctrl+O) shows a box holding a path, starting at the open file's folder, with
 what's in that folder below it. Type to narrow the list by name (hidden files show once you type
-a `.`). Tab, or a click on a folder, goes into it; Backspace back over the `/` goes up. Enter
-opens the highlighted row: a file in this window, a folder in the folder pane. With nothing typed
-after the last `/`, the first row is `./`, the folder itself.
-
-**The folder pane** (Ctrl+Shift+E) sits left of the text and shows a folder as a tree: click a
-folder to open or close it, a file to open it in this window, where the open file is lit in
-yellow. Type in its `>` filter to list every file under the folder whose path matches instead
-(↑ ↓ and Enter, Esc to clear). Ctrl+Shift+E hides and shows it; with no folder open it opens the
-open file's folder. The `.git` and `node_modules` folders are left out. Folders you open show in
-Ctrl+P and Recent with a `/` after their name.
+a `.`). Enter, Tab or a click on a folder goes into it, and on a file opens it in this window.
+With nothing typed after the last `/`, the first row is `../`, which goes up a folder (so does
+Backspace back over the `/`).
 
 **The status bar**, left to right: the ☰ menu (New file, Open, Open recent, Save as, Find,
 Replace, Go to line, Line numbers, Settings, Scratch, then the recent files), the save dot, any problem
@@ -186,9 +178,8 @@ Shortcuts are written with Ctrl; on macOS use ⌘ (the app's menu and hints show
 | Key | What it does |
 |---|---|
 | Ctrl+N | New file: asks where, then opens it, empty, as Ctrl+O would. Choosing an existing file empties it (the dialog asks first); a file open in any window is refused |
-| Ctrl+O | Open a file in this window, or a folder in the folder pane: Tab goes into a folder, Enter opens |
-| Ctrl+Shift+E | Show or hide the folder pane |
-| Ctrl+P | Scratch and the recent files and folders, numbered 0 (scratch) to 9: type part of a name, ↑ and ↓ to choose, Enter to open. With nothing typed a row's number opens it; Ctrl+number does at any time |
+| Ctrl+O | Open a file in this window: Enter goes into a folder (`../` is the one above) or opens a file |
+| Ctrl+P | Scratch and the recent files, numbered 0 (scratch) to 9: type part of a name, ↑ and ↓ to choose, Enter to open. With nothing typed a row's number opens it; Ctrl+number does at any time |
 | Ctrl+Shift+P | The command palette: the tools for the kind of file open (Format JSON and Minify JSON in a `.json` file). Type part of a name, ↑ and ↓ to choose, Enter to run |
 | Ctrl+0 | Back to scratch in this window (if another window has it, the status bar says so instead) |
 | Ctrl+S | Save now; in scratch, save to a file |

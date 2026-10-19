@@ -24,7 +24,8 @@ pub fn recent_files(data_dir: &Path) -> Vec<PathBuf> {
 pub fn existing_recent_files(data_dir: &Path) -> Vec<PathBuf> {
     recent_files(data_dir)
         .into_iter()
-        .filter(|path| path.exists())
+        // Files only: a folder left from when folders could be opened is skipped.
+        .filter(|path| path.is_file())
         .filter(|path| path.extension().is_none_or(|ext| ext != PROJECT_EXT))
         .collect()
 }
