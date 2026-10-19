@@ -154,10 +154,5 @@ pub fn view(picker: &Picker) -> Element<'_, Message> {
             format!("# {more}Enter goes in or opens · {}", keys("Ctrl+O closes"))
         }
     };
-    panel(column![
-        comment("# open a file"),
-        prompt(search),
-        rows,
-        comment(foot)
-    ])
+    panel(column![prompt(search), rows, comment(foot)])
 }
