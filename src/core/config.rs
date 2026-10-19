@@ -5,27 +5,7 @@
 
 use std::ops::Range;
 
-use crate::core::syntax::{Token, line_and_column};
-
-type Found = Vec<(Range<usize>, Token)>;
-
-/// Where a quoted string that starts at `start` ends (just after its closing quote, or at the end
-/// of the line if it isn't closed). `"` strings escape with a backslash; in `'` strings two
-/// quotes are one.
-fn quoted_end(line: &str, start: usize) -> usize {
-    let bytes = line.as_bytes();
-    let quote = bytes[start];
-    let mut at = start + 1;
-    while at < bytes.len() {
-        match bytes[at] {
-            b'\\' if quote == b'"' => at += 2,
-            b'\'' if quote == b'\'' && bytes.get(at + 1) == Some(&b'\'') => at += 2,
-            byte if byte == quote => return at + 1,
-            _ => at += 1,
-        }
-    }
-    bytes.len()
-}
+use crate::core::syntax::{Found, Token, indent, line_and_column, quoted_end};
 
 /// Where a `#` comment starts in `line`, outside any quotes. In YAML (`after_space`) a `#` only
 /// starts one at the start of the line or after a space, so `a#b` is plain text.
@@ -85,11 +65,6 @@ pub fn yaml_indent(text: &str) -> usize {
         .filter(|indent| *indent > 0)
         .min()
         .map_or(2, |indent| indent.min(8))
-}
-
-/// The spaces at the start of `line`.
-fn indent(line: &str) -> usize {
-    line.len() - line.trim_start_matches(' ').len()
 }
 
 /// Colours one YAML line. `block` is the indent of the line that opened a block scalar the line

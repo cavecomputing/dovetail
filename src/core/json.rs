@@ -3,7 +3,7 @@
 
 use std::ops::Range;
 
-use crate::core::syntax::Token;
+use crate::core::syntax::{Token, quoted_end};
 
 /// Finds the keys, strings, numbers and words in one line, as byte ranges. A JSON string can't
 /// hold a line break, so each line can be coloured on its own; one left open runs to the end.
@@ -15,12 +15,7 @@ pub fn json_ranges(line: &str) -> Vec<(Range<usize>, Token)> {
         let start = at;
         let look = match bytes[at] {
             b'"' => {
-                at += 1;
-                while at < bytes.len() && bytes[at] != b'"' {
-                    // A backslash escapes the next byte, so `\"` doesn't end the string.
-                    at += if bytes[at] == b'\\' { 2 } else { 1 };
-                }
-                at = (at + 1).min(bytes.len());
+                at = quoted_end(line, at);
                 match line[at..].trim_start().starts_with(':') {
                     true => Token::Key,
                     false => Token::String,
