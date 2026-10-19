@@ -123,7 +123,13 @@ impl App {
             }
             PickerAction::Pick(index) => {
                 picker.selected = index;
-                return Task::batch([self.update_picker(PickerAction::Choose), focus(PICKER_ID)]);
+                let chosen = self.update_picker(PickerAction::Choose);
+                // A folder keeps the picker open, and the click took the box's focus. A file
+                // closed it and focused the text, which focusing the gone box would undo.
+                return match self.picker {
+                    Some(_) => Task::batch([chosen, focus(PICKER_ID)]),
+                    None => chosen,
+                };
             }
             PickerAction::Choose => match picker.rows.get(picker.selected) {
                 Some(row) if row.is_dir => return self.update_picker(PickerAction::Complete),
