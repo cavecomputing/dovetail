@@ -46,7 +46,7 @@ use std::sync::Arc;
 // ours: word bounds for a double click's selection, as cosmic-text finds them.
 use unicode_segmentation::UnicodeSegmentation;
 // ours: the palette for the buttons and line numbers, and the width of a character.
-use crate::ui::theme::{CHAR_WIDTH_RATIO, Roles};
+use crate::ui::theme::{CHAR_WIDTH_RATIO, MONO, Roles};
 
 pub use iced::advanced::text::editor::{
     Action, Cursor, Edit, Line, LineEnding, Motion, Position, Selection,
@@ -359,9 +359,10 @@ enum Whole {
     Lines,
 }
 
+// ours: creating one sets iced's font (see `with_text`).
 impl<R> Content<R>
 where
-    R: text::Renderer,
+    R: text::Renderer<Font = iced::Font>,
 {
     /// Creates an empty [`Content`].
     pub fn new() -> Self {
@@ -370,14 +371,49 @@ where
 
     /// Creates a [`Content`] with the given text.
     pub fn with_text(text: &str) -> Self {
+        // ours: cosmic-text shapes (works out the glyphs of) every line down to the bottom of
+        // the view, and an editor with no size yet has no bottom: iced's `with_text`, and then
+        // the first layout, each shaped the whole text (most of a second each for 1 MB). Given
+        // a size first, it shapes only the lines in view. The text goes in a hundred lines at a
+        // time, as cosmic-text puts each pasted line in front of the ones pasted before it,
+        // which in one big paste takes time growing with the square of the lines.
+        let mut editor = R::Editor::with_text("");
+        editor.update(
+            // As wide as can be, so nothing wraps before the first layout gives the real width.
+            Size::new(f32::MAX, 1.0),
+            MONO,
+            Pixels(1.0),
+            LineHeight::default(),
+            Wrapping::default(),
+            &mut highlighter::PlainText::new(&()),
+        );
+        let mut start = 0;
+        let ends = text
+            .match_indices('\n')
+            .map(|(at, _)| at + 1)
+            .skip(99)
+            .step_by(100);
+        for end in ends.chain([text.len()]) {
+            if end > start {
+                let piece = Arc::new(text[start..end].to_string());
+                editor.perform(Action::Edit(Edit::Paste(piece)));
+            }
+            start = end;
+        }
+        editor.perform(Action::Move(Motion::DocumentStart));
         Self(RefCell::new(Internal {
-            editor: R::Editor::with_text(text),
+            editor,
             scroll_to: None,
             changed_from: None,
             whole: None,
         }))
     }
+}
 
+impl<R> Content<R>
+where
+    R: text::Renderer,
+{
     /// Performs an [`Action`] on the [`Content`].
     pub fn perform(&mut self, action: Action) {
         let internal = self.0.get_mut();
@@ -707,7 +743,7 @@ pub fn gutter_width(line_count: usize, text_size: f32) -> f32 {
 
 impl<Renderer> Clone for Content<Renderer>
 where
-    Renderer: text::Renderer,
+    Renderer: text::Renderer<Font = iced::Font>,
 {
     fn clone(&self) -> Self {
         Self::with_text(&self.text())
@@ -716,7 +752,7 @@ where
 
 impl<Renderer> Default for Content<Renderer>
 where
-    Renderer: text::Renderer,
+    Renderer: text::Renderer<Font = iced::Font>,
 {
     fn default() -> Self {
         Self::new()
@@ -1550,6 +1586,21 @@ mod tests {
         Cursor {
             position: Position { line, column },
             selection: None,
+        }
+    }
+
+    #[test]
+    fn with_text_keeps_a_long_text_whole_with_the_caret_at_the_start() {
+        let lines: String = (0..250).map(|i| format!("line {i}\n")).collect();
+        for text in [
+            String::new(),
+            lines.clone(),
+            format!("{lines}last"),
+            "é\n".repeat(100),
+        ] {
+            let content: Content = Content::with_text(&text);
+            assert_eq!(content.text(), text);
+            assert_eq!(content.cursor(), caret(0, 0));
         }
     }
 
