@@ -168,7 +168,7 @@ A settings panel that opens over the app, from the menu or `Ctrl+,`, in whicheve
 ## 11. Counting
 
 - Word and token counts update live (in both panes of a project, on the `rewrite` branch).
-- The tokenizer is OpenAI's o200k, via `tiktoken-rs`. That's a good enough estimate for Claude and Gemini.
+- The tokenizer is OpenAI's o200k, counted by our own `core/counts.rs` from tiktoken's vocabulary (it keeps only what counting needs: 14 MB, where `tiktoken-rs` took 47). That's a good enough estimate for Claude and Gemini.
 - Later: count `{{macros}}` separately from real text, since they expand at runtime.
 
 ## 12. Tech direction (not locked)
