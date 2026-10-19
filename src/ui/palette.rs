@@ -51,9 +51,9 @@ impl App {
     pub fn update_palette(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::OpenPalette => {
-                self.menu_open = false;
-                self.switcher = None;
-                if self.palette.take().is_some() {
+                let was_open = self.palette.is_some();
+                self.close_panels();
+                if was_open {
                     return iced::widget::operation::focus(editor::EDITOR_ID);
                 }
                 self.palette = Some(Palette::default());

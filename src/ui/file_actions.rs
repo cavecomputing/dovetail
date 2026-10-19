@@ -24,8 +24,7 @@ impl App {
     /// be opened, the window stays as it is and the status bar says why. The document already
     /// shown is left as it is.
     pub fn open_here(&mut self, doc: Doc) -> Task<Message> {
-        self.menu_open = false;
-        self.switcher = None;
+        self.close_panels();
         let shown = match (&self.doc, &doc) {
             (Doc::Scratch, Doc::Scratch) => true,
             (Doc::File { path: current, .. }, Doc::File { path, .. }) => same_file(current, path),

@@ -80,9 +80,9 @@ impl App {
     pub fn update_switcher(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::OpenSwitcher => {
-                self.menu_open = false;
-                self.palette = None;
-                if self.switcher.take().is_some() {
+                let was_open = self.switcher.is_some();
+                self.close_panels();
+                if was_open {
                     return iced::widget::operation::focus(editor::EDITOR_ID);
                 }
                 let current = match &self.doc {
