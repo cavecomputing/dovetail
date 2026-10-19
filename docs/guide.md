@@ -218,6 +218,7 @@ Shortcuts are written with Ctrl; on macOS use ⌘ (the app's menu and hints show
 | Ctrl+Shift+Z or Ctrl+Y | Redo |
 | Ctrl+A, C, X, V | Select all, copy, cut, paste |
 | Ctrl+Enter and Ctrl+Backspace | Accept or reject the assistant's suggestion the cursor is on, or else the first one; with Shift, all of them. While suggestions wait these keys do only this |
+| Enter, in the assistant's box | Send (Shift+Enter starts a new line) |
 
 **In shell scripts and JSON files**, typing helps with blocks, as in a code editor:
 
@@ -237,7 +238,6 @@ Shortcuts are written with Ctrl; on macOS use ⌘ (the app's menu and hints show
 nothing nested yet, uses 2. Enter after a key with no value (`web:`), a block (`run: |`) or a bare
 `-` indents the new line a step, and after a list item that starts a mapping (`- name: web`) the
 next line lines up under `name`.
-| Enter, in the assistant's box | Send (Shift+Enter starts a new line) |
 
 While Settings is open, only Esc, Ctrl+W, Ctrl+=, Ctrl+- and Ctrl+Shift+L (and ⌘M on macOS) work.
 
