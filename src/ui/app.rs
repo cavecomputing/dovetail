@@ -402,11 +402,10 @@ impl App {
                 let edited = self.pane.type_in_code(typed, self.syntax());
                 self.after_edit(edited);
             }
-            Message::Edit(action) => match self.pane.perform(action) {
-                Ok(true) => self.text_changed(),
-                Ok(false) => {}
-                Err(reason) => self.set_notice(Some(reason)),
-            },
+            Message::Edit(action) => {
+                let edited = self.pane.perform(action);
+                self.after_edit(edited);
+            }
             // The widget's text has the suggestions in it, so the clipboard gets the text from
             // the model instead.
             Message::Clip { cut } => {
@@ -429,9 +428,10 @@ impl App {
             | Message::DeleteLines
             | Message::SelectNextMatch
             | Message::ToggleMarker(_)
-            | Message::ToggleComment
-                if self.editable() =>
-            {
+            | Message::ToggleComment => {
+                if !self.editable() {
+                    return Task::none();
+                }
                 // Ctrl+D's other places take Backspace and Enter; any other key lets them go.
                 if !matches!(
                     message,
@@ -475,18 +475,10 @@ impl App {
                 };
                 self.after_edit(edited);
             }
-            Message::Indent
-            | Message::Unindent
-            | Message::NewLine { .. }
-            | Message::Backspace
-            | Message::DeleteTo(_)
-            | Message::MoveLines { .. }
-            | Message::DuplicateLines
-            | Message::DeleteLines
-            | Message::SelectNextMatch
-            | Message::ToggleMarker(_)
-            | Message::ToggleComment => {}
-            Message::Undo | Message::Redo if self.editable() => {
+            Message::Undo | Message::Redo => {
+                if !self.editable() {
+                    return Task::none();
+                }
                 let changed = match message {
                     Message::Undo => self.pane.undo(),
                     _ => self.pane.redo(),
@@ -495,7 +487,6 @@ impl App {
                     self.text_changed();
                 }
             }
-            Message::Undo | Message::Redo => {}
             Message::Decide(decision) => self.decide(decision),
             Message::Tick(now) => {
                 self.now = now;

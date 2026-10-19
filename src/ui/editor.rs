@@ -19,6 +19,7 @@ use crate::core::markdown::{
     BOLD, ITALIC, ListEnter, fence_enter, is_list_item, list_enter, toggle_marker,
 };
 use crate::core::review::{DisplayMap, Review, Shown, Suggestion, clashes};
+use crate::core::scratch::clamp_column;
 use crate::core::settings::{ReadingMode, Settings};
 use crate::core::syntax::{Syntax, toggle_comments};
 use crate::core::text_file::newlines_only;
@@ -300,7 +301,7 @@ impl Pane {
     /// Shows a suggestion to put `text` in place of `range` (byte offsets into the model's
     /// text). The caret stays where it is. Returns its id, or why it was refused.
     pub fn suggest(&mut self, range: Range<usize>, text: &str) -> Result<u64, String> {
-        let caret = self.to_text(self.content.cursor().position);
+        let caret = self.caret();
         self.others.clear();
         let id = self
             .review
@@ -339,6 +340,20 @@ impl Pane {
     /// Where the caret is, as a byte offset of the model's text.
     pub fn caret(&self) -> usize {
         self.to_text(self.content.cursor().position)
+    }
+
+    /// The caret and the selection's other end, as byte offsets of the model's text; both are
+    /// the caret when nothing is selected.
+    fn caret_and_anchor(&self) -> (usize, usize) {
+        let cursor = self.content.cursor();
+        let caret = self.to_text(cursor.position);
+        (caret, cursor.selection.map_or(caret, |at| self.to_text(at)))
+    }
+
+    /// The selection, or an empty range at the caret when nothing is selected.
+    fn selection_or_caret(&self) -> Range<usize> {
+        let caret = self.caret();
+        self.selection().unwrap_or(caret..caret)
     }
 
     /// The suggestion Ctrl+Enter and Ctrl+Backspace decide: the one the caret is on (in or
@@ -788,8 +803,7 @@ impl Pane {
             return self.perform(Action::Edit(Edit::Enter));
         }
         let cursor = self.content.cursor();
-        let caret = self.caret();
-        let range = self.selection().unwrap_or(caret..caret);
+        let range = self.selection_or_caret();
         let text = self.model.text();
         let line_start = text[..range.start].rfind('\n').map_or(0, |at| at + 1);
         let before = &text[line_start..range.start];
@@ -818,10 +832,9 @@ impl Pane {
             return self.new_line();
         }
         let cursor = self.content.cursor();
-        let caret = self.caret();
-        let range = self.selection().unwrap_or(caret..caret);
+        let range = self.selection_or_caret();
         if range.is_empty()
-            && let Some((typed, at)) = fence_enter(self.model.text(), caret)
+            && let Some((typed, at)) = fence_enter(self.model.text(), range.start)
         {
             let edited = self.perform(Action::Edit(Edit::Paste(Arc::new(typed))))?;
             self.put_caret(at);
@@ -851,8 +864,7 @@ impl Pane {
             return self.new_line();
         }
         let cursor = self.content.cursor();
-        let caret = self.caret();
-        let range = self.selection().unwrap_or(caret..caret);
+        let range = self.selection_or_caret();
         let Some((replaced, with, caret)) = enter(self.model.text(), range, tab_spaces, syntax)
         else {
             return self.new_line();
@@ -869,8 +881,7 @@ impl Pane {
     /// can't.
     pub fn type_in_code(&mut self, typed_char: char, syntax: Syntax) -> Result<bool, String> {
         let cursor = self.content.cursor();
-        let caret = self.caret();
-        let selection = self.selection().unwrap_or(caret..caret);
+        let selection = self.selection_or_caret();
         let paired = match self.others.is_empty() {
             true => typed(self.model.text(), selection.clone(), typed_char, syntax),
             false => None,
@@ -899,8 +910,7 @@ impl Pane {
     /// outside the selection or at its ends, it takes them off instead. Returns whether the text changed, or why it can't.
     pub fn toggle_marker(&mut self, marker: &str) -> Result<bool, String> {
         let cursor = self.content.cursor();
-        let caret = self.caret();
-        let selection = self.selection().unwrap_or(caret..caret);
+        let selection = self.selection_or_caret();
         let (replaced, with, selected) =
             toggle_marker(self.model.text(), selection.clone(), marker);
         if replaced != selection {
@@ -971,17 +981,14 @@ impl Pane {
     /// they would pass, are refused. Returns whether the text changed, or why it can't.
     pub fn move_lines(&mut self, up: bool) -> Result<bool, String> {
         let cursor = self.content.cursor();
-        let caret = self.to_text(cursor.position);
-        let anchor = cursor.selection.map_or(caret, |at| self.to_text(at));
+        let (caret, anchor) = self.caret_and_anchor();
         let text = self.model.text();
         let (first, last) = selected_lines(text, caret, anchor);
         let (top, bottom) = match up {
             true => (first.saturating_sub(1), last),
             false => (first, last + 1),
         };
-        if self.suggestion_on(top, bottom) {
-            return Err(IN_A_SUGGESTION.to_string());
-        }
+        self.lines_free(top, bottom)?;
         let (caret, anchor) = (position(text, caret), position(text, anchor));
         let changes = self.model.move_lines(first..=last, up);
         if !self.replay(&changes) {
@@ -997,13 +1004,10 @@ impl Pane {
     /// suggestion on them are refused. Returns whether the text changed, or why it can't.
     pub fn duplicate_lines(&mut self) -> Result<bool, String> {
         let cursor = self.content.cursor();
-        let caret = self.to_text(cursor.position);
-        let anchor = cursor.selection.map_or(caret, |at| self.to_text(at));
+        let (caret, anchor) = self.caret_and_anchor();
         let text = self.model.text();
         let (first, last) = selected_lines(text, caret, anchor);
-        if self.suggestion_on(first, last) {
-            return Err(IN_A_SUGGESTION.to_string());
-        }
+        self.lines_free(first, last)?;
         let (caret, anchor) = (position(text, caret), position(text, anchor));
         let changes = self.model.duplicate_lines(first..=last);
         self.replay(&changes);
@@ -1017,14 +1021,10 @@ impl Pane {
     /// Lines with a suggestion on them are refused. Returns whether the text changed, or why it
     /// can't.
     pub fn delete_lines(&mut self) -> Result<bool, String> {
-        let cursor = self.content.cursor();
-        let caret = self.to_text(cursor.position);
-        let anchor = cursor.selection.map_or(caret, |at| self.to_text(at));
+        let (caret, anchor) = self.caret_and_anchor();
         let text = self.model.text();
         let (first, last) = selected_lines(text, caret, anchor);
-        if self.suggestion_on(first, last) {
-            return Err(IN_A_SUGGESTION.to_string());
-        }
+        self.lines_free(first, last)?;
         let (_, column) = position(text, caret);
         let changes = self.model.delete_lines(first..=last);
         if !self.replay(&changes) {
@@ -1035,11 +1035,7 @@ impl Pane {
         let line = first.min(text.matches('\n').count());
         let start = offset(text, line, 0);
         let length = text[start..].find('\n').unwrap_or(text.len() - start);
-        let mut at = start + column.min(length);
-        while !text.is_char_boundary(at) {
-            at -= 1;
-        }
-        self.put_caret(at);
+        self.put_caret(start + clamp_column(&text[start..start + length], column));
         Ok(true)
     }
 
@@ -1058,12 +1054,15 @@ impl Pane {
         });
     }
 
-    /// Whether a suggestion is on any of the model's lines `first` to `last`, which then can't be
-    /// indented or moved.
-    fn suggestion_on(&self, first: usize, last: usize) -> bool {
+    /// Refuses a line command (indent, move, duplicate, delete, comment) on the model's lines
+    /// `first` to `last` when a suggestion is on any of them.
+    fn lines_free(&self, first: usize, last: usize) -> Result<(), String> {
         let text = self.model.text();
         let lines = offset(text, first, 0)..offset(text, last + 1, 0);
-        self.suggestions().iter().any(|s| clashes(&s.range, &lines))
+        match self.suggestions().iter().any(|s| clashes(&s.range, &lines)) {
+            true => Err(IN_A_SUGGESTION.to_string()),
+            false => Ok(()),
+        }
     }
 
     /// Does `edit` where the caret and selection have just been put, as `perform` does any edit.
@@ -1082,8 +1081,7 @@ impl Pane {
     /// them are refused.
     fn reindent(&mut self, tab_spaces: usize, add: bool, markdown: bool) -> Result<bool, String> {
         let cursor = self.content.cursor();
-        let caret = self.to_text(cursor.position);
-        let anchor = cursor.selection.map_or(caret, |at| self.to_text(at));
+        let (caret, anchor) = self.caret_and_anchor();
         let (start, end) = (caret.min(anchor), caret.max(anchor));
         let text = self.model.text();
         let one_line = !text[start..end].contains('\n');
@@ -1093,9 +1091,7 @@ impl Pane {
             return self.perform(Action::Edit(Edit::Paste(spaces)));
         }
         let (first, last) = selected_lines(text, start, end);
-        if self.suggestion_on(first, last) {
-            return Err(IN_A_SUGGESTION.to_string());
-        }
+        self.lines_free(first, last)?;
         let changes = match add {
             true => self.model.indent(first..=last, tab_spaces),
             false => self.model.unindent(first..=last, tab_spaces),
@@ -1113,13 +1109,10 @@ impl Pane {
     /// Returns whether the text changed, or why it can't.
     pub fn toggle_comment(&mut self, marker: &str) -> Result<bool, String> {
         let cursor = self.content.cursor();
-        let caret = self.to_text(cursor.position);
-        let anchor = cursor.selection.map_or(caret, |at| self.to_text(at));
+        let (caret, anchor) = self.caret_and_anchor();
         let text = self.model.text();
         let (first, last) = selected_lines(text, caret, anchor);
-        if self.suggestion_on(first, last) {
-            return Err(IN_A_SUGGESTION.to_string());
-        }
+        self.lines_free(first, last)?;
         let edits = toggle_comments(text, first..=last, marker);
         let edits: Vec<_> = edits
             .iter()
