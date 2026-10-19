@@ -1192,22 +1192,30 @@ mod tests {
         assert_eq!(second.text(), "café!");
     }
 
+    /// What `shortcut` makes of a press of `key` (`modified_key` with Shift's change) that no
+    /// widget took.
+    fn shortcut_for(
+        key: &str,
+        modified_key: &str,
+        modifiers: keyboard::Modifiers,
+    ) -> Option<Message> {
+        use keyboard::key::{NativeCode, Physical};
+        let event = iced::Event::Keyboard(keyboard::Event::KeyPressed {
+            key: keyboard::Key::Character(key.into()),
+            modified_key: keyboard::Key::Character(modified_key.into()),
+            physical_key: Physical::Unidentified(NativeCode::Unidentified),
+            location: keyboard::Location::Standard,
+            modifiers,
+            text: None,
+            repeat: false,
+        });
+        shortcut(event, event::Status::Ignored, window::Id::unique())
+    }
+
     #[test]
     fn ctrl_shift_l_toggles_line_numbers_and_ctrl_l_the_assistant() {
-        use keyboard::key::{NativeCode, Physical};
         // iced gives the key without Shift's change ("l"), and `modified_key` with it ("L").
-        let press = |modifiers| {
-            let event = iced::Event::Keyboard(keyboard::Event::KeyPressed {
-                key: keyboard::Key::Character("l".into()),
-                modified_key: keyboard::Key::Character("L".into()),
-                physical_key: Physical::Unidentified(NativeCode::Unidentified),
-                location: keyboard::Location::Standard,
-                modifiers,
-                text: None,
-                repeat: false,
-            });
-            shortcut(event, event::Status::Ignored, window::Id::unique())
-        };
+        let press = |modifiers| shortcut_for("l", "L", modifiers);
         let toggle = press(keyboard::Modifiers::COMMAND | keyboard::Modifiers::SHIFT);
         assert!(matches!(toggle, Some(Message::ToggleLineNumbers)));
         // It works with Settings open too, which shows the setting.
@@ -1385,20 +1393,7 @@ mod tests {
 
     #[test]
     fn ctrl_and_a_digit_picks_a_switcher_row_and_ctrl_0_is_scratch() {
-        let press = |digit: &str, modifiers| {
-            let event = iced::Event::Keyboard(keyboard::Event::KeyPressed {
-                key: keyboard::Key::Character(digit.into()),
-                modified_key: keyboard::Key::Character(digit.into()),
-                physical_key: keyboard::key::Physical::Unidentified(
-                    keyboard::key::NativeCode::Unidentified,
-                ),
-                location: keyboard::Location::Standard,
-                modifiers,
-                text: None,
-                repeat: false,
-            });
-            shortcut(event, event::Status::Ignored, window::Id::unique())
-        };
+        let press = |digit, modifiers| shortcut_for(digit, digit, modifiers);
         let command = keyboard::Modifiers::COMMAND;
         assert!(matches!(
             press("3", command),
@@ -1423,18 +1418,8 @@ mod tests {
             "Minify, the second tool"
         );
         assert!(app.palette.is_none());
-        let event = iced::Event::Keyboard(keyboard::Event::KeyPressed {
-            key: keyboard::Key::Character("P".into()),
-            modified_key: keyboard::Key::Character("P".into()),
-            physical_key: keyboard::key::Physical::Unidentified(
-                keyboard::key::NativeCode::Unidentified,
-            ),
-            location: keyboard::Location::Standard,
-            modifiers: keyboard::Modifiers::COMMAND | keyboard::Modifiers::SHIFT,
-            text: None,
-            repeat: false,
-        });
-        let pressed = shortcut(event, event::Status::Ignored, window::Id::unique());
+        let shift = keyboard::Modifiers::COMMAND | keyboard::Modifiers::SHIFT;
+        let pressed = shortcut_for("P", "P", shift);
         assert!(matches!(pressed, Some(Message::OpenPalette)));
     }
 
