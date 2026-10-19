@@ -1,6 +1,7 @@
 //! The Settings panel (Ctrl+,), covering the text area and laid out like settings.toml. Every
 //! change applies at once and is written to that file.
 
+use iced::widget::TextInput;
 use iced::widget::{button, column, container, row, scrollable, space, text, text_input};
 use iced::{Background, Border, Color, Element, Fill, Padding, Theme};
 
@@ -90,23 +91,15 @@ pub fn view(app: &App) -> Element<'_, Message> {
         vec![
             setting_row(
                 "theme",
-                choices(vec![
-                    (
-                        "dark",
-                        settings.theme == ThemeSetting::Dark,
-                        Change::Theme(ThemeSetting::Dark),
-                    ),
-                    (
-                        "light",
-                        settings.theme == ThemeSetting::Light,
-                        Change::Theme(ThemeSetting::Light),
-                    ),
-                    (
-                        "system",
-                        settings.theme == ThemeSetting::System,
-                        Change::Theme(ThemeSetting::System),
-                    ),
-                ]),
+                pick(
+                    settings.theme,
+                    &[
+                        ("dark", ThemeSetting::Dark),
+                        ("light", ThemeSetting::Light),
+                        ("system", ThemeSetting::System),
+                    ],
+                    Change::Theme,
+                ),
                 comment(""),
             ),
             setting_row(
@@ -216,18 +209,14 @@ pub fn view(app: &App) -> Element<'_, Message> {
             ),
             setting_row(
                 "request_format",
-                choices(vec![
-                    (
-                        "responses",
-                        format == RequestFormat::Responses,
-                        Change::RequestFormat(RequestFormat::Responses),
-                    ),
-                    (
-                        "chat completions",
-                        format == RequestFormat::ChatCompletions,
-                        Change::RequestFormat(RequestFormat::ChatCompletions),
-                    ),
-                ]),
+                pick(
+                    format,
+                    &[
+                        ("responses", RequestFormat::Responses),
+                        ("chat completions", RequestFormat::ChatCompletions),
+                    ],
+                    Change::RequestFormat,
+                ),
                 comment(""),
             ),
             setting_row(
@@ -251,23 +240,15 @@ pub fn view(app: &App) -> Element<'_, Message> {
         "window",
         vec![setting_row(
             "window_controls",
-            choices(vec![
-                (
-                    "auto",
-                    settings.window_controls == WindowControls::Auto,
-                    Change::WindowControls(WindowControls::Auto),
-                ),
-                (
-                    "show",
-                    settings.window_controls == WindowControls::Show,
-                    Change::WindowControls(WindowControls::Show),
-                ),
-                (
-                    "hide",
-                    settings.window_controls == WindowControls::Hide,
-                    Change::WindowControls(WindowControls::Hide),
-                ),
-            ]),
+            pick(
+                settings.window_controls,
+                &[
+                    ("auto", WindowControls::Auto),
+                    ("show", WindowControls::Show),
+                    ("hide", WindowControls::Hide),
+                ],
+                Change::WindowControls,
+            ),
             comment("auto hides them on tiling WMs"),
         )],
     );
@@ -546,6 +527,20 @@ fn choices_as<'a>(options: Vec<(&'a str, bool, Change)>, token: Token) -> Elemen
     line.into()
 }
 
+/// One of a setting's values: `options` are each label and value, `current` is coloured as
+/// chosen, and picking one sends `change` with its value.
+fn pick<'a, T: Copy + PartialEq>(
+    current: T,
+    options: &[(&'a str, T)],
+    change: fn(T) -> Change,
+) -> Element<'a, Message> {
+    let options = options
+        .iter()
+        .map(|&(label, value)| (label, value == current, change(value)))
+        .collect();
+    choices(options)
+}
+
 /// On and off, the chosen one coloured as a TOML `true` or `false`.
 fn on_off<'a>(on: bool, change: fn(bool) -> Change) -> Element<'a, Message> {
     choices_as(
@@ -568,27 +563,27 @@ fn stepper<'a>(value: String, less: Change, more: Change) -> Element<'a, Message
 /// A text box for a free-form setting, its text coloured as a TOML string; empty shows
 /// `placeholder`.
 fn field<'a>(placeholder: &str, value: &str, change: fn(String) -> Change) -> Element<'a, Message> {
-    text_input(placeholder, value)
+    text_box(placeholder, value)
         .on_input(move |typed| Message::Setting(change(typed)))
-        .size(SIZE)
-        .line_height(editor::LINE_HEIGHT)
-        .padding([0, 4])
-        .width(32.0 * CH)
-        .style(field_style)
         .into()
 }
 
 /// The API key, shown as dots. Each change is saved (see `KeyField`); empty deletes it.
 fn key_input<'a>(key: &str) -> Element<'a, Message> {
-    text_input("paste one if needed", key)
+    text_box("paste one if needed", key)
         .secure(true)
         .on_input(|typed| Message::Assistant(AssistantAction::KeyTyped(typed)))
+        .into()
+}
+
+/// The text box `field` and `key_input` share, sized like a value in the file.
+fn text_box<'a>(placeholder: &str, value: &str) -> TextInput<'a, Message> {
+    text_input(placeholder, value)
         .size(SIZE)
         .line_height(editor::LINE_HEIGHT)
         .padding([0, 4])
         .width(32.0 * CH)
         .style(field_style)
-        .into()
 }
 
 /// The keyring by the name people know it by on this OS.
