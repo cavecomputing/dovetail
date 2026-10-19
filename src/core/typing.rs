@@ -6,7 +6,7 @@ use std::ops::Range;
 
 use crate::core::config::comment_start;
 use crate::core::shell::shell_ranges;
-use crate::core::syntax::{Syntax, Token};
+use crate::core::syntax::{Syntax, Token, indent};
 
 /// The pairs that close themselves in `syntax`, as (opener, closer). None outside code.
 fn pairs(syntax: Syntax) -> &'static [(char, char)] {
@@ -75,11 +75,6 @@ pub fn in_empty_pair(text: &str, at: usize, syntax: Syntax) -> bool {
     pairs(syntax)
         .iter()
         .any(|&(opener, closer)| previous == Some(opener) && next == Some(closer))
-}
-
-/// The spaces at the start of `line`.
-fn indent(line: &str) -> usize {
-    line.len() - line.trim_start_matches(' ').len()
 }
 
 /// `line` without any comment at its end, and its spaces there.

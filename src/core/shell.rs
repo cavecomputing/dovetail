@@ -7,9 +7,7 @@ use std::io::Write;
 use std::ops::Range;
 use std::process::{Command, Stdio};
 
-use crate::core::syntax::Token;
-
-type Found = Vec<(Range<usize>, Token)>;
+use crate::core::syntax::{Found, Token};
 
 /// What a line starts inside, from the lines above it.
 #[derive(Debug, Clone, PartialEq)]

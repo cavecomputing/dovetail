@@ -4,7 +4,6 @@
 //! left it in: prose, or inside a fenced code block.
 
 use std::ops::Range;
-use std::path::Path;
 
 /// The marker Ctrl+B puts around text, for bold.
 pub const BOLD: &str = "**";
@@ -13,15 +12,6 @@ pub const BOLD: &str = "**";
 pub const ITALIC: &str = "_";
 /// Ctrl+I's marker against a letter or digit, where Markdown reads a `_` as part of the word.
 const ITALIC_IN_A_WORD: &str = "*";
-
-/// Whether `path` is a Markdown file: its extension is .md or .markdown, in any case.
-pub fn is_markdown(path: &Path) -> bool {
-    path.extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| {
-            extension.eq_ignore_ascii_case("md") || extension.eq_ignore_ascii_case("markdown")
-        })
-}
 
 /// Where a line starts: in prose, or inside a fenced code block opened by `length` (3 or more)
 /// of `fence` (a backtick or a tilde).
@@ -496,21 +486,6 @@ mod tests {
             );
         }
         found
-    }
-
-    #[test]
-    fn markdown_files_go_by_their_extension() {
-        for name in [
-            "notes.md",
-            "README.MD",
-            "a.b/notes.Markdown",
-            "/x/y.markdown",
-        ] {
-            assert!(is_markdown(Path::new(name)), "{name}");
-        }
-        for name in ["notes.txt", "notes", "notes.mdx", "md", ".md.txt"] {
-            assert!(!is_markdown(Path::new(name)), "{name}");
-        }
     }
 
     #[test]
