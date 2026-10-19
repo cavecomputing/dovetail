@@ -164,9 +164,11 @@ name from `brand.rs` through `<bin> --print-brand`:
 - Code that only one OS needs goes behind `#[cfg(unix)]`, `#[cfg(windows)]` or
   `#[cfg(target_os = "...")]` (or `cfg!(...)` inside a function), with a comment saying what the
   other OSes do, even when that is nothing. A test that uses one OS's API gets the same cfg.
-- To check the Windows side from Linux before pushing: `rustup target add x86_64-pc-windows-gnu`,
-  install MinGW (`mingw-w64-gcc` on Arch, `gcc-mingw-w64-x86-64` on Ubuntu), then
-  `cargo clippy --all-targets --target x86_64-pc-windows-gnu -- -D warnings`. With wine installed,
+- To check the Windows side from Linux or macOS before pushing: `rustup target add x86_64-pc-windows-gnu`,
+  install MinGW (`mingw-w64-gcc` on Arch, `gcc-mingw-w64-x86-64` on Ubuntu, `brew install mingw-w64`
+  on macOS), then `cargo clippy --all-targets --target x86_64-pc-windows-gnu -- -D warnings`.
+  `cargo build --release --target x86_64-pc-windows-gnu` makes a Windows exe that needs nothing
+  else installed, at `target/x86_64-pc-windows-gnu/release/<bin name>.exe`. With wine installed,
   `CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUNNER=wine cargo test --target x86_64-pc-windows-gnu` runs
   the tests too. Only CI builds and tests macOS, so write macOS-only code against the crate sources
   and treat its first CI run as its first real test.
