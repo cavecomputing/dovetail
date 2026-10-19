@@ -1,0 +1,80 @@
+# Builds the release binary on Linux, macOS and Windows when a semantic version tag (v1.2.3, or
+# v1.2.3-beta.1 for a pre-release) is pushed, and posts them on a GitHub Release named for the tag.
+# Nothing else releases: no push to main, no schedule. To release, set `version` in Cargo.toml,
+# commit, then tag that commit to match (`git tag v0.2.0 && git push origin v0.2.0`). Every name
+# comes from the binary's --print-brand, like the install scripts, so nothing is hardcoded here.
+name: Release
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+', 'v[0-9]+.[0-9]+.[0-9]+-*']
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-x86_64
+          # GitHub's macOS runners are Apple silicon; Intel Macs build from source.
+          - os: macos-latest
+            platform: macos-arm64
+          - os: windows-latest
+            platform: windows-x86_64
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release --locked
+      - name: Package
+        run: |
+          package=$(sed -n 's/^name = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
+          exe=$([ "$RUNNER_OS" = Windows ] && echo .exe || true)
+          binary="target/release/$package$exe"
+          eval "$("$binary" --print-brand)"
+          # A tag that doesn't match Cargo.toml would post binaries reporting the wrong version.
+          if [ "$GITHUB_REF_NAME" != "v$VERSION" ]; then
+              echo "Tag $GITHUB_REF_NAME doesn't match version $VERSION in Cargo.toml" >&2
+              exit 1
+          fi
+          name="$BIN_NAME-$VERSION-${{ matrix.platform }}"
+          # The font's licence travels with it, since the font is built into the binary.
+          mkdir "$name"
+          cp "$binary" LICENSE README.md assets/fonts/OFL.txt "$name/"
+          mkdir dist
+          if [ "$RUNNER_OS" = Windows ]; then
+              7z a "dist/$name.zip" "$name" > /dev/null
+          else
+              # tar keeps the binary's executable bit, which a zip from here would lose.
+              tar -czf "dist/$name.tar.gz" "$name"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}
+          path: dist/*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      # The notes list the commits and pull requests since the last release. A tag with a suffix
+      # (v1.2.3-beta.1) is marked a pre-release, so it isn't offered as the latest.
+      - run: |
+          prerelease=$([[ "$GITHUB_REF_NAME" == *-* ]] && echo --prerelease || true)
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes $prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}

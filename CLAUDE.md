@@ -155,6 +155,15 @@ name from `brand.rs` through `<bin> --print-brand`:
   `.txt`, Markdown and config files (`.json`, `.yaml`, `.toml`, `.ini`, ...); add `-Uninstall`
   to remove them.
 
+### Releases
+
+Versions follow semantic versioning (`1.2.3`). Only Matt decides when to release, so never bump the
+version, push a tag or create a release unless he asks. A release is: set `version` in
+`Cargo.toml`, commit, then `git tag v1.2.3 && git push origin v1.2.3` on that commit. The tag runs
+[release.yml](.github/workflows/release.yml), which refuses a tag that doesn't match `Cargo.toml`
+and posts the Linux, macOS (Apple silicon) and Windows builds on a GitHub Release. A tag with a
+suffix (`v1.2.3-beta.1`) becomes a pre-release.
+
 ### How much verification a change needs
 
 - Every change: `cargo build`, `cargo test` and `cargo clippy --all-targets` with no warnings.
@@ -201,6 +210,7 @@ drawing and event wiring.
 
 ```
 .github/workflows/ci.yml build, test, clippy and fmt on Linux, macOS and Windows for every push
+.github/workflows/release.yml  on a version tag Matt pushes: builds all three OSes, posts a Release
 Cargo.toml, Cargo.lock   dependencies (see "Rust in plain terms")
 LICENSE                  MIT, the app's licence (the font has its own, OFL)
 assets/fonts/            the bundled JetBrains Mono NL Nerd Font (no ligatures) and its licence
