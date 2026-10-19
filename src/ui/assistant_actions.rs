@@ -381,7 +381,7 @@ impl App {
         }
     }
 
-    /// Reads the saved key and where keys are kept, off the UI thread, for the Settings window.
+    /// Reads the saved key and where keys are kept, off the UI thread, for the Settings panel.
     pub fn load_key(&self) -> Task<Message> {
         let settings = self.settings.clone();
         Task::perform(
