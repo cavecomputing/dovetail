@@ -37,6 +37,9 @@ pub struct Snapshot {
     /// The parts of `text` that suggestions still waiting for the user replace. A new suggestion
     /// may not overlap them.
     pub waiting: Vec<Range<usize>>,
+    /// How the user decided suggestions since the model was last told, one `decided` line each,
+    /// for the next question's note.
+    pub decided: Vec<String>,
 }
 
 impl Snapshot {
@@ -68,7 +71,9 @@ whatever they have open and help them improve it.
 
 How you work:
 - You never change the document yourself. To suggest a change, call propose_edit. It shows in the \
-document, marked, until the user accepts or rejects it, so say \"I suggested\", never \"I changed\".
+document, marked, until the user accepts or rejects it, so say \"I suggested\", never \"I changed\". \
+The next question's note says which they accepted and rejected; don't suggest a rejected edit again \
+unless asked.
 - The newest question comes with the text as it is now (a long text is cut short: get_document \
 reads the rest by lines), its size, the selection and the caret. Copy the text you want to replace \
 into propose_edit's find exactly, spaces and punctuation included. Leave find empty to add text at \
@@ -117,16 +122,34 @@ fn summary(snapshot: &Snapshot) -> String {
     }
 }
 
-/// The note sent in front of a question: the document's size now, the selection, and where the
-/// caret is.
+/// One suggestion the user decided, for the note: `outcome` (accepted, rejected, ...) and what
+/// it would have replaced with what.
+pub fn decided(suggestion: &Suggestion, outcome: &str) -> String {
+    format!(
+        "{outcome} \"{}\" → \"{}\"",
+        tools::shorten(&suggestion.find, 60),
+        tools::shorten(&suggestion.replace, 60)
+    )
+}
+
+/// The note sent in front of a question: how the user decided the model's last suggestions, the
+/// document's size now, the selection, and where the caret is.
 pub fn turn_note(snapshot: &Snapshot) -> String {
     let text = &snapshot.text;
     let counts = Counts::of(text);
-    let mut note = format!(
+    let mut note = String::new();
+    if !snapshot.decided.is_empty() {
+        note.push_str(&format!(
+            "[Since your last reply the user decided your suggested edits: {}. A rejected edit \
+left the text as it was.]\n",
+            snapshot.decided.join("; ")
+        ));
+    }
+    note.push_str(&format!(
         "[Document now: {} lines, {} words",
         text.split('\n').count(),
         counts.words
-    );
+    ));
     if let Some(tokens) = counts.tokens {
         note.push_str(&format!(", {tokens} tokens"));
     }
@@ -231,6 +254,27 @@ pub(crate) mod tests {
         let cut = open_text(&scratch(&long));
         assert!(cut.contains("[More follows: ask for start_line 49 to read on.]"));
         assert!(cut.len() < 50_000);
+    }
+
+    #[test]
+    fn the_note_says_how_suggestions_were_decided() {
+        let suggestion = |find: &str, replace: &str| Suggestion {
+            at: 0,
+            find: find.to_string(),
+            replace: replace.to_string(),
+            why: String::new(),
+        };
+        let mut snapshot = scratch("Stay cold.");
+        assert!(turn_note(&snapshot).starts_with("[Document now:"));
+        snapshot.decided = vec![
+            decided(&suggestion("cold", "warm"), "rejected"),
+            decided(&suggestion("Stay", "Be"), "accepted"),
+        ];
+        let note = turn_note(&snapshot);
+        assert!(note.starts_with(
+            "[Since your last reply the user decided your suggested edits: rejected \"cold\" → \
+\"warm\"; accepted \"Stay\" → \"Be\". A rejected edit left the text as it was.]\n[Document now:"
+        ));
     }
 
     #[test]

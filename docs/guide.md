@@ -310,7 +310,8 @@ through, the words it puts in on green just after them. You decide in the chat, 
 the line it's on and the reason, with `accept`, `reject` and `try shorter`, which asks for a
 shorter version (`accept all` and `reject all` when several wait). Ctrl+Enter accepts and
 Ctrl+Backspace rejects from anywhere: the suggestion the cursor is on, or else the first one. With
-Shift they take them all. It
+Shift they take them all. Your next question tells the assistant which you accepted and rejected,
+so after rejecting one you can just ask for something different. It
 works on scripts and config files as well as prose: it's told what kind of file is open, a
 suggestion covers only the lines that change (not the lines around them the model copied), and in a
 JSON, YAML, TOML, INI or shell file it's told when an edit would make the file invalid, so it can

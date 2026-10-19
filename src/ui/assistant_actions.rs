@@ -10,7 +10,7 @@ use iced::widget::text_editor;
 
 use crate::ai::agent::{Conversation, Next, test_connection};
 use crate::ai::client::{Item, Reply, StreamEvent};
-use crate::ai::context::{DocKind, Snapshot, shorter_request};
+use crate::ai::context::{self, DocKind, Snapshot, shorter_request};
 use crate::ai::key::{KeyStore, api_key, key_store, set_api_key};
 use crate::ai::tools::Suggestion;
 use crate::core::opened::Doc;
@@ -73,6 +73,8 @@ pub struct Card {
     /// Which question proposed it, counting from 1.
     pub turn: usize,
     pub state: CardState,
+    /// Whether the model has been told how it was decided, in the note with the next question.
+    pub told: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -264,7 +266,20 @@ impl App {
     /// Asks `question` about the document as it is now. The key is read off the UI thread (the
     /// keyring may ask to be unlocked), then `KeyRead` sends the request.
     fn ask(&mut self, question: &str) -> Task<Message> {
-        let snapshot = self.snapshot();
+        let mut snapshot = self.snapshot();
+        // Tell the model how its suggestions went since it last heard.
+        for card in self.assistant.cards.iter_mut().filter(|card| !card.told) {
+            let outcome = match &card.state {
+                CardState::Waiting(_) => continue,
+                CardState::Accepted => "accepted".to_string(),
+                CardState::Rejected => "rejected".to_string(),
+                CardState::Gone(reason) => format!("dropped ({reason})"),
+            };
+            snapshot
+                .decided
+                .push(context::decided(&card.suggestion, &outcome));
+            card.told = true;
+        }
         self.assistant.conversation.ask(question, snapshot);
         self.assistant.question += 1;
         let question = self.assistant.question;
@@ -317,6 +332,7 @@ impl App {
                 .iter()
                 .map(|s| s.range.clone())
                 .collect(),
+            decided: Vec::new(),
         }
     }
 
@@ -342,6 +358,7 @@ impl App {
             self.assistant.cards.push(Card {
                 turn,
                 state,
+                told: false,
                 suggestion,
             });
         }

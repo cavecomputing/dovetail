@@ -269,7 +269,8 @@ src/
                          # header, the chat, suggested edits as diffs, the > prompt, and how it
                          sits beside or over the document
     assistant_actions.rs App's handlers for the assistant: the slide, the agent loop off the UI
-                         thread, cards kept in step with the document, the key, the connection test
+                         thread, cards kept in step with the document, what the model is told
+                         was accepted and rejected, the key, the connection test
   ai/                    the assistant pane's logic, no UI
     client.rs            requests to any OpenAI-compatible server (Responses or Chat Completions)
                          and the streamed reply
