@@ -1,5 +1,5 @@
-//! App's handlers for the file shortcuts: opening a file (Ctrl+O, Ctrl+P and Recent), New file
-//! (Ctrl+N), Save (Ctrl+S) and Save as (Ctrl+Shift+S).
+//! App's handlers for the file shortcuts: opening a document in this window (Ctrl+O, Ctrl+P,
+//! Recent and Ctrl+0), New file (Ctrl+N), Save (Ctrl+S) and Save as (Ctrl+Shift+S).
 
 use std::path::PathBuf;
 use std::time::Instant;
@@ -63,7 +63,7 @@ impl App {
         }
     }
 
-    /// Ctrl+N: asks where the new file (.txt or .md) goes; `NewFilePicked` brings the answer.
+    /// Ctrl+N: asks where the new file goes; `NewFilePicked` brings the answer.
     pub fn new_file(&mut self) -> Task<Message> {
         self.menu_open = false;
         let dialog = self.save_dialog("New file", "untitled.txt".to_string());
@@ -99,7 +99,7 @@ impl App {
         Task::none()
     }
 
-    /// Save as: asks where to save this text as a .txt or .md; `SaveAsPicked` brings the answer.
+    /// Save as: asks where to save this text; `SaveAsPicked` brings the answer.
     pub fn pick_save_path(&mut self) -> Task<Message> {
         self.menu_open = false;
         let name = match &self.doc {

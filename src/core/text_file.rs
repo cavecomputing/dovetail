@@ -1,4 +1,5 @@
-//! Reading plain text documents (`.txt`, Markdown's `.md`, and data files such as `.json`).
+//! Reading and saving text documents (`.txt`, Markdown's `.md`, data files such as `.json`):
+//! their line endings and byte order mark, whether they changed on disk, and a name for one.
 
 use std::fs;
 use std::io::{self, ErrorKind};

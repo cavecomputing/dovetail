@@ -190,7 +190,7 @@ pub enum Message {
     OpenScratch,
     OpenSwitcher,
     SwitcherQuery(String),
-    /// ↑ or ↓: moves the highlight in the switcher or the palette, whichever is open.
+    /// ↑ or ↓: moves the highlight in the picker, the switcher or the palette, whichever is open.
     SwitcherMove(i32),
     SwitcherOpen,
     /// Open the switcher's row with this number: Ctrl+1 to Ctrl+9 (Ctrl+0 is `OpenScratch`, its
@@ -597,8 +597,8 @@ impl App {
                 self.menu_open = !self.menu_open;
                 self.recent = existing_recent_files(&self.paths.data_dir);
             }
-            // Esc, or a click outside: closes the menu, the switcher, the palette and Settings.
-            // With none of them open, Esc closes the find bar.
+            // Esc, or a click outside: closes the menu, the picker, the switcher, the palette and
+            // Settings. With none of them open, Esc closes the find bar.
             Message::CloseMenu => {
                 let mut closed = self.menu_open || self.switcher.is_some();
                 closed |= self.palette.take().is_some();
@@ -1037,9 +1037,10 @@ fn pane_for(opened: &OpenedDoc) -> Pane {
     pane
 }
 
-/// App-wide keys. Up and Down move through the switcher's or the palette's list, Enter steps through the find
-/// bar's matches (each ignored while its panel is closed), and Tab outside the editor moves
-/// between text boxes.
+/// App-wide keys. Up and Down move through the picker's, the switcher's or the palette's list
+/// (and in the picker ← and → go up a folder and into one), Enter steps through the find bar's
+/// matches (each ignored while its panel is closed), and Tab outside the editor moves between
+/// text boxes.
 fn shortcut(event: iced::Event, status: event::Status, _window: window::Id) -> Option<Message> {
     let (key, modifiers) = match event {
         iced::Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {

@@ -1,8 +1,9 @@
 //! The text editing widget: the text column, Tab as spaces, Enter and Backspace that know about
 //! indents (and Enter and Tab about Markdown lists, and in code about blocks and pairs), deleting
-//! a word, moving lines, Markdown's bold and italic markers, undo and redo (its colours come from
-//! `highlighter`). A `Pane` pairs the widget's content with the text model behind it, and shows
-//! suggested edits inside the text until each is accepted or rejected (review mode).
+//! a word, moving, duplicating and deleting lines, Ctrl+D's next match, Ctrl+/'s comments,
+//! Markdown's bold and italic markers, undo and redo (its colours come from `highlighter`). A
+//! `Pane` pairs the widget's content with the text model behind it, and shows suggested edits
+//! inside the text until each is accepted or rejected (review mode).
 
 use std::ops::Range;
 use std::sync::Arc;
@@ -49,10 +50,10 @@ pub const PADDING: Padding = Padding {
 };
 
 /// The pane's editor in its column, with `paint` (any suggestions, from `Pane::suggestion_runs`,
-/// and find matches) drawn under the text, coloured for its `syntax` (Markdown, or a data file's
-/// keys and values). Without
-/// `editable` the text is dimmed; it can still be scrolled, selected and copied, and
-/// `App::update` drops any change to it.
+/// find matches and Ctrl+D's other places) drawn under the text, coloured for its `syntax`
+/// (Markdown, a data file's keys and values, a shell script). Without `editable` the text is
+/// dimmed; it can still be scrolled, selected and copied, and `App::update` drops any change to
+/// it.
 pub fn view<'a>(
     pane: &'a Pane,
     settings: &Settings,
@@ -128,12 +129,13 @@ fn style(theme: &Theme, editable: bool) -> text_editor::Style {
 /// Enter without Shift continue a list), Backspace in a line's leading spaces goes back to the last
 /// indent stop, Ctrl+Backspace and Ctrl+Delete delete a word (⌥⌫ and ⌥⌦ on macOS, where ⌘⌫ and ⌘⌦
 /// delete to the start and end of the line), Alt+↑ and Alt+↓ move lines, Ctrl+Shift+D and
-/// Ctrl+Shift+K duplicate and delete them, Ctrl+B and Ctrl+I toggle
-/// bold and italic markers (`App::update` drops them outside Markdown), Ctrl+Z undoes, Ctrl+Shift+Z
-/// and Ctrl+Y redo, and the app's own Ctrl shortcuts are left for the app. A pane that isn't
-/// `editable` keeps only iced's own keys (moving, selecting, copying). While `reviewing`, Ctrl+Enter
-/// and Ctrl+Backspace are left to the app (they accept and reject), and Ctrl+C and Ctrl+X go
-/// through `Message::Clip`, since the widget's text has the suggestions in it.
+/// Ctrl+Shift+K duplicate and delete them, Ctrl+D selects the next match, Ctrl+/ comments lines,
+/// Ctrl+B and Ctrl+I toggle bold and italic markers (`App::update` drops them outside Markdown),
+/// Ctrl+Z undoes, Ctrl+Shift+Z and Ctrl+Y redo, and the app's own Ctrl shortcuts are left for the
+/// app. A pane that isn't `editable` keeps only iced's own keys (moving, selecting, copying).
+/// While `reviewing`, Ctrl+Enter and Ctrl+Backspace are left to the app (they accept and reject),
+/// and Ctrl+C and Ctrl+X go through `Message::Clip`, since the widget's text has the suggestions
+/// in it.
 fn key_binding(press: KeyPress, editable: bool, reviewing: bool) -> Option<Binding<Message>> {
     // A custom binding is used even when the editor isn't focused, so check first.
     if !matches!(press.status, Status::Focused { .. }) {
@@ -855,10 +857,10 @@ impl Pane {
         }
     }
 
-    /// Enter in code (a shell script, JSON or YAML): indents after a line that opens a block, opens up
-    /// a pair of brackets the caret is between, and lines up a line that ends a block (see
-    /// `typing::enter`). Anywhere else it is `new_line`. Returns whether the text changed, or why
-    /// it can't.
+    /// Enter in code (a shell script, JSON or YAML): indents after a line that opens a block,
+    /// opens up a pair of brackets the caret is between, and lines up a line that ends a block
+    /// (see `typing::enter`). Anywhere else it is `new_line`. Returns whether the text changed,
+    /// or why it can't.
     pub fn code_new_line(&mut self, tab_spaces: usize, syntax: Syntax) -> Result<bool, String> {
         if !self.others.is_empty() {
             return self.new_line();
@@ -907,7 +909,8 @@ impl Pane {
     /// Ctrl+B and Ctrl+I in a Markdown file: puts `marker` (`**`, or `_` or inside a word `*`
     /// for italic) around the selection and keeps the same text selected, or with nothing
     /// selected puts in a pair with the caret between. When the markers are already there, just
-    /// outside the selection or at its ends, it takes them off instead. Returns whether the text changed, or why it can't.
+    /// outside the selection or at its ends, it takes them off instead. Returns whether the text
+    /// changed, or why it can't.
     pub fn toggle_marker(&mut self, marker: &str) -> Result<bool, String> {
         let cursor = self.content.cursor();
         let selection = self.selection_or_caret();

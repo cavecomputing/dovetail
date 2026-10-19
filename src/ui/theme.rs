@@ -126,7 +126,7 @@ pub fn icon_button(theme: &Theme, status: button::Status) -> button::Style {
     }
 }
 
-/// A small raised box for tooltips and the menu.
+/// A small raised box for tooltips, the menu and the panels over the text.
 pub fn raised_box(theme: &Theme) -> container::Style {
     let roles = Roles::of(theme);
     container::Style {
@@ -137,7 +137,7 @@ pub fn raised_box(theme: &Theme) -> container::Style {
     }
 }
 
-/// A plain coloured background, for the window and the status bar.
+/// A plain coloured background, for the window, the status bar, the panes and the dividers.
 pub fn fill(color: Color) -> container::Style {
     container::Style {
         background: Some(Background::Color(color)),

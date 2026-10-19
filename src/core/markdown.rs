@@ -266,9 +266,9 @@ fn next_marker(marker: &str) -> String {
 /// Ctrl+B and Ctrl+I: puts `marker` around `selection` (a byte range of `text`, empty for just
 /// the caret), or takes it off when the selection already has it, just outside or at its ends.
 /// Italic is a `*` instead when a letter or digit is right outside the selection, and comes off
-/// as either. With just the caret, only an empty pair around it comes off, not the end of one span and the
-/// start of the next. Returns the range of `text` to replace, what to put there, and what to
-/// select afterwards: the same text, or the caret between a new pair.
+/// as either. With just the caret, only an empty pair around it comes off, not the end of one
+/// span and the start of the next. Returns the range of `text` to replace, what to put there, and
+/// what to select afterwards: the same text, or the caret between a new pair.
 pub fn toggle_marker(
     text: &str,
     selection: Range<usize>,

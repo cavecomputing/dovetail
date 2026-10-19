@@ -1,7 +1,7 @@
 //! Shell scripts (.sh, .bash, or a file with no extension whose `#!` line names sh or bash):
-//! which parts of a line to colour, and whether `bash -n` finds a syntax error. Lines are coloured one at a time; a quoted string or a
-//! here-document (`<<EOF`) can run on below the line that opens it, so each line also says what
-//! the next one starts in.
+//! which parts of a line to colour, and whether `bash -n` finds a syntax error. Lines are coloured
+//! one at a time; a quoted string or a here-document (`<<EOF`) can run on below the line that
+//! opens it, so each line also says what the next one starts in.
 
 use std::io::Write;
 use std::ops::Range;
