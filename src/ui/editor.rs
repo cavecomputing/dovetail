@@ -1199,6 +1199,15 @@ mod tests {
     use super::*;
     use iced::keyboard::key::{Code, NativeCode, Physical};
 
+    /// Selects from (line, column) `anchor` to `caret`, as dragging the mouse there does.
+    fn select_from(pane: &mut Pane, anchor: (usize, usize), caret: (usize, usize)) {
+        let at = |(line, column)| Position { line, column };
+        pane.content.move_to(Cursor {
+            position: at(caret),
+            selection: Some(at(anchor)),
+        });
+    }
+
     fn cursor_at(line: usize, column: usize) -> Cursor {
         Cursor {
             position: Position { line, column },
@@ -1242,10 +1251,7 @@ mod tests {
     #[test]
     fn pasting_over_a_selection_and_undoing_it() {
         let mut pane = Pane::new("one\ntwo\nthree");
-        pane.content.move_to(Cursor {
-            position: Position { line: 2, column: 2 },
-            selection: Some(Position { line: 0, column: 1 }),
-        });
+        select_from(&mut pane, (0, 1), (2, 2));
         pane.perform(Action::Edit(Edit::Paste(Arc::new("X\nY".to_string()))))
             .unwrap();
         assert_eq!(pane.content.text(), "oX\nYree");
@@ -1273,16 +1279,10 @@ mod tests {
     #[test]
     fn selection_is_a_byte_range() {
         let mut pane = Pane::new("café au lait");
-        pane.content.move_to(Cursor {
-            position: Position { line: 0, column: 2 },
-            selection: Some(Position { line: 0, column: 9 }),
-        });
+        select_from(&mut pane, (0, 9), (0, 2));
         assert_eq!(pane.selection(), Some(2..9));
         // Selected the other way, it's the same range.
-        pane.content.move_to(Cursor {
-            position: Position { line: 0, column: 9 },
-            selection: Some(Position { line: 0, column: 2 }),
-        });
+        select_from(&mut pane, (0, 2), (0, 9));
         assert_eq!(pane.selection(), Some(2..9));
         assert_eq!(Pane::new("café").selection(), None);
     }
@@ -1500,16 +1500,7 @@ mod tests {
         });
         assert_eq!(pane.selection(), Some(4..12));
         // A selection of only added text is no selection.
-        pane.content.move_to(Cursor {
-            position: Position {
-                line: 0,
-                column: 17,
-            },
-            selection: Some(Position {
-                line: 0,
-                column: 12,
-            }),
-        });
+        select_from(&mut pane, (0, 12), (0, 17));
         assert_eq!(pane.selection(), None);
     }
 
@@ -1587,10 +1578,7 @@ mod tests {
         );
 
         // A selection unindents every line it touches, each by what it has (up to 4).
-        pane.content.move_to(Cursor {
-            position: Position { line: 1, column: 3 },
-            selection: Some(Position { line: 0, column: 4 }),
-        });
+        select_from(&mut pane, (0, 4), (1, 3));
         assert_eq!(pane.unindent(4), Ok(true));
         assert_eq!(pane.content.text(), "two levels\nx");
         assert_eq!(
@@ -1606,10 +1594,7 @@ mod tests {
     /// Selects from the start of the text to the start of line 2, as Ctrl+Home then Shift+Down
     /// twice do: only lines 0 and 1 show as selected.
     fn select_two_lines(pane: &mut Pane) {
-        pane.content.move_to(Cursor {
-            position: Position { line: 2, column: 0 },
-            selection: Some(Position { line: 0, column: 0 }),
-        });
+        select_from(pane, (0, 0), (2, 0));
     }
 
     #[test]
@@ -1627,10 +1612,7 @@ mod tests {
         assert_eq!(pane.content.text(), "    alpha\n    beta\ngamma\n");
 
         // A selection that starts and ends inside lines keeps its ends on the same letters.
-        pane.content.move_to(Cursor {
-            position: Position { line: 1, column: 6 },
-            selection: Some(Position { line: 0, column: 5 }),
-        });
+        select_from(&mut pane, (0, 5), (1, 6));
         assert_eq!(pane.indent(2, false), Ok(true));
         assert_eq!(pane.content.text(), "      alpha\n      beta\ngamma\n");
         assert_eq!(pane.copied().as_deref(), Some("lpha\n      be"));
@@ -1643,10 +1625,7 @@ mod tests {
         assert_eq!(pane.indent(4, false), Ok(true));
         assert_eq!(pane.content.text(), "one     two");
         // A selection within one line is replaced, as typing would.
-        pane.content.move_to(Cursor {
-            position: Position { line: 0, column: 3 },
-            selection: Some(Position { line: 0, column: 0 }),
-        });
+        select_from(&mut pane, (0, 0), (0, 3));
         assert_eq!(pane.indent(2, false), Ok(true));
         assert_eq!(pane.content.text(), "       two");
         pane.undo();
@@ -1719,10 +1698,7 @@ mod tests {
     #[test]
     fn enter_replaces_a_selection() {
         let mut pane = Pane::new("  one two\nthree");
-        pane.content.move_to(Cursor {
-            position: Position { line: 1, column: 2 },
-            selection: Some(Position { line: 0, column: 6 }),
-        });
+        select_from(&mut pane, (0, 6), (1, 2));
         assert_eq!(pane.new_line(), Ok(true));
         assert_eq!(pane.content.text(), "  one \n  ree");
         pane.undo();
@@ -1768,10 +1744,7 @@ mod tests {
         assert_eq!(pane.content.text(), "\t");
         // A selection is deleted, and nothing else.
         let mut pane = Pane::new("        x");
-        pane.content.move_to(Cursor {
-            position: Position { line: 0, column: 7 },
-            selection: Some(Position { line: 0, column: 6 }),
-        });
+        select_from(&mut pane, (0, 6), (0, 7));
         assert_eq!(pane.backspace(4, Syntax::Plain), Ok(true));
         assert_eq!(pane.content.text(), "       x");
         assert!(matches!(
@@ -2320,10 +2293,7 @@ mod tests {
     #[test]
     fn duplicating_lines_moves_the_selection_onto_the_copy() {
         let mut pane = Pane::new("one\ntwo\nthree");
-        pane.content.move_to(Cursor {
-            position: Position { line: 1, column: 2 },
-            selection: Some(Position { line: 0, column: 1 }),
-        });
+        select_from(&mut pane, (0, 1), (1, 2));
         assert_eq!(pane.duplicate_lines(), Ok(true));
         assert_eq!(pane.content.text(), "one\ntwo\none\ntwo\nthree");
         assert_eq!(pane.selection(), Some(9..14), "\"ne\\ntw\" in the copy");
