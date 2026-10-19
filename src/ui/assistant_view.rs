@@ -1,16 +1,15 @@
 //! The assistant pane beside the document, drawn like a terminal transcript: `#` comment lines
 //! saying which model it is and what it sees, your questions after a `>`, each reply's tool use
-//! and suggested edits (as a `−`/`+` diff with accept, reject and try shorter), and the composer
-//! as a `>` prompt.
+//! and suggested edits (why, with accept, reject and try shorter: the change itself shows in the
+//! document), and the composer as a `>` prompt.
 
 use iced::keyboard::{Key, key::Named};
 use iced::widget::text::Wrapping;
 use iced::widget::text_editor::{Binding, KeyPress, Status};
 use iced::widget::{
-    button, column, container, opaque, rich_text, row, scrollable, space, span, stack, text,
-    text_editor,
+    button, column, container, opaque, row, scrollable, space, stack, text, text_editor,
 };
-use iced::{Background, Border, Color, Element, Fill, Font, Padding, Theme};
+use iced::{Background, Border, Color, Element, Fill, Padding, Theme};
 
 use crate::ai::client::{Item, ToolCall};
 use crate::ai::context;
@@ -18,8 +17,8 @@ use crate::ai::tools::{describe, shorten};
 use crate::core::opened::Doc;
 use crate::ui::app::{App, Message};
 use crate::ui::assistant_actions::{AssistantAction, COMPOSER_ID, Card, CardState};
-use crate::ui::editor::Decision;
-use crate::ui::status_bar::title;
+use crate::ui::editor::{self, Decision};
+use crate::ui::status_bar::{keys, title};
 use crate::ui::theme::{CHAR_WIDTH_RATIO, Roles, fill};
 
 pub const PANE_WIDTH: f32 = 380.0;
@@ -99,15 +98,16 @@ fn pane(app: &App) -> Element<'_, Message> {
         left: 16.0,
     });
 
-    let mut bottom = column![].padding(Padding {
-        top: 0.0,
-        right: 16.0,
-        bottom: 12.0,
-        left: 16.0,
-    });
+    // The keys for suggestions sit above the composer in a column of their own, which is always
+    // there, so the composer keeps its place in the tree (and its focus) as they come and go.
+    let mut keys_help = column![];
     let waiting = app.pane.suggestions().len();
+    if waiting > 0 {
+        keys_help = keys_help.push(line(keys("# Ctrl+Enter accepts"), subtle));
+        keys_help = keys_help.push(line(keys("# Ctrl+Backspace rejects"), subtle));
+    }
     if waiting > 1 {
-        bottom = bottom.push(
+        keys_help = keys_help.push(
             row![
                 line(format!("# {waiting} suggestions"), subtle),
                 space::horizontal(),
@@ -125,7 +125,12 @@ fn pane(app: &App) -> Element<'_, Message> {
             .spacing(CH),
         );
     }
-    bottom = bottom.push(composer(app));
+    let bottom = column![keys_help, composer(app)].padding(Padding {
+        top: 0.0,
+        right: 16.0,
+        bottom: 12.0,
+        left: 16.0,
+    });
     column![head, chat(app), bottom].height(Fill).into()
 }
 
@@ -253,11 +258,11 @@ fn cards(app: &App, turn: usize) -> impl Iterator<Item = Element<'_, Message>> {
         .map(move |card| card_view(app, card))
 }
 
-/// A waiting suggestion, as the call that made it with the line it's on and its size change,
-/// then the lines it takes out (`−`, struck) and puts in (`+`), why, and accept, reject and try
-/// shorter. A decided one shrinks to one line saying how it went.
+/// A waiting suggestion, as the call that made it with the line it's on, why, and accept, reject
+/// and try shorter. What it changes shows in the document. The current one (what Ctrl+Enter and
+/// Ctrl+Backspace decide) has its accept lit. A decided one shrinks to one line saying how it
+/// went.
 fn card_view<'a>(app: &'a App, card: &'a Card) -> Element<'a, Message> {
-    let roles = Roles::of(&app.theme);
     let suggestion = &card.suggestion;
     let id = match &card.state {
         CardState::Waiting(id) => *id,
@@ -282,49 +287,23 @@ fn card_view<'a>(app: &'a App, card: &'a Card) -> Element<'a, Message> {
             format!("(line {line})")
         })
         .unwrap_or_default();
-    let mut size = format!("{:+} words", card.words);
-    if let Some(tokens) = card.tokens {
-        size.push_str(&format!(" · {tokens:+} tokens"));
-    }
     let call = row![
         line("propose_edit", |roles| roles.accent_cool),
-        line(place, subtle),
-        space::horizontal(),
-        line(size, subtle),
+        line(place, subtle)
     ];
-    let mut diff = column![];
-    // Each line its own, without a last line break.
-    let lines = |text: &'a str| match text.is_empty() {
-        true => Vec::new(),
-        false => text
-            .strip_suffix('\n')
-            .unwrap_or(text)
-            .split('\n')
-            .collect(),
-    };
-    for removed in lines(&suggestion.find) {
-        diff = diff.push(
-            rich_text([
-                span::<(), Font>("− ").color(roles.fg_muted),
-                span(removed).color(roles.fg_muted).strikethrough(true),
-            ])
-            .size(SIZE)
-            .line_height(LINE),
-        );
-    }
-    for added in lines(&suggestion.replace) {
-        diff = diff.push(line(format!("+ {added}"), |roles| roles.accent_aqua));
-    }
+    let mut card_column = column![call];
     if !suggestion.why.trim().is_empty() {
-        diff = diff.push(line(format!("# {}", suggestion.why.trim()), subtle));
+        let why = line(format!("# {}", suggestion.why.trim()), subtle);
+        card_column = card_column.push(container(why).padding(Padding::default().left(2.0 * CH)));
     }
     let shorter = app
         .can_ask()
         .then_some(Message::Assistant(AssistantAction::TryShorter(id)));
+    let current = app.pane.current_suggestion() == Some(id);
     let buttons = row![
         word(
             "accept",
-            accent_text,
+            if current { accent_text } else { fg_muted },
             Some(Message::Decide(Decision::Accept(Some(id))))
         ),
         word(
@@ -335,19 +314,18 @@ fn card_view<'a>(app: &'a App, card: &'a Card) -> Element<'a, Message> {
         word("try shorter", fg_muted, shorter),
     ]
     .spacing(CH);
-    // Indented two characters, the buttons' text lined up with the diff's inside their padding.
-    column![
-        call,
-        container(diff).padding(Padding::default().left(2.0 * CH)),
-        container(buttons).padding(Padding::default().left(2.0 * CH - 4.0)),
-    ]
-    .into()
+    // Indented two characters, the buttons' text lined up with the line above inside their
+    // padding.
+    card_column
+        .push(container(buttons).padding(Padding::default().left(2.0 * CH - 4.0)))
+        .into()
 }
 
 /// The composer: a `>` prompt and the message box, and stop while a reply is coming. Enter
 /// sends; Shift+Enter starts a new line.
 fn composer(app: &App) -> Element<'_, Message> {
     let assistant = &app.assistant;
+    let reviewing = app.pane.reviewing();
     let placeholder = if app.settings.model.trim().is_empty() {
         "set a model in Settings first"
     } else {
@@ -357,7 +335,7 @@ fn composer(app: &App) -> Element<'_, Message> {
         .id(COMPOSER_ID)
         .placeholder(placeholder)
         .on_action(|action| Message::Assistant(AssistantAction::Composer(action)))
-        .key_binding(composer_keys)
+        .key_binding(move |press| composer_keys(press, reviewing))
         .size(SIZE)
         .line_height(LINE)
         .padding(0)
@@ -385,7 +363,12 @@ fn composer(app: &App) -> Element<'_, Message> {
         .into()
 }
 
-fn composer_keys(press: KeyPress) -> Option<Binding<Message>> {
+/// Enter sends and Shift+Enter starts a new line. While suggestions wait (`reviewing`), Ctrl+Enter
+/// and Ctrl+Backspace are left to the app, which accepts and rejects with them.
+fn composer_keys(press: KeyPress, reviewing: bool) -> Option<Binding<Message>> {
+    if reviewing && editor::decides(&press) {
+        return None;
+    }
     let enter = matches!(press.key.as_ref(), Key::Named(Named::Enter));
     if enter && !press.modifiers.shift() && matches!(press.status, Status::Focused { .. }) {
         return Some(Binding::Custom(Message::Assistant(AssistantAction::Send)));

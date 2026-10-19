@@ -491,17 +491,6 @@ impl App {
                 }
             }
             Message::Undo | Message::Redo => {}
-            // Tab in the editor accepts the suggestion the caret is on; anywhere else it indents.
-            Message::Decide(Decision::Accept(None))
-                if self.pane.suggestion_at_caret().is_none() =>
-            {
-                return self.update(Message::Indent);
-            }
-            // Esc in the editor rejects the suggestion the caret is on. With the caret anywhere
-            // else, or while the find bar is open, it does nothing here (that Esc only closes the
-            // bar, through `CloseMenu`).
-            Message::Decide(Decision::Reject(None))
-                if self.find.open || self.pane.suggestion_at_caret().is_none() => {}
             Message::Decide(decision) => self.decide(decision),
             Message::Tick(now) => {
                 self.now = now;
@@ -805,8 +794,8 @@ impl App {
         ));
     }
 
-    /// Accepts or rejects suggestions (from their buttons, Tab or Esc, the chat, or new chat), and
-    /// marks their cards.
+    /// Accepts or rejects suggestions (from the chat, Ctrl+Enter or Ctrl+Backspace, or new chat),
+    /// and marks their cards.
     pub fn decide(&mut self, decision: Decision) {
         if !self.editable() {
             return;
@@ -1070,6 +1059,23 @@ fn shortcut(event: iced::Event, status: event::Status, _window: window::Id) -> O
         }
         _ => return None,
     };
+    // Ctrl+Enter and Ctrl+Backspace accept and reject the current suggested edit, and with Shift
+    // all of them. The editor and the message box leave these keys alone while any wait.
+    if modifiers.command() && status == event::Status::Ignored {
+        let all = modifiers.shift();
+        let decision = match key.as_ref() {
+            keyboard::Key::Named(keyboard::key::Named::Enter) if all => Some(Decision::AcceptAll),
+            keyboard::Key::Named(keyboard::key::Named::Enter) => Some(Decision::Accept(None)),
+            keyboard::Key::Named(keyboard::key::Named::Backspace) if all => {
+                Some(Decision::RejectAll)
+            }
+            keyboard::Key::Named(keyboard::key::Named::Backspace) => Some(Decision::Reject(None)),
+            _ => None,
+        };
+        if let Some(decision) = decision {
+            return Some(Message::Decide(decision));
+        }
+    }
     match key {
         keyboard::Key::Named(keyboard::key::Named::Escape) => return Some(Message::CloseMenu),
         // Not an Enter the editor or a text box has already taken.

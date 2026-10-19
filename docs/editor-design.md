@@ -280,34 +280,31 @@ layout, as today.
 
 ## Phase 5: suggestions as a review mode
 
-Suggestions never enter `TextModel`, so saves, counts, undo and paint can never contain ghost text.
+Suggestions never enter `TextModel`, so saves, counts, undo and paint can never contain their text.
 It works in any editable pane: scratch, a `.txt` and a project's draft.
 
 - `core/review.rs` (no iced) keeps a pane's waiting suggestions: `Review`, in text order and never
   overlapping, each an id, a byte range of the text, the new text and an optional idea. Its
-  `DisplayMap` is the text with each suggestion spliced in as pieces: `Text`, `Struck` (what it
-  replaces), `Ghost` (the new text) and `Buttons` (room for its mini buttons), and maps offsets
-  both ways.
-  - The ghost text starts with a zero-width space: cosmic-text shapes a plain ASCII word in one
-    font (`shape.rs`, the fast path in `ShapeWord::build`), so italics couldn't start mid-word.
-  - The button room is `_` characters drawn invisible, not spaces: cosmic-text splits trailing
-    whitespace (even no-break spaces) into words of its own that wrap apart.
+  `DisplayMap` is the text with each suggestion spliced in as pieces: `Text`, `Removed` (what it
+  takes out) and `Added` (what it puts in), and maps offsets both ways.
 - While any suggestion waits, `Pane` shows the display string in `Content` (review mode). Edits
   to the text around the suggestions go through and move them with the text (`Review::shift`), as
   undo, redo and `replace` do (a suggestion an undo, redo or `replace` touches is dropped). An edit
-  that would change a suggestion's struck or ghost text, or indent a line with one on it, is put
+  that would change a suggestion's removed or added text, or indent a line with one on it, is put
   back, and the status bar says "Accept or reject the suggestion there first". The widget is
   brought up to date by finding the one changed range between the old and new display strings and
-  pasting over it, so the view keeps its place. Tab accepts the suggestion the caret is on (in or
-  touching its struck text, ghost text or buttons), Esc rejects it (Esc also does what it always
-  does); with the caret anywhere else Tab indents and Esc decides nothing.
+  pasting over it, so the view keeps its place.
+- Deciding happens in the assistant pane: each card's `accept` and `reject`, or Ctrl+Enter and
+  Ctrl+Backspace from anywhere, which take the current suggestion (`Pane::current_suggestion`: the
+  one the caret is on, or else the first). With Shift they take them all. The editor and the
+  message box leave those keys to the app while suggestions wait (`editor::decides`).
 - **Accept** is `TextModel::accept`: one undo step (Accept all too), and the new text takes the
   suggestion's idea's paint. **Reject** drops it. Paint runs and selections go through
   `Pane::position` and `Pane::selection`, which map through the display string.
-- Drawing: `PaintLook::Ghost` (a 12% fill and a dashed underline) and `PaintLook::Struck` (a line
-  through) are drawn in the paint pass; the highlighter (`Colouring`, now always on) makes ghost
-  text italic, struck text muted and the button room invisible. `PaintLook::Buttons` marks the
-  room: the widget draws Accept and Reject there and hit-tests clicks (`TextEditor::on_decide`).
+- Drawing: `PaintLook::Removed` (a see-through Gruvbox red and a line through) and
+  `PaintLook::Added` (a see-through green) are drawn in the paint pass; the highlighter
+  (`Colouring`, now always on) keeps both in plain `fg`, so syntax colours never sit on the red or
+  green. Red and green were asked for (2026-10-19); it is the app's only red.
   In a project the paragraph also gets a dashed "pending" gutter stripe.
 
 ## Not built

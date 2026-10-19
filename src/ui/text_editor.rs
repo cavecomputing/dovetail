@@ -13,9 +13,7 @@
 //! - `Content::cursor` reports a double or triple click's selection as the whole words or lines
 //!   shown selected (upstream reports only the points clicked and dragged to).
 //! - Paint: `TextEditor::paint` draws runs under the glyphs: find matches, and in review mode the
-//!   looks of suggested edits (struck, ghost) and each suggestion's Accept and Reject buttons,
-//!   drawn and clicked inside the widget (`TextEditor::on_decide`). The widget uses iced's own
-//!   theme, for the palette roles.
+//!   text suggested edits take out and put in.
 //! - Line numbers: with `TextEditor::line_numbers` on, each line's number is drawn in the left
 //!   padding, which the caller widens by `gutter_width`, on its first row (wrapped rows get none).
 use iced::advanced::clipboard::{self, Clipboard};
@@ -48,7 +46,7 @@ use std::sync::Arc;
 // ours: word bounds for a double click's selection, as cosmic-text finds them.
 use unicode_segmentation::UnicodeSegmentation;
 // ours: the palette for the buttons and line numbers, and the width of a character.
-use crate::ui::theme::{CHAR_WIDTH_RATIO, Roles, bold};
+use crate::ui::theme::{CHAR_WIDTH_RATIO, Roles};
 
 pub use iced::advanced::text::editor::{
     Action, Cursor, Edit, Line, LineEnding, Motion, Position, Selection,
@@ -82,9 +80,8 @@ where
     highlighter_settings: Highlighter::Settings,
     highlighter_format: fn(&Highlighter::Highlight, &Theme) -> highlighter::Format<Renderer::Font>,
     last_status: Option<Status>,
-    // ours: what is drawn under the text, and who hears which suggestions are decided.
+    // ours: what is drawn under the text.
     paint: Vec<PaintRun>,
-    on_decide: Option<Box<dyn Fn(u64, bool) -> Message + 'a>>,
     // ours: draw each line's number left of the text.
     line_numbers: bool,
 }
@@ -102,12 +99,10 @@ pub struct PaintRun {
 /// ours: how a painted range is drawn.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PaintLook {
-    /// A suggestion's new text: a faint fill and a dashed underline.
-    Ghost,
-    /// Text a suggestion would replace: a line through it in this colour.
-    Struck(Color),
-    /// The room after suggestion `id` where its Accept and Reject buttons are drawn.
-    Buttons { id: u64 },
+    /// Text a suggestion takes out: a see-through fill, and a line through it in this colour.
+    Removed(Color),
+    /// Text a suggestion puts in: a see-through fill.
+    Added,
     /// A find match: a fill, and an outline in this colour for the selected one.
     Found { outline: Option<Color> },
     /// A caret at `start` (one of Ctrl+D's other places), in its colour.
@@ -141,7 +136,6 @@ where
             highlighter_format: |_highlight, _theme| highlighter::Format::default(),
             last_status: None,
             paint: Vec::new(),
-            on_decide: None,
             line_numbers: false,
         }
     }
@@ -258,7 +252,6 @@ where
             highlighter_format: to_format,
             last_status: self.last_status,
             paint: self.paint,
-            on_decide: self.on_decide,
             line_numbers: self.line_numbers,
         }
     }
@@ -266,13 +259,6 @@ where
     /// ours: draws these runs under the text.
     pub fn paint(mut self, paint: Vec<PaintRun>) -> Self {
         self.paint = paint;
-        self
-    }
-
-    /// ours: reports a click on a suggestion's Accept (`true`) or Reject (`false`) button, with
-    /// the suggestion's id (from its `PaintLook::Buttons` run).
-    pub fn on_decide(mut self, on_decide: impl Fn(u64, bool) -> Message + 'a) -> Self {
-        self.on_decide = Some(Box::new(on_decide));
         self
     }
 
@@ -593,12 +579,10 @@ fn horizontal_scroll(editor: &graphics::text::Editor, wrapping: Wrapping) -> f32
 }
 
 // ours: drawing suggestions and find matches.
-const GHOST_ALPHA: f32 = 0.12;
+/// Over either theme's background, this keeps `fg` above 5:1 on a suggestion's red or green.
+const DIFF_ALPHA: f32 = 0.3;
 const FOUND_ALPHA: f32 = 0.24;
 const PAINT_RADIUS: f32 = 3.0;
-const DASH: f32 = 4.0;
-const DASH_GAP: f32 = 3.0;
-const DASH_THICKNESS: f32 = 1.5;
 
 /// ours: the top and height of a row's text box: like a CSS inline background, the text's box,
 /// not the whole (tall) line.
@@ -612,18 +596,6 @@ fn text_box(
         text_bounds.y + row.line_top + (row.line_height - height) / 2.0,
         height,
     )
-}
-
-/// ours: a dashed line across from `start`, `length` long, as small rectangles.
-fn dashed(start: Point, length: f32) -> Vec<Rectangle> {
-    let mut dashes = Vec::new();
-    let mut along = 0.0;
-    while along < length {
-        let dash = Size::new(DASH.min(length - along), DASH_THICKNESS);
-        dashes.push(Rectangle::new(Point::new(start.x + along, start.y), dash));
-        along += DASH + DASH_GAP;
-    }
-    dashes
 }
 
 /// ours: draws `paint` on the visible rows only.
@@ -671,7 +643,7 @@ fn draw_paint<R: renderer::Renderer>(
             };
             let x = text_bounds.x + x - scroll_x;
             match run.look {
-                PaintLook::Buttons { .. } | PaintLook::Caret => {}
+                PaintLook::Caret => {}
                 PaintLook::Found { outline: color } => {
                     let outline = Rectangle::new(Point::new(x, top), Size::new(width, box_height));
                     let lit = run.color.scale_alpha(FOUND_ALPHA);
@@ -693,18 +665,13 @@ fn draw_paint<R: renderer::Renderer>(
                         fill(side, square, color);
                     }
                 }
-                PaintLook::Struck(color) => {
-                    let y = text_bounds.y + row.line_y - text_size * 0.3;
-                    let line = Rectangle::new(Point::new(x, y), Size::new(width, 1.0));
-                    fill(line, square, color);
-                }
-                PaintLook::Ghost => {
-                    let ghost = Rectangle::new(Point::new(x, top), Size::new(width, box_height));
-                    let faint = run.color.scale_alpha(GHOST_ALPHA);
-                    fill(ghost, border::Radius::new(PAINT_RADIUS), faint);
-                    let bottom = Point::new(x, top + box_height - DASH_THICKNESS);
-                    for dash in dashed(bottom, width) {
-                        fill(dash, square, run.color);
+                PaintLook::Removed(_) | PaintLook::Added => {
+                    let tint = Rectangle::new(Point::new(x, top), Size::new(width, box_height));
+                    fill(tint, square, run.color.scale_alpha(DIFF_ALPHA));
+                    if let PaintLook::Removed(color) = run.look {
+                        let y = text_bounds.y + row.line_y - text_size * 0.3;
+                        let line = Rectangle::new(Point::new(x, y), Size::new(width, 1.0));
+                        fill(line, square, color);
                     }
                 }
             }
@@ -726,45 +693,6 @@ fn caret_x(row: &cosmic_text::LayoutRun<'_>, at: Position) -> Option<f32> {
         _ if last.end == at.column => Some(last.x + last.w),
         _ => None,
     }
-}
-
-/// ours: where each suggestion's Accept and Reject buttons are, on the first visible row of the
-/// room left for them (its `PaintLook::Buttons` run).
-fn suggestion_buttons(
-    buffer: &cosmic_text::Buffer,
-    paint: &[PaintRun],
-    text_bounds: Rectangle,
-    scroll_x: f32,
-    text_size: f32,
-) -> Vec<(u64, Rectangle, Rectangle)> {
-    let mut buttons: Vec<(u64, Rectangle, Rectangle)> = Vec::new();
-    let gap = text_size * 0.3;
-    for row in buffer.layout_runs() {
-        let (top, height) = text_box(&row, text_bounds, text_size);
-        for run in paint {
-            let PaintLook::Buttons { id } = run.look else {
-                continue;
-            };
-            if run.start.line > row.line_i
-                || run.end.line < row.line_i
-                || buttons.iter().any(|(found, ..)| *found == id)
-            {
-                continue;
-            }
-            let start = cosmic_text::Cursor::new(run.start.line, run.start.column);
-            let end = cosmic_text::Cursor::new(run.end.line, run.end.column);
-            if let Some((x, width)) = row.highlight(start, end)
-                && width > gap * 3.0
-            {
-                let left = text_bounds.x + x - scroll_x + gap;
-                let size = Size::new((width - gap * 3.0) / 2.0, height);
-                let accept = Rectangle::new(Point::new(left, top), size);
-                let reject = Rectangle::new(Point::new(left + size.width + gap, top), size);
-                buttons.push((id, accept, reject));
-            }
-        }
-    }
-    buttons
 }
 
 // ours: line numbers, vim's `set number`.
@@ -1012,29 +940,6 @@ where
 
         let state = tree.state.downcast_mut::<State<Highlighter>>();
         let is_redraw = matches!(event, Event::Window(window::Event::RedrawRequested(_now)),);
-
-        // ours: a click on a suggestion's Accept or Reject button decides it, and goes no further.
-        if let Some(on_decide) = self.on_decide.as_ref()
-            && let Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) = event
-            && let Some(point) = cursor.position()
-        {
-            let internal = self.content.0.borrow();
-            let size = self.text_size.unwrap_or_else(|| renderer.default_size());
-            let buttons = suggestion_buttons(
-                internal.editor.buffer(),
-                &self.paint,
-                layout.bounds().shrink(self.padding),
-                horizontal_scroll(&internal.editor, self.wrapping),
-                size.0,
-            );
-            for (id, accept, reject) in buttons {
-                if accept.contains(point) || reject.contains(point) {
-                    shell.publish(on_decide(id, accept.contains(point)));
-                    shell.capture_event();
-                    return;
-                }
-            }
-        }
 
         match event {
             Event::Window(window::Event::Unfocused) => {
@@ -1417,54 +1322,6 @@ where
             });
         }
 
-        // ours: each suggestion's Accept and Reject buttons, in the room left for them after it,
-        // in a layer of their own so they sit over the text and stay inside it.
-        let size = self.text_size.unwrap_or_else(|| renderer.default_size());
-        let buttons = suggestion_buttons(
-            internal.editor.buffer(),
-            &self.paint,
-            text_bounds,
-            scrolled.x,
-            size.0,
-        );
-        if !buttons.is_empty() {
-            let roles = Roles::of(theme);
-            renderer.with_layer(text_bounds, |renderer| {
-                for (_, accept, reject) in buttons {
-                    let looks = [
-                        (accept, "Accept", roles.btn_bg, roles.btn_bg, roles.btn_fg),
-                        (reject, "Reject", roles.bg_raised, roles.border, roles.fg),
-                    ];
-                    for (bounds, label, fill, edge, color) in looks {
-                        renderer.fill_quad(
-                            renderer::Quad {
-                                bounds,
-                                border: border::rounded(5).width(1).color(edge),
-                                ..renderer::Quad::default()
-                            },
-                            fill,
-                        );
-                        renderer.fill_text(
-                            Text {
-                                content: label.to_string(),
-                                bounds: bounds.size(),
-                                size: size * 0.73,
-                                line_height: LineHeight::default(),
-                                font: bold(),
-                                align_x: text::Alignment::Center,
-                                align_y: alignment::Vertical::Center,
-                                shaping: text::Shaping::Basic,
-                                wrapping: Wrapping::None,
-                            },
-                            bounds.center(),
-                            color,
-                            bounds,
-                        );
-                    }
-                }
-            });
-        }
-
         let translation = text_bounds.position() - Point::ORIGIN - scrolled;
 
         if let Some(focus) = state.focus.as_ref() {
@@ -1517,28 +1374,9 @@ where
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         _viewport: &Rectangle,
-        renderer: &Renderer,
+        _renderer: &Renderer,
     ) -> mouse::Interaction {
         let is_disabled = self.on_edit.is_none();
-
-        // ours: a hand over a suggestion's buttons.
-        if let Some(point) = cursor.position() {
-            let internal = self.content.0.borrow();
-            let size = self.text_size.unwrap_or_else(|| renderer.default_size());
-            let buttons = suggestion_buttons(
-                internal.editor.buffer(),
-                &self.paint,
-                layout.bounds().shrink(self.padding),
-                horizontal_scroll(&internal.editor, self.wrapping),
-                size.0,
-            );
-            if buttons
-                .iter()
-                .any(|(_, accept, reject)| accept.contains(point) || reject.contains(point))
-            {
-                return mouse::Interaction::Pointer;
-            }
-        }
 
         if cursor.is_over(layout.bounds()) {
             if is_disabled {

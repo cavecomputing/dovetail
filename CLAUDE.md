@@ -246,7 +246,7 @@ src/
     app.rs               the App state, Message enum, update and view
     theme.rs             Gruvbox palette roles, the font and its icon glyphs, shared styles
     editor.rs            the editor pane (widget + text model), key bindings, and review mode
-                         (suggestions as ghost text, Accept and Reject)
+                         (suggestions coloured red and green in the text)
     highlighter.rs       how the editor colours its text: Markdown, JSON, config files and shell
                          scripts, tags and macros, suggested edits
     text_editor.rs       a copy of iced's text editor widget (draws find matches, suggested edits
@@ -268,7 +268,7 @@ src/
                          # header, the chat, suggested edits as diffs, the > prompt, and how it
                          sits beside or over the document
     assistant_actions.rs App's handlers for the assistant: the slide, the agent loop off the UI
-                         thread, cards kept in step with the ghost text, the key, the connection test
+                         thread, cards kept in step with the document, the key, the connection test
   ai/                    the assistant pane's logic, no UI
     client.rs            requests to any OpenAI-compatible server (Responses or Chat Completions)
                          and the streamed reply
@@ -305,7 +305,8 @@ files (`pub mod save;`); keep that list current. Tests sit at the bottom of the 
 - **Colours come from roles, not hex.** `ui/theme.rs` maps the cavecomputing Gruvbox tokens
   ([docs/design-tokens.json](docs/design-tokens.json)) to roles: `bg-surface` window, `bg-page`
   status bar, `bg-raised` cards and chips, `fg`/`fg-muted` text, `accent-text` (yellow) for focus
-  and active, aqua for success, `accent-warm` (orange) for warnings. **No red, ever.** Every status
+  and active, aqua for success, `accent-warm` (orange) for warnings. **No red**, except the see-through red behind text a suggested edit takes out (red and
+  green were asked for there). Every status
   also carries a word, not colour alone.
 - **One font**: JetBrains Mono Nerd Font, in its **NL** (no ligatures) Mono build (bundled in
   [assets/fonts/](assets/fonts/), OFL licensed). The ligature build merged pairs like `</` into one

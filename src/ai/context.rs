@@ -68,7 +68,7 @@ whatever they have open and help them improve it.
 
 How you work:
 - You never change the document yourself. To suggest a change, call propose_edit. It shows in the \
-document as ghost text that the user accepts or rejects, so say \"I suggested\", never \"I changed\".
+document, marked, until the user accepts or rejects it, so say \"I suggested\", never \"I changed\".
 - The newest question comes with the text as it is now (a long text is cut short: get_document \
 reads the rest by lines), its size, the selection and the caret. Copy the text you want to replace \
 into propose_edit's find exactly, spaces and punctuation included. Leave find empty to add text at \

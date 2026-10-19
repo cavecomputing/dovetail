@@ -27,7 +27,7 @@ pub struct Tool {
     pub parameters: Value,
 }
 
-/// An edit the model proposed: replace `find` with `replace`. It is shown as ghost text until
+/// An edit the model proposed: replace `find` with `replace`. It is shown in the document until
 /// the user accepts or rejects it, and never enters the document's text before that.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Suggestion {
@@ -90,7 +90,7 @@ pub fn catalogue() -> Vec<Tool> {
         Tool {
             name: "propose_edit",
             description: "Suggest replacing text in the document, or adding text at its end. The \
-                user sees it as ghost text and accepts or rejects it; nothing changes until they \
+                user sees it marked in the document and accepts or rejects it; nothing changes until they \
                 accept. Use one call per passage.",
             parameters: json!({
                 "type": "object",
@@ -327,8 +327,8 @@ fn propose_edit(snapshot: &Snapshot, arguments: &Value) -> (String, Option<Sugge
             ));
         }
     };
-    // The suggestion covers only the lines that change, so the document and the chat show just
-    // those; the validity check below looks at the whole edit, which is the same.
+    // The suggestion covers only the lines that change, so the document shows just those;
+    // the validity check below looks at the whole edit, which is the same.
     let (skipped, find_part, replace_part) = changed_lines(find, replace);
     let range = at + skipped..at + skipped + find_part.len();
     if snapshot.waiting.iter().any(|other| clashes(other, &range)) {

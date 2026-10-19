@@ -203,7 +203,7 @@ Shortcuts are written with Ctrl; on macOS use ⌘ (the app's menu and hints show
 | Ctrl+Z | Undo |
 | Ctrl+Shift+Z or Ctrl+Y | Redo |
 | Ctrl+A, C, X, V | Select all, copy, cut, paste |
-| Tab or Esc on a suggestion | Accept or reject the suggestion the cursor is on |
+| Ctrl+Enter and Ctrl+Backspace | Accept or reject the assistant's suggestion the cursor is on, or else the first one; with Shift, all of them. While suggestions wait these keys do only this |
 
 **In shell scripts and JSON files**, typing helps with blocks, as in a code editor:
 
@@ -305,10 +305,12 @@ The fields:
 
 **What it does.** Ask about the text in the box at the bottom of the pane. The assistant can read
 the document and the selection, search the text, count words and tokens, and suggest edits. It never
-changes the text itself. Each suggestion shows in the text, the old words struck through and the new
-ones beside them, with Accept and Reject buttons. In the chat it shows as a little diff: the line
-it's on, `−` and the old words, `+` and the new ones, the reason, and `accept`, `reject` and `try
-shorter`, which asks for a shorter version (`accept all` and `reject all` when several wait). It
+changes the text itself. Each suggestion shows in the text: the words it takes out on red and struck
+through, the words it puts in on green just after them. You decide in the chat, where each one shows
+the line it's on and the reason, with `accept`, `reject` and `try shorter`, which asks for a
+shorter version (`accept all` and `reject all` when several wait). Ctrl+Enter accepts and
+Ctrl+Backspace rejects from anywhere: the suggestion the cursor is on, or else the first one. With
+Shift they take them all. It
 works on scripts and config files as well as prose: it's told what kind of file is open, a
 suggestion covers only the lines that change (not the lines around them the model copied), and in a
 JSON, YAML, TOML, INI or shell file it's told when an edit would make the file invalid, so it can

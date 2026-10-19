@@ -13,7 +13,6 @@ use crate::ai::client::{Item, Reply, StreamEvent};
 use crate::ai::context::{DocKind, Snapshot, shorter_request};
 use crate::ai::key::{KeyStore, api_key, key_store, set_api_key};
 use crate::ai::tools::Suggestion;
-use crate::core::counts::Counts;
 use crate::core::opened::Doc;
 use crate::ui::app::{App, Message};
 use crate::ui::editor::{self, Decision};
@@ -74,9 +73,6 @@ pub struct Card {
     /// Which question proposed it, counting from 1.
     pub turn: usize,
     pub state: CardState,
-    /// How much accepting it would add (or take away, when negative).
-    pub words: i64,
-    pub tokens: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -343,16 +339,7 @@ impl App {
                 Ok(id) => CardState::Waiting(id),
                 Err(reason) => CardState::Gone(reason),
             };
-            let (before, after) = (
-                Counts::of(&suggestion.find),
-                Counts::of(&suggestion.replace),
-            );
             self.assistant.cards.push(Card {
-                words: after.words as i64 - before.words as i64,
-                tokens: after
-                    .tokens
-                    .zip(before.tokens)
-                    .map(|(after, before)| after as i64 - before as i64),
                 turn,
                 state,
                 suggestion,
