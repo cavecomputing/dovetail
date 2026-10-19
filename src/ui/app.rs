@@ -594,18 +594,15 @@ impl App {
             Message::ToggleMaximize => return window::toggle_maximize(self.main_window),
 
             Message::ToggleMenu => {
-                self.menu_open = !self.menu_open;
+                let open = !self.menu_open;
+                self.close_panels();
+                self.menu_open = open;
                 self.recent = existing_recent_files(&self.paths.data_dir);
             }
             // Esc, or a click outside: closes the menu, the picker, the switcher, the palette and
             // Settings. With none of them open, Esc closes the find bar.
             Message::CloseMenu => {
-                let mut closed = self.menu_open || self.switcher.is_some();
-                closed |= self.palette.take().is_some();
-                closed |= self.picker.take().is_some();
-                closed |= std::mem::take(&mut self.settings_open);
-                self.menu_open = false;
-                self.switcher = None;
+                let closed = self.close_panels() | std::mem::take(&mut self.settings_open);
                 // The find bar sits under all of those, so it closes on an Esc of its own, after
                 // the go to line box over it. Then Esc lets go of Ctrl+D's other places.
                 if !closed
@@ -646,7 +643,7 @@ impl App {
             }
             Message::OpenPath(path) => return self.open_file(path),
             Message::OpenSettings => {
-                self.menu_open = false;
+                self.close_panels();
                 if std::mem::replace(&mut self.settings_open, true) {
                     return Task::none();
                 }
@@ -882,6 +879,20 @@ impl App {
 
     pub fn editable(&self) -> bool {
         self.read_only_reason.is_none()
+    }
+
+    /// Closes the menu, the picker, the switcher and the palette, so opening one never leaves
+    /// another under it taking ↑ and ↓. True if any was open.
+    pub fn close_panels(&mut self) -> bool {
+        let open = self.menu_open
+            || self.picker.is_some()
+            || self.switcher.is_some()
+            || self.palette.is_some();
+        self.menu_open = false;
+        self.picker = None;
+        self.switcher = None;
+        self.palette = None;
+        open
     }
 
     fn scratch_view(&self) -> ScratchView {
@@ -1421,6 +1432,20 @@ mod tests {
         let shift = keyboard::Modifiers::COMMAND | keyboard::Modifiers::SHIFT;
         let pressed = shortcut_for("P", "P", shift);
         assert!(matches!(pressed, Some(Message::OpenPalette)));
+    }
+
+    #[test]
+    fn opening_a_panel_closes_the_one_under_it() {
+        let (_dir, _paths, mut app, _notes) = scratch_window("");
+        let _ = app.update(Message::OpenDialog);
+        let _ = app.update(Message::OpenSwitcher);
+        assert!(app.picker.is_none() && app.switcher.is_some());
+        let _ = app.update(Message::OpenPalette);
+        assert!(app.switcher.is_none() && app.palette.is_some());
+        let _ = app.update(Message::OpenDialog);
+        assert!(app.palette.is_none() && app.picker.is_some());
+        let _ = app.update(Message::OpenSettings);
+        assert!(app.picker.is_none() && app.settings_open);
     }
 
     #[test]

@@ -76,10 +76,9 @@ impl App {
     /// Ctrl+O: opens the picker at the open file's folder (the home folder in scratch), or
     /// closes it.
     pub fn open_picker(&mut self) -> Task<Message> {
-        self.menu_open = false;
-        self.switcher = None;
-        self.palette = None;
-        if self.picker.take().is_some() {
+        let was_open = self.picker.is_some();
+        self.close_panels();
+        if was_open {
             return focus(editor::EDITOR_ID);
         }
         let start = match &self.doc {
