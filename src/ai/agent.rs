@@ -6,7 +6,7 @@
 //!    their results are in the conversation: go back to step 2. `Finished` ends the turn.
 //!
 //! Tools never touch the editor: `propose_edit` only adds to `new_suggestions`, which the pane
-//! takes and shows as ghost text for the user to accept or reject.
+//! takes and shows in the document for the user to accept or reject.
 //!
 //! Every question in the history has an answer after it, so the next request never has two
 //! questions in a row, which some servers refuse.

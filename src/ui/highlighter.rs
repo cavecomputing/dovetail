@@ -1,12 +1,12 @@
 //! How the editor colours its text: Markdown in .md files; JSON, YAML, TOML and INI files; shell
 //! scripts; XML
-//! tags and {{macros}}; and in review mode the struck and ghost text of suggestions. iced asks
+//! tags and {{macros}}; and in review mode the text suggestions take out and put in. iced asks
 //! for the colours one line at a time.
 
 use std::ops::Range;
 
 use iced::advanced::text::highlighter::{self, Highlighter};
-use iced::{Color, Font, Theme};
+use iced::{Font, Theme};
 
 use crate::core::config::{ini_ranges, toml_ranges, yaml_ranges};
 use crate::core::json::json_ranges;
@@ -17,8 +17,8 @@ use crate::core::syntax::{Syntax, Token};
 use crate::ui::theme::{MONO, Roles, bold};
 
 /// What the highlighter colours: the file's `syntax` (Markdown, or a data file's keys and values),
-/// XML tags and macros when `markup` is on, and in review mode the struck and ghost text and the
-/// room for the buttons, as (line, byte columns, look).
+/// XML tags and macros when `markup` is on, and in review mode the text suggestions take out and
+/// put in, as (line, byte columns, look).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Colouring {
     pub syntax: Syntax,
@@ -32,12 +32,9 @@ pub enum Highlight {
     /// A part of a JSON, YAML, TOML, INI or shell script line.
     Data(Token),
     Markup(Markup),
-    /// Text a suggestion would replace: muted (the line through it is drawn as paint).
-    Struck,
-    /// A suggestion's new text: italic.
-    Ghost,
-    /// The room for a suggestion's buttons: invisible, as the buttons are drawn over it.
-    Hidden,
+    /// Text a suggestion takes out or puts in: plain `fg` over the red or green drawn as paint,
+    /// so syntax colours never sit on it.
+    Suggested,
 }
 
 pub fn highlight_format(highlight: &Highlight, theme: &Theme) -> highlighter::Format<Font> {
@@ -61,15 +58,14 @@ pub fn highlight_format(highlight: &Highlight, theme: &Theme) -> highlighter::Fo
             Token::Comment | Token::Marker => roles.fg_subtle,
             Token::Section => roles.accent_text,
         }),
-        Highlight::Markup(Markup::Tag) | Highlight::Struck => Some(roles.fg_muted),
+        Highlight::Markup(Markup::Tag) => Some(roles.fg_muted),
         Highlight::Markup(Markup::Macro) => Some(roles.accent_cool),
-        Highlight::Hidden => Some(Color::TRANSPARENT),
-        Highlight::Ghost => None,
+        Highlight::Suggested => Some(roles.fg),
     };
     let font = match highlight {
         Highlight::Markdown(Markdown::Heading | Markdown::Bold)
         | Highlight::Data(Token::Section) => Some(bold()),
-        Highlight::Markdown(Markdown::Italic) | Highlight::Ghost => Some(Font {
+        Highlight::Markdown(Markdown::Italic) => Some(Font {
             style: iced::font::Style::Italic,
             ..MONO
         }),
@@ -271,7 +267,7 @@ mod tests {
         let colouring = Colouring {
             syntax: Syntax::Markdown,
             markup: true,
-            review: vec![(0, 2..4, Highlight::Ghost)],
+            review: vec![(0, 2..4, Highlight::Suggested)],
         };
         let mut highlighter = MarkupHighlighter::new(&colouring);
         let found: Vec<_> = highlighter.highlight_line(line).collect();
@@ -280,7 +276,7 @@ mod tests {
             vec![
                 (0..8, Highlight::Markdown(Markdown::Heading)),
                 (5..8, Highlight::Markup(Markup::Tag)),
-                (2..4, Highlight::Ghost),
+                (2..4, Highlight::Suggested),
             ]
         );
         // Turning Markdown off (another file) starts again from the top, without it.

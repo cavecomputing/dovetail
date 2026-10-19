@@ -42,9 +42,10 @@ pub struct Roles {
     pub accent_cool: Color,
     pub accent_warm: Color,
     pub accent_aqua: Color,
-    /// A primary button's fill, and the text on it.
-    pub btn_bg: Color,
-    pub btn_fg: Color,
+    /// Behind text a suggested edit takes out (Gruvbox red, the app's only red) and puts in
+    /// (`accent-alt`, green), drawn see-through so the text on them stays `fg`.
+    pub removed: Color,
+    pub added: Color,
 }
 
 pub const DARK: Roles = Roles {
@@ -60,8 +61,8 @@ pub const DARK: Roles = Roles {
     accent_cool: color!(0x83a598),
     accent_warm: color!(0xfe8019),
     accent_aqua: color!(0x8ec07c),
-    btn_bg: color!(0xfabd2f),
-    btn_fg: color!(0x1d2021),
+    removed: color!(0xfb4934),
+    added: color!(0xb8bb26),
 };
 
 pub const LIGHT: Roles = Roles {
@@ -77,8 +78,8 @@ pub const LIGHT: Roles = Roles {
     accent_cool: color!(0x076678),
     accent_warm: color!(0xaf3a03),
     accent_aqua: color!(0x376b4b),
-    btn_bg: color!(0x79740e),
-    btn_fg: color!(0xfbf1c7),
+    removed: color!(0x9d0006),
+    added: color!(0x79740e),
 };
 
 impl Roles {

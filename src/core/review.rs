@@ -3,28 +3,18 @@
 //! them.
 //!
 //! While any are waiting, the editor shows a display string instead of the text: the text with
-//! each suggestion spliced in (the text it replaces, struck through, then its new text as ghost
-//! text, then room for its Accept and Reject buttons). `DisplayMap` maps offsets between the two.
-//! All offsets are bytes, like the rest of `core`.
+//! each suggestion spliced in (the text it takes out, then the text it puts in, which the editor
+//! colours red and green). `DisplayMap` maps offsets between the two. All offsets are bytes, like
+//! the rest of `core`.
 
 use std::ops::Range;
 
 use crate::core::text_model::Change;
 
-/// The room after each suggestion where the editor draws its Accept and Reject buttons. The
-/// editor draws these characters invisible; they aren't spaces, so the room never breaks across
-/// lines and wraps along with the suggestion's last word.
-pub const BUTTON_ROOM: &str = "______________";
-
-/// Shown just before each suggestion's new text: a zero-width space, so the new text starts a
-/// word of its own. (The editor lays out a plain ASCII word in one font, so its italics could
-/// not otherwise start in the middle of a word, as in "phrasing" + ".".)
-pub const GHOST_START: &str = "\u{200b}";
-
 /// One suggested edit: put `text` in place of `range`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Suggestion {
-    /// Stays the same while the text around it changes, so a button or a chat card can name it.
+    /// Stays the same while the text around it changes, so a chat card can name it.
     pub id: u64,
     /// The bytes of the text it replaces; empty for a pure insert.
     pub range: Range<usize>,
@@ -96,7 +86,7 @@ impl Review {
     /// Moves the suggestions to follow a change to the text (typing around them, an accepted
     /// suggestion, an undo). One the change overlaps is dropped, since the text it was about has
     /// gone. A pure insert right where the change is stays before it, unless `ahead`: the change
-    /// was typed just before the insert's ghost text, so the insert moves along after it.
+    /// was typed just before the insert's new text, so the insert moves along after it.
     pub fn shift(&mut self, change: &Change, ahead: bool) {
         let removed_end = change.at + change.removed.len();
         self.suggestions.retain_mut(|s| {
@@ -125,12 +115,10 @@ pub fn clashes(a: &Range<usize>, b: &Range<usize>) -> bool {
 pub enum Shown {
     /// The text as it is.
     Text,
-    /// Text a suggestion would replace, shown struck through.
-    Struck,
-    /// A suggestion's new text.
-    Ghost,
-    /// The room for a suggestion's buttons.
-    Buttons,
+    /// Text a suggestion takes out.
+    Removed,
+    /// Text a suggestion puts in.
+    Added,
 }
 
 /// One piece of the display string.
@@ -139,8 +127,8 @@ pub struct Piece {
     pub shown: Shown,
     /// Where it is in the display string.
     pub display: Range<usize>,
-    /// Where it is in the text: the text it shows, or for ghost text and buttons the empty range
-    /// where they sit (the end of what the suggestion replaces).
+    /// Where it is in the text: the text it shows, or for added text the empty range where it
+    /// sits (the end of what the suggestion takes out).
     pub text: Range<usize>,
     /// The suggestion it belongs to; `None` for plain text.
     pub suggestion: Option<u64>,
@@ -168,13 +156,8 @@ impl DisplayMap {
             let end = range.end..range.end;
             let id = Some(suggestion.id);
             map.push(Shown::Text, &text[at..range.start], at..range.start, None);
-            map.push(Shown::Struck, &text[range.clone()], range, id);
-            let ghost = match suggestion.text.is_empty() {
-                true => String::new(),
-                false => format!("{GHOST_START}{}", suggestion.text),
-            };
-            map.push(Shown::Ghost, &ghost, end.clone(), id);
-            map.push(Shown::Buttons, BUTTON_ROOM, end, id);
+            map.push(Shown::Removed, &text[range.clone()], range, id);
+            map.push(Shown::Added, &suggestion.text, end, id);
             at = suggestion.range.end;
         }
         map.push(Shown::Text, &text[at..], at..text.len(), None);
@@ -193,12 +176,12 @@ impl DisplayMap {
     }
 
     /// Where byte `offset` of the text is in the display string. An offset right where a
-    /// suggestion's ghost text sits goes before it, or after its buttons when `after` is set
-    /// (where `Pane` puts the caret).
+    /// suggestion's added text sits goes before it, or after it when `after` is set (where
+    /// `Pane` puts the caret).
     pub fn to_display(&self, offset: usize, after: bool) -> usize {
         let mut found = None;
         for piece in &self.pieces {
-            let shows_text = matches!(piece.shown, Shown::Text | Shown::Struck);
+            let shows_text = matches!(piece.shown, Shown::Text | Shown::Removed);
             if shows_text && piece.text.start <= offset && offset <= piece.text.end {
                 found = Some(piece.display.start + offset - piece.text.start);
                 if !after {
@@ -209,22 +192,22 @@ impl DisplayMap {
         found.unwrap_or(0)
     }
 
-    /// Where display offset `offset` is in the text. Inside ghost text or buttons, that's where
-    /// the suggestion sits.
+    /// Where display offset `offset` is in the text. Inside added text, that's where the
+    /// suggestion sits.
     pub fn to_text(&self, offset: usize) -> usize {
         for piece in &self.pieces {
             if piece.display.contains(&offset) {
                 return match piece.shown {
-                    Shown::Text | Shown::Struck => piece.text.start + offset - piece.display.start,
-                    Shown::Ghost | Shown::Buttons => piece.text.start,
+                    Shown::Text | Shown::Removed => piece.text.start + offset - piece.display.start,
+                    Shown::Added => piece.text.start,
                 };
             }
         }
         self.pieces.last().map_or(0, |piece| piece.text.end)
     }
 
-    /// The suggestion display offset `offset` (the caret) is on: in or touching its struck text,
-    /// ghost text or buttons. `None` in plain text away from every suggestion.
+    /// The suggestion display offset `offset` (the caret) is on: in or touching the text it takes
+    /// out or puts in. `None` in plain text away from every suggestion.
     pub fn suggestion_at(&self, offset: usize) -> Option<u64> {
         self.pieces.iter().find_map(|piece| {
             let touches = piece.display.start <= offset && offset <= piece.display.end;
@@ -237,9 +220,6 @@ impl DisplayMap {
 mod tests {
     use super::*;
 
-    const ROOM: &str = BUTTON_ROOM;
-    const Z: &str = GHOST_START;
-
     fn review_of(text: &str, edits: &[(Range<usize>, &str)]) -> Review {
         let mut review = Review::default();
         for (range, new_text) in edits {
@@ -249,15 +229,12 @@ mod tests {
     }
 
     #[test]
-    fn the_display_splices_in_struck_ghost_and_button_room() {
+    fn the_display_splices_in_removed_and_added_text() {
         let text = "Keep calm. Be quick.";
         // Replace "Be quick." and insert before "Keep".
         let review = review_of(text, &[(11..20, "Take your time."), (0..0, "Breathe. ")]);
         let map = DisplayMap::new(text, review.suggestions());
-        assert_eq!(
-            map.text,
-            format!("{Z}Breathe. {ROOM}Keep calm. Be quick.{Z}Take your time.{ROOM}")
-        );
+        assert_eq!(map.text, "Breathe. Keep calm. Be quick.Take your time.");
         let shown: Vec<(Shown, &str)> = map
             .pieces
             .iter()
@@ -267,12 +244,10 @@ mod tests {
         assert_eq!(
             shown,
             [
-                (Shown::Ghost, "\u{200b}Breathe. "),
-                (Shown::Buttons, ROOM),
+                (Shown::Added, "Breathe. "),
                 (Shown::Text, "Keep calm. "),
-                (Shown::Struck, "Be quick."),
-                (Shown::Ghost, "\u{200b}Take your time."),
-                (Shown::Buttons, ROOM),
+                (Shown::Removed, "Be quick."),
+                (Shown::Added, "Take your time."),
             ]
         );
     }
@@ -282,25 +257,25 @@ mod tests {
         let text = "one two three";
         let review = review_of(text, &[(4..7, "2")]);
         let map = DisplayMap::new(text, review.suggestions());
-        assert_eq!(map.text, format!("one two{Z}2{ROOM} three"));
-        let after_room = 8 + Z.len() + ROOM.len();
-        // Plain and struck text keep their place; the end of the struck word can sit on either
-        // side of the ghost text.
+        assert_eq!(map.text, "one two2 three");
+        let after_added = 8;
+        // Plain and removed text keep their place; the end of the removed word can sit on either
+        // side of the added text.
         assert_eq!(map.to_display(2, false), 2);
         assert_eq!(map.to_display(5, false), 5);
         assert_eq!(map.to_display(7, false), 7);
-        assert_eq!(map.to_display(7, true), after_room);
-        assert_eq!(map.to_display(9, true), after_room + 2);
+        assert_eq!(map.to_display(7, true), after_added);
+        assert_eq!(map.to_display(9, true), after_added + 2);
         assert_eq!(map.to_display(text.len(), false), map.text.len());
-        // Back again: inside the ghost text or the button room is the suggestion's end.
+        // Back again: inside the added text is the suggestion's end.
         assert_eq!(map.to_text(5), 5);
         assert_eq!(
             map.to_text(7),
             7,
-            "the ghost text sits at the end of the struck word"
+            "the added text sits at the end of the removed word"
         );
-        assert_eq!(map.to_text(after_room - 1), 7);
-        assert_eq!(map.to_text(after_room + 2), 9);
+        assert_eq!(map.to_text(after_added - 1), 7);
+        assert_eq!(map.to_text(after_added + 2), 9);
         assert_eq!(map.to_text(map.text.len()), text.len());
     }
 
@@ -313,15 +288,15 @@ mod tests {
             "two suggestions can't start at the same place"
         );
         let map = DisplayMap::new(text, review.suggestions());
-        assert_eq!(map.text, format!("a{Z}X{ROOM}b"));
+        assert_eq!(map.text, "aXb");
         assert_eq!(map.to_display(1, false), 1);
-        assert_eq!(map.to_display(1, true), 2 + Z.len() + ROOM.len());
+        assert_eq!(map.to_display(1, true), 2);
 
         let review = review_of(text, &[(0..1, "")]);
         let map = DisplayMap::new(text, review.suggestions());
-        assert_eq!(map.text, format!("a{ROOM}b"));
+        assert_eq!(map.text, "ab");
         assert_eq!(map.to_text(0), 0);
-        assert_eq!(map.to_text(1 + ROOM.len()), 1);
+        assert_eq!(map.to_text(1), 1);
     }
 
     #[test]
@@ -343,12 +318,9 @@ mod tests {
         let review = review_of(text, &[(10..14, "C"), (0..4, "A")]);
         let map = DisplayMap::new(text, review.suggestions());
         let ids: Vec<u64> = review.suggestions().iter().map(|s| s.id).collect();
-        // On the struck text, inside the ghost text, and right after the buttons.
+        // On the removed text, inside the added text, and right after it.
         assert_eq!(map.suggestion_at(2), Some(ids[0]));
-        assert_eq!(
-            map.suggestion_at(map.to_display(4, false) + Z.len()),
-            Some(ids[0])
-        );
+        assert_eq!(map.suggestion_at(map.to_display(4, false)), Some(ids[0]));
         assert_eq!(map.suggestion_at(map.to_display(4, true)), Some(ids[0]));
         assert_eq!(map.suggestion_at(map.text.len()), Some(ids[1]));
         // In "bbbb", away from both.
@@ -414,7 +386,7 @@ mod tests {
             .collect();
         assert_eq!(ranges, [0..3, 15..19]);
         // A pure insert stays before typing right where it sits, unless that was typed ahead of
-        // its ghost text.
+        // its added text.
         let mut review = review_of("ab", &[(1..1, "X")]);
         let typed = Change {
             at: 1,

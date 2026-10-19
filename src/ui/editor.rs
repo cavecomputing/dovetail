@@ -90,13 +90,6 @@ pub fn view<'a>(
         .style(move |theme, _status| style(theme, editable))
         .on_action(Message::Edit)
         .paint(paint)
-        .on_decide(|id, accept| {
-            Message::Decide(if accept {
-                Decision::Accept(Some(id))
-            } else {
-                Decision::Reject(Some(id))
-            })
-        })
         .highlight_with::<MarkupHighlighter>(colouring, highlight_format);
 
     let column = match settings.reading_mode {
@@ -137,10 +130,9 @@ fn style(theme: &Theme, editable: bool) -> text_editor::Style {
 /// Ctrl+Shift+K duplicate and delete them, Ctrl+B and Ctrl+I toggle
 /// bold and italic markers (`App::update` drops them outside Markdown), Ctrl+Z undoes, Ctrl+Shift+Z
 /// and Ctrl+Y redo, and the app's own Ctrl shortcuts are left for the app. A pane that isn't
-/// `editable` keeps only iced's own keys (moving, selecting, copying). While `reviewing`, Tab
-/// accepts the suggestion the caret is on and Esc rejects it (`App::update` turns a Tab anywhere
-/// else back into an indent), and Ctrl+C and Ctrl+X go through `Message::Clip`, since the widget's
-/// text has the suggestions in it.
+/// `editable` keeps only iced's own keys (moving, selecting, copying). While `reviewing`, Ctrl+Enter
+/// and Ctrl+Backspace are left to the app (they accept and reject), and Ctrl+C and Ctrl+X go
+/// through `Message::Clip`, since the widget's text has the suggestions in it.
 fn key_binding(press: KeyPress, editable: bool, reviewing: bool) -> Option<Binding<Message>> {
     // A custom binding is used even when the editor isn't focused, so check first.
     if !matches!(press.status, Status::Focused { .. }) {
@@ -194,6 +186,9 @@ fn key_binding(press: KeyPress, editable: bool, reviewing: bool) -> Option<Bindi
     if !editable {
         return Binding::from_key_press(press);
     }
+    if reviewing && decides(&press) {
+        return None;
+    }
     if let Key::Named(key @ (Named::Backspace | Named::Delete)) = press.key.as_ref()
         && (press.modifiers.jump() || press.modifiers.macos_command())
     {
@@ -226,12 +221,6 @@ fn key_binding(press: KeyPress, editable: bool, reviewing: bool) -> Option<Bindi
         };
     }
     match press.key.as_ref() {
-        Key::Named(Named::Tab) if reviewing && !press.modifiers.shift() => {
-            Some(Binding::Custom(Message::Decide(Decision::Accept(None))))
-        }
-        Key::Named(Named::Escape) if reviewing => {
-            Some(Binding::Custom(Message::Decide(Decision::Reject(None))))
-        }
         Key::Named(Named::Tab) if press.modifiers.shift() => {
             Some(Binding::Custom(Message::Unindent))
         }
@@ -250,8 +239,18 @@ fn key_binding(press: KeyPress, editable: bool, reviewing: bool) -> Option<Bindi
     }
 }
 
-/// What to do with suggested edits: accept or reject one (by id; `None` is the one the caret is
-/// on, if any), or all of them.
+/// Whether a key press is Ctrl+Enter or Ctrl+Backspace (with or without Shift), which accept and
+/// reject suggestions while any wait. Text boxes leave them to `App`'s shortcuts then.
+pub fn decides(press: &KeyPress) -> bool {
+    press.modifiers.command()
+        && matches!(
+            press.key.as_ref(),
+            Key::Named(Named::Enter | Named::Backspace)
+        )
+}
+
+/// What to do with suggested edits: accept or reject one (by id; `None` is the current one, see
+/// `Pane::current_suggestion`), or all of them.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Decision {
     Accept(Option<u64>),
@@ -315,11 +314,11 @@ impl Pane {
     /// the caret after it; rejecting leaves the caret where it was. Returns whether the text
     /// changed.
     pub fn decide(&mut self, decision: Decision) -> bool {
-        let at_caret = self.suggestion_at_caret();
+        let current = self.current_suggestion();
         let caret = self.caret();
         let chosen: Vec<Suggestion> = match decision {
             Decision::Accept(id) | Decision::Reject(id) => id
-                .or(at_caret)
+                .or(current)
                 .and_then(|id| self.review.take(id))
                 .into_iter()
                 .collect(),
@@ -330,8 +329,9 @@ impl Pane {
             Decision::Reject(_) | Decision::RejectAll => Vec::new(),
         };
         let changed = self.replay(&changes);
-        if !changed {
-            self.put_caret(caret);
+        match changes.last() {
+            Some(last) => self.put_caret(last.at + last.inserted.len()),
+            None => self.put_caret(caret),
         }
         changed
     }
@@ -341,16 +341,18 @@ impl Pane {
         self.to_text(self.content.cursor().position)
     }
 
-    /// The suggestion the caret is on (in or touching its struck text, ghost text or buttons),
-    /// if any.
-    pub fn suggestion_at_caret(&self) -> Option<u64> {
+    /// The suggestion Ctrl+Enter and Ctrl+Backspace decide: the one the caret is on (in or
+    /// touching the text it takes out or puts in), or else the first in the text.
+    pub fn current_suggestion(&self) -> Option<u64> {
         let caret = self.content.cursor().position;
         let display = self.display.as_ref()?;
-        display.suggestion_at(offset(&display.text, caret.line, caret.column))
+        display
+            .suggestion_at(offset(&display.text, caret.line, caret.column))
+            .or_else(|| self.suggestions().first().map(|s| s.id))
     }
 
-    /// Where widget position `at` is in the model's text. Inside a suggestion's ghost text or
-    /// buttons, that's where the suggestion sits.
+    /// Where widget position `at` is in the model's text. Inside a suggestion's added text,
+    /// that's where the suggestion sits.
     fn to_text(&self, at: Position) -> usize {
         let shown_offset = offset(self.shown(), at.line, at.column);
         match &self.display {
@@ -370,7 +372,7 @@ impl Pane {
     }
 
     /// Where byte `offset` of the model's text is in the widget. In review mode an offset right
-    /// at a suggestion's ghost text goes before it, or after its buttons when `after` is set.
+    /// at a suggestion's added text goes before it, or after it when `after` is set.
     pub fn position(&self, offset: usize, after: bool) -> Position {
         let shown_offset = match &self.display {
             Some(display) => display.to_display(offset, after),
@@ -416,8 +418,8 @@ impl Pane {
         });
     }
 
-    /// The suggestions as the editor draws them: the replaced text struck through, the new text
-    /// as ghost text, and room for the buttons, in the cool accent.
+    /// The suggestions as the editor draws them: the text they take out on red and struck
+    /// through, the text they put in on green.
     pub fn suggestion_runs(&self, roles: &Roles) -> Vec<PaintRun> {
         let Some(display) = &self.display else {
             return Vec::new();
@@ -428,26 +430,22 @@ impl Pane {
         };
         let mut runs = Vec::new();
         for piece in display.pieces.iter().filter(|p| !p.display.is_empty()) {
-            let Some(id) = piece.suggestion else {
-                continue;
-            };
-            let look = match piece.shown {
+            let (look, color) = match piece.shown {
                 Shown::Text => continue,
-                Shown::Struck => PaintLook::Struck(roles.fg_subtle),
-                Shown::Ghost => PaintLook::Ghost,
-                Shown::Buttons => PaintLook::Buttons { id },
+                Shown::Removed => (PaintLook::Removed(roles.fg_muted), roles.removed),
+                Shown::Added => (PaintLook::Added, roles.added),
             };
             runs.push(PaintRun {
                 start: at(piece.display.start),
                 end: at(piece.display.end),
-                color: roles.accent_cool,
+                color,
                 look,
             });
         }
         runs
     }
 
-    /// The struck and ghost text and the button room, one entry per line, for the highlighter.
+    /// The text suggestions take out and put in, one entry per line, for the highlighter.
     fn review_highlights(&self) -> Vec<(usize, Range<usize>, Highlight)> {
         let Some(display) = &self.display else {
             return Vec::new();
@@ -455,9 +453,7 @@ impl Pane {
         let mut found = Vec::new();
         for piece in &display.pieces {
             let highlight = match piece.shown {
-                Shown::Struck => Highlight::Struck,
-                Shown::Ghost => Highlight::Ghost,
-                Shown::Buttons => Highlight::Hidden,
+                Shown::Removed | Shown::Added => Highlight::Suggested,
                 Shown::Text => continue,
             };
             let (mut line, mut column) = position(&display.text, piece.display.start);
@@ -494,7 +490,7 @@ impl Pane {
 
     /// Does what the widget asked. An edit is recorded for undo; returns whether the text
     /// changed. Waiting suggestions move with an edit to the text around them, and an edit to
-    /// the text they change (or to their ghost text) is refused, with the reason.
+    /// the text they change (or to the text they put in) is refused, with the reason.
     pub fn perform(&mut self, action: Action) -> Result<bool, String> {
         if !action.is_edit() {
             if !matches!(action, Action::Scroll { .. }) {
@@ -556,9 +552,9 @@ impl Pane {
             return Err(IN_A_SUGGESTION.to_string());
         };
         let at = piece.text.start + change.at - piece.display.start;
-        // Typed right before a pure insert's ghost text (`at` is where the insert sits too), the
+        // Typed right before a pure insert's added text (`at` is where the insert sits too), the
         // insert moves along so the typing lands at the caret. Not at the end of the display,
-        // which is after the last suggestion's buttons.
+        // which is after the last suggestion's added text.
         let ahead = change.at == piece.display.end && change.at < display.text.len();
         let mut text = self.model.text().to_string();
         text.replace_range(at..at + change.removed.len(), &change.inserted);
@@ -719,7 +715,7 @@ impl Pane {
     }
 
     /// The selected text as a byte range of the model's text, or `None` when nothing is
-    /// selected. In review mode a selection of only ghost text selects nothing.
+    /// selected. In review mode a selection of only added text selects nothing.
     pub fn selection(&self) -> Option<Range<usize>> {
         let cursor = self.content.cursor();
         let anchor = cursor.selection?;
@@ -1208,7 +1204,6 @@ impl Pane {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::review::{BUTTON_ROOM, GHOST_START};
     use iced::keyboard::key::{Code, NativeCode, Physical};
 
     fn cursor_at(line: usize, column: usize) -> Cursor {
@@ -1311,11 +1306,10 @@ mod tests {
     #[test]
     fn suggestions_show_in_the_widget_but_never_in_the_model() {
         let (mut pane, _, _) = reviewing_pane();
-        let (z, room) = (GHOST_START, BUTTON_ROOM);
         assert!(pane.reviewing());
         assert_eq!(
             pane.content.text(),
-            format!("Be quick.{z}Take your time.{room} Stay calm{z}steady{room}.")
+            "Be quick.Take your time. Stay calmsteady."
         );
         assert_eq!(pane.model.text(), "Be quick. Stay calm.");
         // Typing into the text a suggestion changes is refused and leaves everything as it was;
@@ -1337,8 +1331,7 @@ mod tests {
     #[test]
     fn typing_around_suggestions_moves_them() {
         let (mut pane, _, _) = reviewing_pane();
-        let (z, room) = (GHOST_START, BUTTON_ROOM);
-        // Right after the first suggestion's buttons.
+        // Right after the first suggestion's added text.
         pane.put_caret(9);
         for c in " Now".chars() {
             assert_eq!(pane.perform(Action::Edit(Edit::Insert(c))), Ok(true));
@@ -1346,7 +1339,7 @@ mod tests {
         assert_eq!(pane.model.text(), "Be quick. Now Stay calm.");
         assert_eq!(
             pane.content.text(),
-            format!("Be quick.{z}Take your time.{room} Now Stay calm{z}steady{room}.")
+            "Be quick.Take your time. Now Stay calmsteady."
         );
         assert_eq!(pane.suggestions()[1].range, 19..23);
         // Backspace there takes the typing back off, but not the "." the suggestion replaces.
@@ -1366,7 +1359,7 @@ mod tests {
         assert_eq!(pane.suggestions()[0].range, 0..9);
         assert_eq!(
             pane.content.text(),
-            format!("Be quick.{z}Take your time.{room} Stay calm{z}steady{room}.")
+            "Be quick.Take your time. Stay calmsteady."
         );
         // Pasting over a selection that reaches into a suggestion is refused.
         pane.select(11..17);
@@ -1379,22 +1372,21 @@ mod tests {
     }
 
     #[test]
-    fn typing_right_before_an_insert_goes_before_its_ghost_text() {
-        let (z, room) = (GHOST_START, BUTTON_ROOM);
+    fn typing_right_before_an_insert_goes_before_its_added_text() {
         let mut pane = Pane::new("ab cd");
         pane.suggest(2..2, "XY").unwrap();
         pane.content.move_to(cursor_at(0, 2));
         assert_eq!(pane.perform(Action::Edit(Edit::Insert('!'))), Ok(true));
-        assert_eq!(pane.content.text(), format!("ab!{z}XY{room} cd"));
+        assert_eq!(pane.content.text(), "ab!XY cd");
         assert_eq!(pane.content.cursor(), cursor_at(0, 3));
         assert!(pane.decide(Decision::AcceptAll));
         assert_eq!(pane.model.text(), "ab!XY cd");
-        // After an insert's buttons at the end of the text, typing still goes after it.
+        // After an insert at the end of the text, typing still goes after it.
         let mut pane = Pane::new("Hi.");
         pane.suggest(3..3, " Bye.").unwrap();
         pane.put_caret(3);
         assert_eq!(pane.perform(Action::Edit(Edit::Insert('!'))), Ok(true));
-        assert_eq!(pane.content.text(), format!("Hi.{z} Bye.{room}!"));
+        assert_eq!(pane.content.text(), "Hi. Bye.!");
         assert_eq!(pane.suggestions()[0].range, 3..3);
     }
 
@@ -1414,13 +1406,9 @@ mod tests {
     #[test]
     fn accept_is_one_undo_step_and_reject_drops_the_suggestion() {
         let (mut pane, first, second) = reviewing_pane();
-        let (z, room) = (GHOST_START, BUTTON_ROOM);
         assert!(pane.decide(Decision::Accept(Some(first))));
         assert_eq!(pane.model.text(), "Take your time. Stay calm.");
-        assert_eq!(
-            pane.content.text(),
-            format!("Take your time. Stay calm{z}steady{room}.")
-        );
+        assert_eq!(pane.content.text(), "Take your time. Stay calmsteady.");
         // The other suggestion moved along.
         assert_eq!(pane.suggestions()[0].range, 21..25);
 
@@ -1436,25 +1424,43 @@ mod tests {
     }
 
     #[test]
-    fn tab_and_esc_decide_only_the_suggestion_the_caret_is_on() {
+    fn the_current_suggestion_is_the_one_at_the_caret_or_else_the_first() {
         let (mut pane, first, second) = reviewing_pane();
-        // In " Stay", away from both suggestions, Tab and Esc decide nothing (Tab indents).
+        // In " Stay", away from both suggestions, the first one is current.
         pane.put_caret(11);
-        assert_eq!(pane.suggestion_at_caret(), None);
-        assert!(!pane.decide(Decision::Accept(None)));
-        assert!(!pane.decide(Decision::Reject(None)));
-        assert_eq!(pane.suggestions().len(), 2);
-        // On "calm", Tab accepts that one.
+        assert_eq!(pane.current_suggestion(), Some(first));
+        // On "calm", that one is: accepting with no id takes it.
         pane.put_caret(16);
-        assert_eq!(pane.suggestion_at_caret(), Some(second));
+        assert_eq!(pane.current_suggestion(), Some(second));
         assert!(pane.decide(Decision::Accept(None)));
         assert_eq!(pane.model.text(), "Be quick. Stay steady.");
-        // On "quick", Esc rejects the other.
-        pane.put_caret(4);
-        assert_eq!(pane.suggestion_at_caret(), Some(first));
+        // Rejecting with no id, the caret anywhere, takes the one left.
+        pane.put_caret(20);
         assert!(!pane.decide(Decision::Reject(None)));
         assert!(!pane.reviewing());
+        assert_eq!(pane.current_suggestion(), None);
         assert_eq!(pane.content.text(), "Be quick. Stay steady.");
+    }
+
+    #[test]
+    fn ctrl_enter_and_ctrl_backspace_are_left_to_the_app_while_reviewing() {
+        let press = |key: Named, modifiers: Modifiers| KeyPress {
+            key: Key::Named(key),
+            modified_key: Key::Named(key),
+            physical_key: Physical::Unidentified(NativeCode::Unidentified),
+            modifiers,
+            text: None,
+            status: Status::Focused { is_hovered: false },
+        };
+        for key in [Named::Enter, Named::Backspace] {
+            for modifiers in [Modifiers::COMMAND, Modifiers::COMMAND | Modifiers::SHIFT] {
+                assert!(decides(&press(key, modifiers)));
+                assert!(key_binding(press(key, modifiers), true, true).is_none());
+            }
+        }
+        assert!(!decides(&press(Named::Enter, Modifiers::empty())));
+        // Not reviewing, Ctrl+Backspace still deletes a word.
+        assert!(key_binding(press(Named::Backspace, Modifiers::COMMAND), true, false).is_some());
     }
 
     #[test]
@@ -1490,7 +1496,7 @@ mod tests {
         let (mut pane, _, _) = reviewing_pane();
         let shown_offset =
             |position: Position| offset(&pane.content.text(), position.line, position.column);
-        // " Stay " starts after the first suggestion's ghost text and buttons.
+        // " Stay " starts after the first suggestion's added text.
         let stay = pane.position(9, true);
         assert_eq!(&pane.content.text()[shown_offset(stay)..][..5], " Stay");
         assert_eq!(shown_offset(pane.position(9, false)), 9);
@@ -1500,7 +1506,7 @@ mod tests {
             selection: Some(pane.position(4, true)),
         });
         assert_eq!(pane.selection(), Some(4..12));
-        // A selection of only ghost text is no selection.
+        // A selection of only added text is no selection.
         pane.content.move_to(Cursor {
             position: Position {
                 line: 0,
@@ -1530,7 +1536,7 @@ mod tests {
             binding(true),
             Some(Binding::Custom(Message::Clip { cut: false }))
         ));
-        // `Clip` copies the model's text under the selection, without ghost text or buttons.
+        // `Clip` copies the model's text under the selection, without the added text.
         let (mut pane, _, _) = reviewing_pane();
         pane.content.move_to(Cursor {
             position: pane.position(12, true),
@@ -1992,14 +1998,14 @@ mod tests {
         assert_eq!(pane.new_line(), Err(IN_A_SUGGESTION.to_string()));
         assert_eq!(pane.content.text(), shown);
         assert_eq!(pane.content.cursor(), cursor);
-        // So is one that would take the spaces a suggestion changes down with it.
+        // On a line of only spaces before the caret, the spaces a suggestion changes move down
+        // with the rest, and the suggestion with them.
         let mut pane = Pane::new("    x");
         pane.suggest(0..2, "").unwrap();
         pane.put_caret(4);
-        let cursor = pane.content.cursor();
-        assert_eq!(pane.new_line(), Err(IN_A_SUGGESTION.to_string()));
-        assert_eq!(pane.content.cursor(), cursor);
-        assert_eq!(pane.model.text(), "    x");
+        assert_eq!(pane.new_line(), Ok(true));
+        assert_eq!(pane.model.text(), "\n    x");
+        assert_eq!(pane.suggestions()[0].range, 1..3);
     }
 
     #[test]

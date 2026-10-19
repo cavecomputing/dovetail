@@ -253,6 +253,7 @@ pub fn keys(shortcut: &str) -> String {
         .replace("Ctrl+", "⌘")
         .replace("Shift+", "⇧")
         .replace("Enter", "↩")
+        .replace("Backspace", "⌫")
 }
 
 /// The menu panel, raised above the status bar's left end. Clicking anywhere else closes it.
