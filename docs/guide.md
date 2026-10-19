@@ -354,6 +354,7 @@ Changes apply at once and are saved to `settings.toml`, whose path the status ba
 | saving | `autosave_delay_ms`: pause in typing before an autosave (500) |
 | assistant | `base_url` (`https://api.openai.com/v1`). `model` (none: the pane asks for one). `request_format` (responses). `api_key` (none; kept in the system keyring when there is one, see above). Test connection |
 | window | `window_controls`, the minimise, maximise and close buttons: auto (default) hides them under a tiling window manager (Hyprland, Sway, i3, niri, river) and shows them elsewhere; or show, or hide. Not on macOS, which keeps its own |
+| shortcuts | Every keyboard shortcut, written the way your OS writes them (⌘ on macOS). Only a reference for now: they can't be changed |
 
 The sections are only how the panel groups the settings; `settings.toml` itself doesn't use them.
 
