@@ -258,7 +258,8 @@ src/
     key_guard.rs         keeps Ctrl+digit and Ctrl+punctuation (and ⌘ plus a letter on macOS) from
                          typing into text boxes; widgets still get the key for their shortcuts
     status_bar.rs        the bottom bar (save dot, path, counts, assistant toggle) and its menu
-    switcher.rs          the Ctrl+P quick switcher: scratch and the recent files, numbered 0-9
+    switcher.rs          the Ctrl+P quick switcher: scratch and the recent files, numbered 0-9;
+                         and the panel look it shares with the picker and the palette
     picker.rs            the Ctrl+O picker: a path box and the folder's entries; goes into a
                          folder or opens a file here
     palette.rs           the Ctrl+Shift+P command palette: the open file's tools (Format JSON...)

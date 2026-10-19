@@ -25,10 +25,10 @@ pub const PANE_WIDTH: f32 = 380.0;
 /// At or below this window width the pane takes the whole width, as in the mockup.
 const NARROW: f32 = 760.0;
 /// The pane's one text size, and its line height as a multiple of it.
-const SIZE: f32 = 13.0;
-const LINE: f32 = 1.6;
+pub const SIZE: f32 = 13.0;
+pub const LINE: f32 = 1.6;
 /// The width of one character, for indents.
-const CH: f32 = SIZE * CHAR_WIDTH_RATIO;
+pub const CH: f32 = SIZE * CHAR_WIDTH_RATIO;
 /// The longest file or focus name a header line shows, in characters.
 const SEES_CHARS: usize = 36;
 /// The longest model name the header shows, in characters, so "suggests only" and new chat fit.
@@ -135,7 +135,7 @@ fn pane(app: &App) -> Element<'_, Message> {
 }
 
 /// One line of the pane's text in a colour from the palette, wrapping when it's long.
-fn line<'a>(words: impl text::IntoFragment<'a>, color: fn(&Roles) -> Color) -> text::Text<'a> {
+pub fn line<'a>(words: impl text::IntoFragment<'a>, color: fn(&Roles) -> Color) -> text::Text<'a> {
     text(words)
         .size(SIZE)
         .line_height(LINE)
@@ -144,7 +144,7 @@ fn line<'a>(words: impl text::IntoFragment<'a>, color: fn(&Roles) -> Color) -> t
         })
 }
 
-fn subtle(roles: &Roles) -> Color {
+pub fn subtle(roles: &Roles) -> Color {
     roles.fg_subtle
 }
 
@@ -152,7 +152,7 @@ fn fg_muted(roles: &Roles) -> Color {
     roles.fg_muted
 }
 
-fn accent_text(roles: &Roles) -> Color {
+pub fn accent_text(roles: &Roles) -> Color {
     roles.accent_text
 }
 
