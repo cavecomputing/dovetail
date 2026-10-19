@@ -30,12 +30,8 @@ fn main() -> iced::Result {
             print_brand();
             return Ok(());
         }
-        Some(path) => Doc::File {
-            // An absolute path, so a window opened from here still finds it.
-            path: std::path::absolute(&path).unwrap_or(path),
-            line_ending: Default::default(),
-            bom: false,
-        },
+        // An absolute path, so a window opened from here still finds it.
+        Some(path) => Doc::file(std::path::absolute(&path).unwrap_or(path)),
         None => Doc::Scratch,
     };
     // Explorer starts a program in the opened file's folder, and Windows won't let a folder be
