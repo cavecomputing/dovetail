@@ -313,7 +313,7 @@ Ctrl+Backspace rejects from anywhere: the suggestion the cursor is on, or else t
 Shift they take them all. Your next question tells the assistant which you accepted and rejected,
 so after rejecting one you can just ask for something different. It
 works on scripts and config files as well as prose: it's told what kind of file is open, a
-suggestion covers only the lines that change (not the lines around them the model copied), and in a
+suggestion covers only the lines or words that change (not the text around them the model copied), and in a
 JSON, YAML, TOML, INI or shell file it's told when an edit would make the file invalid, so it can
 correct it. You can keep typing elsewhere meanwhile. Enter sends your question; while it answers, `stop` appears
 beside the prompt. `new chat` starts over and rejects the suggestions still waiting. Closing the

@@ -273,12 +273,30 @@ fn count(text: &str) -> Value {
     }
 }
 
-/// `find` and `replace` without the whole lines at their start and end that both have, and how
-/// many bytes were left off the start. A model often copies a few lines around what it changes
-/// in a script or config file; the suggestion is only what really changes.
-fn changed_lines<'a>(find: &'a str, replace: &'a str) -> (usize, &'a str, &'a str) {
-    let old: Vec<&str> = find.split_inclusive('\n').collect();
-    let new: Vec<&str> = replace.split_inclusive('\n').collect();
+/// `find` and `replace` without what both have at their start and end, and how many bytes were
+/// left off the start. A model often copies a line or a few around what it changes; the
+/// suggestion, and the red and green the editor shows, is only what really changes: whole lines,
+/// or within one line whole words.
+fn changed_part<'a>(find: &'a str, replace: &'a str) -> (usize, &'a str, &'a str) {
+    let (head, find, replace) = trim_shared(find, replace, false);
+    let one_line = |part: &str| !part.trim_end_matches('\n').contains('\n');
+    if !(one_line(find) && one_line(replace)) {
+        return (head, find, replace);
+    }
+    let (more, find, replace) = trim_shared(find, replace, true);
+    (head + more, find, replace)
+}
+
+/// `find` and `replace` without the pieces at their start and end that both have: whole lines,
+/// or with `words` whole words (each with the spaces or line break after it).
+fn trim_shared<'a>(find: &'a str, replace: &'a str, words: bool) -> (usize, &'a str, &'a str) {
+    let pieces = |text: &'a str| -> Vec<&'a str> {
+        match words {
+            true => text.split_inclusive(char::is_whitespace).collect(),
+            false => text.split_inclusive('\n').collect(),
+        }
+    };
+    let (old, new) = (pieces(find), pieces(replace));
     let first = old.iter().zip(&new).take_while(|(a, b)| a == b).count();
     let last = old[first..]
         .iter()
@@ -286,7 +304,7 @@ fn changed_lines<'a>(find: &'a str, replace: &'a str) -> (usize, &'a str, &'a st
         .zip(new[first..].iter().rev())
         .take_while(|(a, b)| a == b)
         .count();
-    let length = |lines: &[&str]| lines.iter().map(|line| line.len()).sum::<usize>();
+    let length = |pieces: &[&str]| pieces.iter().map(|piece| piece.len()).sum::<usize>();
     let head = length(&old[..first]);
     let find_end = find.len() - length(&old[old.len() - last..]);
     let replace_end = replace.len() - length(&new[new.len() - last..]);
@@ -327,9 +345,9 @@ fn propose_edit(snapshot: &Snapshot, arguments: &Value) -> (String, Option<Sugge
             ));
         }
     };
-    // The suggestion covers only the lines that change, so the document shows just those;
-    // the validity check below looks at the whole edit, which is the same.
-    let (skipped, find_part, replace_part) = changed_lines(find, replace);
+    // The suggestion covers only the lines or words that change, so the document shows just
+    // those; the validity check below looks at the whole edit, which is the same.
+    let (skipped, find_part, replace_part) = changed_part(find, replace);
     let range = at + skipped..at + skipped + find_part.len();
     if snapshot.waiting.iter().any(|other| clashes(other, &range)) {
         return refuse(
@@ -594,9 +612,14 @@ mod tests {
         assert_eq!(suggestion.at, yaml.find("  restart").unwrap());
         assert_eq!(suggestion.find, "");
         assert_eq!(suggestion.replace, "  ports: [80]\n");
-        assert_eq!(changed_lines("very big", "huge"), (0, "very big", "huge"));
-        assert_eq!(changed_lines("a\nb\nc", "a\nB\nc"), (2, "b\n", "B\n"));
-        assert_eq!(changed_lines("x\n", "x"), (0, "x\n", "x"));
+        assert_eq!(changed_part("very big", "huge"), (0, "very big", "huge"));
+        assert_eq!(changed_part("a\nb\nc", "a\nB\nc"), (2, "b\n", "B\n"));
+        assert_eq!(changed_part("x\n", "x"), (0, "x\n", "x"));
+        let (old, new) = ("The big red house.", "The big blue house.");
+        assert_eq!(changed_part(old, new), (8, "red ", "blue "));
+        let (old, new) = ("a\nb c\nd", "a\nb C\nd");
+        assert_eq!(changed_part(old, new), (4, "c\n", "C\n"));
+        assert_eq!(changed_part("a b", "a new b"), (2, "", "new "));
     }
 
     #[test]
