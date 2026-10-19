@@ -157,12 +157,7 @@ pub fn view(switcher: &Switcher) -> Element<'_, Message> {
         (true, false) => "# nothing matches".to_string(),
         (false, _) => format!("# a row's number opens it · {}", keys("Ctrl+P closes")),
     };
-    panel(column![
-        comment("# recent files"),
-        prompt(search),
-        rows,
-        comment(foot)
-    ])
+    panel(column![prompt(search), rows, comment(foot)])
 }
 
 /// A panel near the top of the window, as the switcher, the picker and the palette show, drawn

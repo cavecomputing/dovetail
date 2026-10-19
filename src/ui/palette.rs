@@ -111,12 +111,7 @@ pub fn view(palette: &Palette, syntax: Syntax) -> Element<'_, Message> {
         (true, true) => "# no tools for this kind of file".to_string(),
         (true, false) => "# nothing matches".to_string(),
     };
-    panel(column![
-        comment("# tools for this file"),
-        prompt(search),
-        rows,
-        comment(foot)
-    ])
+    panel(column![prompt(search), rows, comment(foot)])
 }
 
 #[cfg(test)]
