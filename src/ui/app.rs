@@ -377,9 +377,7 @@ impl App {
         self.saving_since = None;
         self.recent = existing_recent_files(&self.paths.data_dir);
         self.find = Find::default();
-        self.assistant.stop();
-        self.assistant.conversation = Default::default();
-        self.assistant.cards.clear();
+        self.assistant.new_chat();
         self.syntax_problem = None;
         let focus = iced::widget::operation::focus(editor::EDITOR_ID);
         Task::batch([self.count_tokens(), self.check_syntax(), focus])

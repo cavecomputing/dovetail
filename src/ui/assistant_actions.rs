@@ -116,6 +116,13 @@ impl Assistant {
         self.reply = None;
         self.conversation.stop();
     }
+
+    /// Stops any reply and empties the chat and its cards.
+    pub fn new_chat(&mut self) {
+        self.stop();
+        self.conversation = Conversation::default();
+        self.cards.clear();
+    }
 }
 
 impl App {
@@ -162,10 +169,8 @@ impl App {
                 return focus(COMPOSER_ID);
             }
             AssistantAction::NewChat => {
-                self.assistant.stop();
                 self.decide(Decision::RejectAll);
-                self.assistant.conversation = Conversation::default();
-                self.assistant.cards.clear();
+                self.assistant.new_chat();
                 return focus(COMPOSER_ID);
             }
             AssistantAction::TryShorter(id) => {
