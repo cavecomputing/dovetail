@@ -412,7 +412,7 @@ fn shortcuts<'a>() -> Element<'a, Message> {
         for &(others, mac, what) in shortcuts {
             let shown = match (cfg!(target_os = "macos"), mac) {
                 (true, "") => keys(others),
-                (true, mac) => mac.to_string(),
+                (true, mac) => keys(mac),
                 (false, _) if others.is_empty() => continue,
                 (false, _) => others.to_string(),
             };
