@@ -27,6 +27,18 @@ pub enum Doc {
     },
 }
 
+impl Doc {
+    /// The file at `path`, before it is read: Unix line endings and no byte order mark, until
+    /// reading it says otherwise.
+    pub fn file(path: PathBuf) -> Doc {
+        Doc::File {
+            path,
+            line_ending: LineEnding::default(),
+            bom: false,
+        }
+    }
+}
+
 /// A document ready for the window.
 #[derive(Debug)]
 pub struct OpenedDoc {
@@ -240,11 +252,7 @@ mod tests {
     use std::fs;
 
     fn file_doc(path: &Path) -> Doc {
-        Doc::File {
-            path: path.to_path_buf(),
-            line_ending: LineEnding::default(),
-            bom: false,
-        }
+        Doc::file(path.to_path_buf())
     }
 
     #[test]

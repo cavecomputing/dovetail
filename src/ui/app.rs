@@ -1223,11 +1223,7 @@ mod tests {
     }
 
     fn file_doc(path: &Path) -> Doc {
-        Doc::File {
-            path: path.to_path_buf(),
-            line_ending: LineEnding::Lf,
-            bom: false,
-        }
+        Doc::file(path.to_path_buf())
     }
 
     /// A scratch window over folders in a temp dir, with `typed` typed into it, and a file

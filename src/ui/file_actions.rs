@@ -16,11 +16,7 @@ use crate::ui::app::{App, Message};
 impl App {
     /// Opens the file at `path` in this window (`open_here`).
     pub fn open_file(&mut self, path: PathBuf) -> Task<Message> {
-        self.open_here(Doc::File {
-            path,
-            line_ending: LineEnding::default(),
-            bom: false,
-        })
+        self.open_here(Doc::file(path))
     }
 
     /// Shows `doc` in this window in place of the document it shows now (Ctrl+O, Ctrl+P, Recent,
