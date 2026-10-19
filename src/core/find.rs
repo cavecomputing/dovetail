@@ -13,8 +13,20 @@ pub fn find_all(text: &str, query: &str, match_case: bool, whole_word: bool) -> 
     }
     let word = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_');
     let (word_start, word_end) = (word(query.chars().next()), word(query.chars().next_back()));
+    // Most places can't start a match, and the first character tells: for an ASCII one
+    // (nearly always) a plain byte comparison says so, which is many times quicker than
+    // lowering both characters' case.
+    let first = query.as_bytes()[0];
+    let can_start = |byte: u8| match match_case {
+        true => byte == first,
+        false => byte.eq_ignore_ascii_case(&first),
+    };
     let mut from = 0;
     while let Some(next) = text[from..].chars().next() {
+        if first.is_ascii() && next.is_ascii() && !can_start(next as u8) {
+            from += 1;
+            continue;
+        }
         match match_length(&text[from..], query, match_case) {
             Some(length)
                 if !whole_word
@@ -74,6 +86,13 @@ mod tests {
             find_all("Tag <tag> TAG", "tag", false, false),
             vec![0..3, 5..8, 10..13]
         );
+    }
+
+    #[test]
+    fn a_character_outside_ascii_can_still_match_an_ascii_query() {
+        // The Kelvin sign is "k" in lower case.
+        assert_eq!(find_all("\u{212A}elvin", "kel", false, false), vec![0..5]);
+        assert!(find_all("\u{212A}elvin", "kel", true, false).is_empty());
     }
 
     #[test]
