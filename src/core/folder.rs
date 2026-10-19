@@ -1,16 +1,10 @@
-//! Folders: what's in one, for the folder pane's tree and the Ctrl+O picker; every file under
-//! one, for the pane's filter; and how the picker reads the path typed into it.
+//! Folders for the Ctrl+O picker: what's in one, and how the picker reads the path typed into it.
 
-use std::collections::BTreeSet;
 use std::fs;
 use std::path::{MAIN_SEPARATOR, Path, PathBuf};
 
+use crate::core::paths::display_path;
 use crate::core::recent::match_score;
-
-/// Folders never listed or searched: version control's own, and JavaScript's installed packages.
-const SKIPPED: [&str; 2] = [".git", "node_modules"];
-/// The most files the pane's filter searches; in a bigger folder it searches this many.
-pub const MAX_FILES: usize = 20_000;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Entry {
@@ -20,10 +14,18 @@ pub struct Entry {
 
 impl Entry {
     pub fn name(&self) -> String {
+        if self.is_up() {
+            return "..".to_string();
+        }
         self.path
             .file_name()
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_default()
+    }
+
+    /// Whether this is the picker's `..` row, the folder above the listed one.
+    pub fn is_up(&self) -> bool {
+        self.path.ends_with("..")
     }
 }
 
@@ -41,68 +43,9 @@ pub fn entries(dir: &Path) -> Vec<Entry> {
                 path,
             }
         })
-        .filter(|entry| !SKIPPED.contains(&entry.name().as_str()))
         .collect();
     found.sort_by_key(|entry| (!entry.is_dir, entry.name().to_lowercase()));
     found
-}
-
-/// One row of the pane's tree: an entry, and how deep it is (0 for the folder's own).
-#[derive(Debug, Clone, PartialEq)]
-pub struct Row {
-    pub entry: Entry,
-    pub depth: usize,
-}
-
-/// The tree under `root`: its entries, each folder in `expanded` followed by its own.
-pub fn tree(root: &Path, expanded: &BTreeSet<PathBuf>) -> Vec<Row> {
-    let mut rows = Vec::new();
-    add_rows(root, 0, expanded, &mut rows);
-    rows
-}
-
-fn add_rows(dir: &Path, depth: usize, expanded: &BTreeSet<PathBuf>, rows: &mut Vec<Row>) {
-    for entry in entries(dir) {
-        let inside = (entry.is_dir && expanded.contains(&entry.path)).then(|| entry.path.clone());
-        rows.push(Row { entry, depth });
-        if let Some(inside) = inside {
-            add_rows(&inside, depth + 1, expanded, rows);
-        }
-    }
-}
-
-/// Every file under `root`, relative to it, up to `MAX_FILES`, and whether it stopped there. A
-/// link to a folder isn't followed, so a loop of links ends.
-pub fn files_under(root: &Path) -> (Vec<PathBuf>, bool) {
-    let mut files = Vec::new();
-    let mut folders = vec![root.to_path_buf()];
-    while let Some(dir) = folders.pop() {
-        for entry in entries(&dir) {
-            if entry.is_dir {
-                let link = fs::symlink_metadata(&entry.path).is_ok_and(|meta| meta.is_symlink());
-                if !link {
-                    folders.push(entry.path);
-                }
-            } else if files.len() == MAX_FILES {
-                return (files, true);
-            } else {
-                let relative = entry.path.strip_prefix(root).unwrap_or(&entry.path);
-                files.push(relative.to_path_buf());
-            }
-        }
-    }
-    (files, false)
-}
-
-/// The files whose path matches `query` (see `match_score`), best first, and the shorter path
-/// first among equals.
-pub fn matching<'a>(files: &'a [PathBuf], query: &str) -> Vec<&'a PathBuf> {
-    let mut scored: Vec<(i32, &PathBuf)> = files
-        .iter()
-        .filter_map(|path| Some((match_score(query, &path.to_string_lossy())?, path)))
-        .collect();
-    scored.sort_by_key(|(score, path)| (-score, path.as_os_str().len()));
-    scored.into_iter().map(|(_, path)| path).collect()
 }
 
 /// Whether `c` separates folders in a typed path: `/`, and on Windows `\` too.
@@ -125,19 +68,19 @@ pub fn split_typed(typed: &str, home: &Path) -> (PathBuf, String) {
     (folder.components().collect(), name.to_string())
 }
 
-/// The picker's rows for `name` typed in `folder`: with nothing typed, the folder itself first
-/// (to open it in the pane), then its entries; with a name, the entries matching it, best first.
+/// The picker's rows for `name` typed in `folder`: with nothing typed, `..` (unless the folder
+/// is the top one) and then its entries; with a name, the entries matching it, best first.
 /// Hidden entries (a leading `.`) show only once the name starts with one.
 pub fn picker_rows(folder: &Path, name: &str) -> Vec<Entry> {
     let shown = entries(folder)
         .into_iter()
         .filter(|entry| name.starts_with('.') || !entry.name().starts_with('.'));
     if name.is_empty() {
-        let itself = Entry {
-            path: folder.to_path_buf(),
+        let up = folder.parent().map(|_| Entry {
+            path: folder.join(".."),
             is_dir: true,
-        };
-        return std::iter::once(itself).chain(shown).collect();
+        });
+        return up.into_iter().chain(shown).collect();
     }
     let mut scored: Vec<(i32, Entry)> = shown
         .filter_map(|entry| Some((match_score(name, &entry.name())?, entry)))
@@ -148,8 +91,12 @@ pub fn picker_rows(folder: &Path, name: &str) -> Vec<Entry> {
 }
 
 /// `typed` with the name after its last separator completed to `entry`'s, and a separator after
-/// a folder's, so the picker then lists that folder.
+/// a folder's, so the picker then lists that folder. `..` gives the folder above, written out.
 pub fn complete(typed: &str, entry: &Entry) -> String {
+    if entry.is_up() {
+        let above = entry.path.parent().and_then(Path::parent);
+        return typed_folder(above.map(display_path).unwrap_or_else(|| typed.to_string()));
+    }
     let folder = match typed.rfind(is_separator) {
         Some(at) => &typed[..=at],
         None => "",
@@ -196,52 +143,10 @@ mod tests {
     }
 
     #[test]
-    fn entries_put_folders_first_and_skip_git() {
-        let root = folder_with("entries", &["b.txt", "A.md", "src/", ".git/x", "zeta/"]);
+    fn entries_put_folders_first() {
+        let root = folder_with("entries", &["b.txt", "A.md", "src/", "zeta/"]);
         assert_eq!(names(&entries(&root)), ["src", "zeta", "A.md", "b.txt"]);
         assert!(entries(&root.join("missing")).is_empty());
-    }
-
-    #[test]
-    fn the_tree_opens_expanded_folders_in_place() {
-        let root = folder_with("tree", &["a/one.txt", "a/b/two.txt", "c.txt"]);
-        let mut expanded = BTreeSet::new();
-        let shown = |expanded: &BTreeSet<PathBuf>| -> Vec<(String, usize)> {
-            let rows = tree(&root, expanded);
-            rows.iter()
-                .map(|row| (row.entry.name(), row.depth))
-                .collect()
-        };
-        assert_eq!(shown(&expanded), [("a".into(), 0), ("c.txt".into(), 0)]);
-        expanded.insert(root.join("a"));
-        expanded.insert(root.join("a/b"));
-        assert_eq!(
-            shown(&expanded),
-            [
-                ("a".into(), 0),
-                ("b".into(), 1),
-                ("two.txt".into(), 2),
-                ("one.txt".into(), 1),
-                ("c.txt".into(), 0)
-            ]
-        );
-    }
-
-    #[test]
-    fn the_filter_searches_every_file_by_its_path() {
-        let root = folder_with(
-            "filter",
-            &["deploy.sh", "scripts/backup.sh", "notes.txt", ".git/HEAD"],
-        );
-        let (files, capped) = files_under(&root);
-        assert!(!capped);
-        assert_eq!(files.len(), 3, "the .git folder is left out");
-        let found: Vec<String> = matching(&files, "sh")
-            .iter()
-            .map(|path| path.to_string_lossy().replace('\\', "/"))
-            .collect();
-        assert_eq!(found, ["deploy.sh", "scripts/backup.sh"]);
-        assert!(matching(&files, "zzz").is_empty());
     }
 
     #[test]
@@ -269,11 +174,15 @@ mod tests {
     }
 
     #[test]
-    fn picker_rows_offer_the_folder_then_matches() {
+    fn picker_rows_are_the_folder_or_the_matches() {
         let root = folder_with("picker", &["deploy.sh", "docs/", ".env", "notes.txt"]);
         let rows = picker_rows(&root, "");
-        assert_eq!(rows[0].path, root, "the folder itself comes first");
-        assert_eq!(names(&rows[1..]), ["docs", "deploy.sh", "notes.txt"]);
+        assert_eq!(names(&rows), ["..", "docs", "deploy.sh", "notes.txt"]);
+        // `..` goes to the folder above, and the top folder has none.
+        let above = typed_folder(display_path(root.parent().unwrap()));
+        assert_eq!(complete("anything/", &rows[0]), above);
+        let top = root.ancestors().last().unwrap();
+        assert!(!picker_rows(top, "").iter().any(Entry::is_up));
         assert_eq!(names(&picker_rows(&root, "dep")), ["deploy.sh"]);
         assert_eq!(names(&picker_rows(&root, ".e")), [".env"]);
     }

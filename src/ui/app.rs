@@ -24,7 +24,6 @@ use crate::core::typing::is_code;
 use crate::ui::assistant_actions::{Assistant, AssistantAction, CardState};
 use crate::ui::editor::{Decision, Pane};
 use crate::ui::find_bar::{self, Find, FindAction};
-use crate::ui::folder_pane::{self, FolderAction, FolderPane};
 use crate::ui::palette::{self, Palette};
 use crate::ui::picker::{self, Picker, PickerAction};
 use crate::ui::settings_panel::{self, Change, Connection, KeyField};
@@ -96,8 +95,6 @@ pub struct App {
     /// The modifier keys held now, for the Replace box's Ctrl+Enter.
     pub modifiers: keyboard::Modifiers,
 
-    /// The folder pane (Ctrl+Shift+E) and the folder it shows.
-    pub folder: Option<FolderPane>,
     /// The assistant pane and its conversation, kept while the window is open.
     pub assistant: Assistant,
     /// The Settings panel's API key field, and how its last connection test went.
@@ -217,7 +214,6 @@ pub enum Message {
     SystemTheme(iced::theme::Mode),
 
     Assistant(AssistantAction),
-    Folder(FolderAction),
     Picker(PickerAction),
     Find(FindAction),
     /// The modifier keys held changed.
@@ -229,21 +225,17 @@ pub enum Message {
     },
 }
 
-/// Runs the app on `doc`, with `folder` in the folder pane, until its window closes.
-pub fn run(doc: Doc, folder: Option<PathBuf>) -> iced::Result {
-    iced::daemon(
-        move || App::new(doc.clone(), folder.clone()),
-        App::update,
-        App::view,
-    )
-    .title(App::title)
-    .theme(App::theme)
-    .subscription(App::subscription)
-    .font(theme::FONT_REGULAR)
-    .font(theme::FONT_BOLD)
-    .font(theme::FONT_ITALIC)
-    .default_font(theme::MONO)
-    .run()
+/// Runs the app on `doc` until its window closes.
+pub fn run(doc: Doc) -> iced::Result {
+    iced::daemon(move || App::new(doc.clone()), App::update, App::view)
+        .title(App::title)
+        .theme(App::theme)
+        .subscription(App::subscription)
+        .font(theme::FONT_REGULAR)
+        .font(theme::FONT_BOLD)
+        .font(theme::FONT_ITALIC)
+        .default_font(theme::MONO)
+        .run()
 }
 
 // macOS sets all three of its fields below, which clippy would call a needless `..Default`.
@@ -294,10 +286,8 @@ const NOTICE_TIME: Duration = Duration::from_secs(6);
 const APP_ICON_RGBA: &[u8] = include_bytes!("../../assets/icon/icon-64.rgba");
 
 impl App {
-    fn new(doc: Doc, folder: Option<PathBuf>) -> (App, Task<Message>) {
-        let (app, tasks) = App::with_paths(doc, Paths::detect());
-        let folder = folder.map(|folder| Task::done(Message::Folder(FolderAction::Open(folder))));
-        (app, Task::batch([tasks, folder.unwrap_or_else(Task::none)]))
+    fn new(doc: Doc) -> (App, Task<Message>) {
+        App::with_paths(doc, Paths::detect())
     }
 
     /// `new` with its folders given, for tests.
@@ -353,7 +343,6 @@ impl App {
             menu_open: false,
             find: Find::default(),
             modifiers: keyboard::Modifiers::default(),
-            folder: None,
             assistant: Assistant::default(),
             key_field: KeyField::default(),
             connection: None,
@@ -387,10 +376,6 @@ impl App {
         self.autosaver = Autosaver::new(Duration::from_millis(self.settings.autosave_delay_ms));
         self.saving_since = None;
         self.recent = existing_recent_files(&self.paths.data_dir);
-        // A Save as or New file may have added a file to the folder.
-        if let Some(folder) = &mut self.folder {
-            folder.refresh(folder_pane::current_file(&self.doc));
-        }
         self.find = Find::default();
         self.assistant.stop();
         self.assistant.conversation = Default::default();
@@ -670,9 +655,6 @@ impl App {
             Message::FocusNext { .. } if self.picker.is_some() => {
                 return self.update_picker(PickerAction::Complete);
             }
-            Message::OpenPath(path) if path.is_dir() => {
-                return self.update_folder(FolderAction::Open(path));
-            }
             Message::OpenPath(path) => return self.open_file(path),
             Message::OpenSettings => {
                 self.menu_open = false;
@@ -776,7 +758,6 @@ impl App {
                 self.settings_changed();
             }
             Message::Assistant(action) => return self.update_assistant(action),
-            Message::Folder(action) => return self.update_folder(action),
             Message::Find(action) => return self.update_find(action),
             Message::Modifiers(modifiers) => self.modifiers = modifiers,
             Message::FocusNext { back: true } => return iced::widget::operation::focus_previous(),
@@ -1135,9 +1116,6 @@ fn shortcut(event: iced::Event, status: event::Status, _window: window::Id) -> O
         keyboard::Key::Character("0") => Some(Message::OpenScratch),
         keyboard::Key::Character("p" | "P") if modifiers.shift() => Some(Message::OpenPalette),
         keyboard::Key::Character("p") => Some(Message::OpenSwitcher),
-        keyboard::Key::Character("e" | "E") if modifiers.shift() => {
-            Some(Message::Folder(FolderAction::Toggle))
-        }
         keyboard::Key::Character("l" | "L") if modifiers.shift() => {
             Some(Message::ToggleLineNumbers)
         }

@@ -1,9 +1,7 @@
 //! The Ctrl+O picker: a box holding a path, starting at the open file's folder, and what's in
-//! that folder below it. Typing filters the folder by name; Tab (or a click on a folder) goes into
-//! the highlighted folder; Enter opens the highlighted row, a file in this window or a folder in
-//! the folder pane. With nothing typed after the last `/`, the first row is the folder itself.
-
-use std::path::PathBuf;
+//! that folder below it. Typing filters the folder by name; Tab, Enter or a click goes into the
+//! highlighted folder (`..` is the one above), and Enter or a click opens the highlighted file in
+//! this window.
 
 use iced::widget::operation::{focus, move_cursor_to_end};
 use iced::widget::{button, column, container, row, text, text_input};
@@ -24,8 +22,7 @@ const MAX_ROWS: usize = 14;
 
 pub struct Picker {
     pub typed: String,
-    /// The folder `typed` lists, and the rows for it (see `picker_rows`).
-    folder: PathBuf,
+    /// What's in the folder `typed` lists (see `picker_rows`).
     rows: Vec<Entry>,
     selected: usize,
 }
@@ -35,9 +32,9 @@ pub enum PickerAction {
     Typed(String),
     /// Tab: into the highlighted folder, or the highlighted file's name completed.
     Complete,
-    /// Enter: opens the highlighted row.
+    /// Enter: into the highlighted folder, or opens the highlighted file.
     Choose,
-    /// A row clicked: a folder goes into it, a file (or the folder itself) opens.
+    /// A row clicked: as Enter on it.
     Pick(usize),
 }
 
@@ -45,7 +42,6 @@ impl Picker {
     fn new(typed: String) -> Picker {
         let mut picker = Picker {
             typed: String::new(),
-            folder: PathBuf::new(),
             rows: Vec::new(),
             selected: 0,
         };
@@ -59,16 +55,10 @@ impl Picker {
             .unwrap_or_default();
         let (folder, name) = split_typed(&typed, &home);
         self.rows = picker_rows(&folder, &name);
-        self.folder = folder;
         self.typed = typed;
-        self.selected = 0;
-    }
-
-    /// Whether row `index` is the listed folder itself (the first row with no name typed).
-    fn is_itself(&self, index: usize) -> bool {
-        self.rows
-            .get(index)
-            .is_some_and(|row| row.path == self.folder)
+        // The first entry is highlighted, not `..`, so Enter doesn't go up by surprise.
+        self.selected =
+            usize::from(self.rows.first().is_some_and(Entry::is_up) && self.rows.len() > 1);
     }
 
     pub fn move_selection(&mut self, step: i32) {
@@ -102,36 +92,25 @@ impl App {
         match action {
             PickerAction::Typed(typed) => picker.set_typed(typed),
             PickerAction::Complete => {
-                if let Some(entry) = picker.rows.get(picker.selected).cloned()
-                    && !picker.is_itself(picker.selected)
-                {
+                if let Some(entry) = picker.rows.get(picker.selected).cloned() {
                     picker.set_typed(complete(&picker.typed, &entry));
                     return move_cursor_to_end(PICKER_ID);
                 }
             }
-            PickerAction::Pick(index)
-                if picker.rows.get(index).is_some_and(|row| row.is_dir)
-                    && !picker.is_itself(index) =>
-            {
-                picker.selected = index;
-                return Task::batch([self.update_picker(PickerAction::Complete), focus(PICKER_ID)]);
-            }
             PickerAction::Pick(index) => {
                 picker.selected = index;
-                return self.update_picker(PickerAction::Choose);
+                return Task::batch([self.update_picker(PickerAction::Choose), focus(PICKER_ID)]);
             }
-            PickerAction::Choose => {
-                let Some(path) = picker.rows.get(picker.selected).map(|row| row.path.clone())
-                else {
-                    return Task::none();
-                };
-                self.picker = None;
-                let open = self.update(Message::OpenPath(path.clone()));
-                return match path.is_dir() {
-                    true => open,
-                    false => Task::batch([open, focus(editor::EDITOR_ID)]),
-                };
-            }
+            PickerAction::Choose => match picker.rows.get(picker.selected) {
+                Some(row) if row.is_dir => return self.update_picker(PickerAction::Complete),
+                Some(row) => {
+                    let path = row.path.clone();
+                    self.picker = None;
+                    let open = self.update(Message::OpenPath(path));
+                    return Task::batch([open, focus(editor::EDITOR_ID)]);
+                }
+                None => {}
+            },
         }
         Task::none()
     }
@@ -149,10 +128,9 @@ pub fn view(picker: &Picker) -> Element<'_, Message> {
     let mut rows = column![].spacing(2);
     for (index, entry) in picker.rows.iter().enumerate().take(MAX_ROWS) {
         let selected = index == picker.selected;
-        let (glyph, label) = match (picker.is_itself(index), entry.is_dir) {
-            (true, _) => (GLYPH_FOLDER, "./  open this folder".to_string()),
-            (false, true) => (GLYPH_FOLDER, format!("{}/", entry.name())),
-            (false, false) => (GLYPH_FILE, entry.name()),
+        let (glyph, label) = match entry.is_dir {
+            true => (GLYPH_FOLDER, format!("{}/", entry.name())),
+            false => (GLYPH_FILE, entry.name()),
         };
         rows = rows.push(
             button(
@@ -175,7 +153,7 @@ pub fn view(picker: &Picker) -> Element<'_, Message> {
                 _ => format!("{more} more · "),
             };
             format!(
-                "{more}Tab goes into a folder · Enter opens · {}",
+                "{more}Enter goes into a folder or opens a file · {}",
                 keys("Ctrl+O closes")
             )
         }

@@ -322,8 +322,8 @@ const SHORTCUTS: [(&str, &[Shortcut]); 5] = [
         "files",
         &[
             ("Ctrl+N", "", "new file"),
-            ("Ctrl+O", "", "open a file, or a folder in the folder pane"),
-            ("Ctrl+P", "", "scratch and the recent files and folders"),
+            ("Ctrl+O", "", "open a file"),
+            ("Ctrl+P", "", "scratch and the recent files"),
             ("Ctrl+0", "", "back to scratch"),
             ("Ctrl+S", "", "save now; in scratch, save to a file"),
             ("Ctrl+Shift+S", "", "save as"),
@@ -339,7 +339,6 @@ const SHORTCUTS: [(&str, &[Shortcut]); 5] = [
     (
         "view",
         &[
-            ("Ctrl+Shift+E", "", "show or hide the folder pane"),
             ("Ctrl+L", "", "open or close the assistant pane"),
             (
                 "Ctrl+Shift+P",
