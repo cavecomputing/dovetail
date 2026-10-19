@@ -243,17 +243,27 @@ pub fn hint<'a>(
     .into()
 }
 
-/// A shortcut as this OS writes it: "Ctrl+Shift+S" on Linux and Windows is "⇧⌘S" on macOS.
+/// A shortcut as this OS writes it: "Ctrl+Shift+S" on Linux and Windows is "⇧ ⌘ S" on macOS.
+/// Each modifier glyph is followed by a space: in a monospace font they fill their whole cell
+/// (⌫ and ⌦ reach into the one before), so written tight they run into each other.
 pub fn keys(shortcut: &str) -> String {
     if !cfg!(target_os = "macos") {
         return shortcut.to_string();
     }
-    shortcut
+    let glyphs = shortcut
         .replace("Ctrl+Shift+", "⇧⌘")
         .replace("Ctrl+", "⌘")
         .replace("Shift+", "⇧")
         .replace("Enter", "↩")
-        .replace("Backspace", "⌫")
+        .replace("Backspace", "⌫");
+    let mut written = String::new();
+    for glyph in glyphs.chars() {
+        written.push(glyph);
+        if "⇧⌘⌥⌃".contains(glyph) {
+            written.push(' ');
+        }
+    }
+    written
 }
 
 /// The menu panel, raised above the status bar's left end. Clicking anywhere else closes it.
@@ -383,7 +393,7 @@ mod tests {
     fn shortcuts_are_written_as_this_os_writes_them() {
         let written = [keys("Ctrl+Shift+S"), keys("Previous (Shift+Enter)")];
         match cfg!(target_os = "macos") {
-            true => assert_eq!(written, ["⇧⌘S", "Previous (⇧↩)"]),
+            true => assert_eq!(written, ["⇧ ⌘ S", "Previous (⇧ ↩)"]),
             false => assert_eq!(written, ["Ctrl+Shift+S", "Previous (Shift+Enter)"]),
         }
     }
