@@ -83,22 +83,34 @@ impl TextModel {
         if old == new {
             return None;
         }
-        let same_start = old
-            .bytes()
-            .zip(new.bytes())
-            .take_while(|(a, b)| a == b)
-            .count();
-        let mut prefix = same_start.min(edit_start);
+        // This runs on every key, so the usual case (all before `edit_start` the same, and all
+        // after the edit) is checked first with one whole-slice comparison each, which is many
+        // times quicker on a long text than walking it byte by byte.
+        let (old_bytes, new_bytes) = (old.as_bytes(), new.as_bytes());
+        let mut prefix = match old_bytes.get(..edit_start) == new_bytes.get(..edit_start) {
+            true => edit_start,
+            false => old_bytes
+                .iter()
+                .zip(new_bytes)
+                .take_while(|(a, b)| a == b)
+                .count()
+                .min(edit_start),
+        };
         while !old.is_char_boundary(prefix) || !new.is_char_boundary(prefix) {
             prefix -= 1;
         }
-        let same_end = old
-            .bytes()
-            .rev()
-            .zip(new.bytes().rev())
-            .take_while(|(a, b)| a == b)
-            .count();
-        let mut suffix = same_end.min(old.len().min(new.len()) - prefix);
+        let longest = old.len().min(new.len()) - prefix;
+        let mut suffix = match old_bytes[old.len() - longest..] == new_bytes[new.len() - longest..]
+        {
+            true => longest,
+            false => old_bytes
+                .iter()
+                .rev()
+                .zip(new_bytes.iter().rev())
+                .take_while(|(a, b)| a == b)
+                .count()
+                .min(longest),
+        };
         while !old.is_char_boundary(old.len() - suffix) || !new.is_char_boundary(new.len() - suffix)
         {
             suffix -= 1;
