@@ -4,17 +4,18 @@
 //! this window.
 
 use iced::widget::operation::{focus, move_cursor_to_end};
-use iced::widget::{button, column, container, row, text, text_input};
-use iced::{Element, Fill, Task, Theme};
+use iced::widget::{column, text, text_input};
+use iced::{Element, Task, Theme};
 
 use crate::core::folder::{Entry, complete, picker_rows, split_typed, typed_folder};
 use crate::core::opened::Doc;
 use crate::core::paths::display_path;
 use crate::ui::app::{App, Message};
+use crate::ui::assistant_view::{LINE, SIZE};
 use crate::ui::editor;
 use crate::ui::status_bar::keys;
-use crate::ui::switcher::{panel, row_style, search_style};
-use crate::ui::theme::{GLYPH_FILE, GLYPH_FOLDER, Roles};
+use crate::ui::switcher::{comment, list_row, panel, prompt};
+use crate::ui::theme::Roles;
 
 pub const PICKER_ID: &str = "picker";
 /// The most rows shown; typing narrows a bigger folder.
@@ -116,51 +117,47 @@ impl App {
     }
 }
 
-/// The picker panel near the top of the window: the path box, then the rows.
+/// The picker panel near the top of the window: what it does, the `>` prompt holding the path,
+/// then the folder's entries, folders in blue with a `/` after them.
 pub fn view(picker: &Picker) -> Element<'_, Message> {
     let search = text_input("~/", &picker.typed)
         .id(PICKER_ID)
         .on_input(|typed| Message::Picker(PickerAction::Typed(typed)))
-        .on_submit(Message::Picker(PickerAction::Choose))
-        .size(13)
-        .padding([6, 10])
-        .style(search_style);
-    let mut rows = column![].spacing(2);
+        .on_submit(Message::Picker(PickerAction::Choose));
+    let mut rows = column![];
     for (index, entry) in picker.rows.iter().enumerate().take(MAX_ROWS) {
         let selected = index == picker.selected;
-        let (glyph, label) = match entry.is_dir {
-            true => (GLYPH_FOLDER, format!("{}/", entry.name())),
-            false => (GLYPH_FILE, entry.name()),
+        let (label, folder) = match entry.is_dir {
+            true => (format!("{}/", entry.name()), true),
+            false => (entry.name(), false),
         };
-        rows = rows.push(
-            button(
-                row![text(glyph).size(14), text(label).size(13)]
-                    .spacing(10)
-                    .align_y(iced::Center),
-            )
-            .width(Fill)
-            .padding([5, 10])
-            .style(move |theme, status| row_style(theme, status, selected))
-            .on_press(Message::Picker(PickerAction::Pick(index))),
-        );
+        // The highlight's colour wins over a folder's blue.
+        let name = text(label)
+            .size(SIZE)
+            .line_height(LINE)
+            .style(move |theme: &Theme| text::Style {
+                color: (folder && !selected).then_some(Roles::of(theme).accent_cool),
+            });
+        rows = rows.push(list_row(
+            name,
+            selected,
+            Message::Picker(PickerAction::Pick(index)),
+        ));
     }
-    let hint = match picker.rows.len() {
-        0 => "Nothing here matches".to_string(),
+    let foot = match picker.rows.len() {
+        0 => "# nothing here matches".to_string(),
         shown => {
-            let more = shown.saturating_sub(MAX_ROWS);
-            let more = match more {
+            let more = match shown.saturating_sub(MAX_ROWS) {
                 0 => String::new(),
-                _ => format!("{more} more · "),
+                more => format!("{more} more · "),
             };
-            format!(
-                "{more}Enter goes into a folder or opens a file · {}",
-                keys("Ctrl+O closes")
-            )
+            format!("# {more}Enter goes in or opens · {}", keys("Ctrl+O closes"))
         }
     };
-    let subtle = |theme: &Theme| text::Style {
-        color: Some(Roles::of(theme).fg_subtle),
-    };
-    let hint = container(text(hint).size(11).style(subtle)).padding([2, 10]);
-    panel(column![search, rows, hint])
+    panel(column![
+        comment("# open a file"),
+        prompt(search),
+        rows,
+        comment(foot)
+    ])
 }

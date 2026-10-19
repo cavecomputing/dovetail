@@ -2,14 +2,16 @@
 //! JSON in a .json file). Type a few letters of a tool's name, ↑ and ↓ choose, Enter runs it, Esc
 //! closes.
 
-use iced::widget::{button, column, container, text, text_input};
-use iced::{Element, Fill, Task};
+use iced::widget::{column, text, text_input};
+use iced::{Element, Task};
 
 use crate::core::recent::match_score;
 use crate::core::syntax::Syntax;
 use crate::ui::app::{App, Message};
+use crate::ui::assistant_view::{LINE, SIZE};
 use crate::ui::editor;
-use crate::ui::switcher::{panel, row_style, search_style};
+use crate::ui::status_bar::keys;
+use crate::ui::switcher::{comment, list_row, panel, prompt};
 
 pub const PALETTE_ID: &str = "palette";
 
@@ -87,37 +89,34 @@ impl App {
     }
 }
 
-/// The palette panel near the top of the window: the search box, then the matching tools.
+/// The palette panel near the top of the window: what it lists, the `>` prompt, then the tools.
 pub fn view(palette: &Palette, syntax: Syntax) -> Element<'_, Message> {
-    let search = text_input("Run a tool for this file", &palette.query)
+    let search = text_input("type part of a tool's name", &palette.query)
         .id(PALETTE_ID)
         .on_input(Message::PaletteQuery)
-        .on_submit(Message::PaletteRun(palette.selected))
-        .size(13)
-        .padding([6, 10])
-        .style(search_style);
+        .on_submit(Message::PaletteRun(palette.selected));
 
-    let mut rows = column![].spacing(2);
+    let mut rows = column![];
     let matches = palette.matches(syntax);
     for (index, (name, _)) in matches.iter().enumerate() {
-        let selected = index == palette.selected;
-        rows = rows.push(
-            button(text(*name).size(13))
-                .width(Fill)
-                .padding([5, 10])
-                .style(move |theme, status| row_style(theme, status, selected))
-                .on_press(Message::PaletteRun(index)),
-        );
+        let name = text(*name).size(SIZE).line_height(LINE);
+        rows = rows.push(list_row(
+            name,
+            index == palette.selected,
+            Message::PaletteRun(index),
+        ));
     }
-    if matches.is_empty() {
-        let words = match tools(syntax).is_empty() {
-            true => "No tools for this kind of file",
-            false => "Nothing matches",
-        };
-        rows = rows.push(container(text(words).size(12)).padding([6, 10]));
-    }
-
-    panel(column![search, rows])
+    let foot = match (matches.is_empty(), tools(syntax).is_empty()) {
+        (false, _) => format!("# Enter runs it · {}", keys("Ctrl+Shift+P closes")),
+        (true, true) => "# no tools for this kind of file".to_string(),
+        (true, false) => "# nothing matches".to_string(),
+    };
+    panel(column![
+        comment("# tools for this file"),
+        prompt(search),
+        rows,
+        comment(foot)
+    ])
 }
 
 #[cfg(test)]

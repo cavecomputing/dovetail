@@ -4,6 +4,7 @@
 
 use std::path::PathBuf;
 
+use iced::widget::text::Wrapping;
 use iced::widget::{button, column, container, row, space, text, text_input};
 use iced::{Background, Border, Color, Element, Fill, Padding, Task, Theme};
 
@@ -11,9 +12,10 @@ use crate::core::opened::Doc;
 use crate::core::paths::display_path;
 use crate::core::recent::{existing_recent_files, match_score};
 use crate::ui::app::{App, Message};
+use crate::ui::assistant_view::{CH, LINE, SIZE, accent_text, line, subtle};
 use crate::ui::editor;
-use crate::ui::status_bar::{file_name, title};
-use crate::ui::theme::{GLYPH_FILE, Roles, raised_box};
+use crate::ui::status_bar::{file_name, keys, title};
+use crate::ui::theme::{Roles, raised_box};
 
 pub const SWITCHER_ID: &str = "switcher";
 
@@ -137,38 +139,37 @@ impl App {
     }
 }
 
-/// The switcher panel near the top of the window: the search box, then the matches.
+/// The switcher panel near the top of the window: what it lists, the `>` prompt, then the rows.
 pub fn view(switcher: &Switcher) -> Element<'_, Message> {
-    let search = text_input("Open a recent file", &switcher.query)
+    let search = text_input("type part of a name", &switcher.query)
         .id(SWITCHER_ID)
         .on_input(Message::SwitcherQuery)
-        .on_submit(Message::SwitcherOpen)
-        .size(13)
-        .padding([6, 10])
-        .style(search_style);
+        .on_submit(Message::SwitcherOpen);
 
-    let mut rows = column![].spacing(2);
+    let mut rows = column![];
     let docs = switcher.rows();
     let nothing = docs.len() == 1;
     for (index, doc) in docs.into_iter().enumerate().take(12) {
         rows = rows.push(match_row(doc, index, index == switcher.selected));
     }
-    if nothing {
-        let words = match switcher.items.is_empty() {
-            true => "No recent files yet",
-            false => "Nothing matches",
-        };
-        rows = rows.push(container(text(words).size(12)).padding([6, 10]));
-    }
-
-    panel(column![search, rows])
+    let foot = match (nothing, switcher.items.is_empty()) {
+        (true, true) => "# no recent files yet".to_string(),
+        (true, false) => "# nothing matches".to_string(),
+        (false, _) => format!("# a row's number opens it · {}", keys("Ctrl+P closes")),
+    };
+    panel(column![
+        comment("# recent files"),
+        prompt(search),
+        rows,
+        comment(foot)
+    ])
 }
 
-/// A panel near the top of the window, as the switcher and the palette show: `content`, raised.
-/// Clicking outside it closes it, like the menu.
+/// A panel near the top of the window, as the switcher, the picker and the palette show, drawn
+/// like the assistant pane: `#` lines, a `>` prompt, plain rows. Clicking outside it closes it.
 pub fn panel<'a>(content: iced::widget::Column<'a, Message>) -> Element<'a, Message> {
-    let panel = container(content.spacing(6).width(560))
-        .padding(6)
+    let panel = container(content.spacing(SIZE * LINE * 0.5).width(PANEL_WIDTH))
+        .padding([12, 0])
         .style(raised_box);
     iced::widget::stack![
         iced::widget::mouse_area(space().width(Fill).height(Fill)).on_press(Message::CloseMenu),
@@ -182,7 +183,48 @@ pub fn panel<'a>(content: iced::widget::Column<'a, Message>) -> Element<'a, Mess
     .into()
 }
 
-/// One row: its number (rows 0 to 9), a file glyph, the name, and where it lives.
+const PANEL_WIDTH: f32 = 560.0;
+/// How far a panel's lines sit in from its edges.
+const INSET: f32 = 16.0;
+
+/// A `#` line in a panel, in the comment colour.
+pub fn comment<'a>(words: impl text::IntoFragment<'a>) -> Element<'a, Message> {
+    container(line(words, subtle)).padding([0.0, INSET]).into()
+}
+
+/// The `>` prompt and the box typed into after it, with no frame, as the assistant's is.
+pub fn prompt<'a>(input: text_input::TextInput<'a, Message>) -> Element<'a, Message> {
+    let input = input
+        .size(SIZE)
+        .line_height(LINE)
+        .padding(0)
+        .style(search_style);
+    container(row![line(">", accent_text), input].spacing(CH))
+        .padding([0.0, INSET])
+        .into()
+}
+
+/// A row of a panel's list, lined up with the text typed after the `>`: lit while hovered, and
+/// in the focus colour on a raised band while `selected`.
+pub fn list_row<'a>(
+    content: impl Into<Element<'a, Message>>,
+    selected: bool,
+    on_press: Message,
+) -> Element<'a, Message> {
+    button(content)
+        .width(Fill)
+        .padding(Padding {
+            top: 0.0,
+            right: INSET,
+            bottom: 0.0,
+            left: INSET + 2.0 * CH,
+        })
+        .style(move |theme, status| row_style(theme, status, selected))
+        .on_press(on_press)
+        .into()
+}
+
+/// One row: its number (rows 0 to 9), the name, and the folder it's in.
 fn match_row<'a>(doc: Doc, index: usize, selected: bool) -> Element<'a, Message> {
     let folder = match &doc {
         Doc::File { path, .. } => path.parent().map(display_path).unwrap_or_default(),
@@ -192,36 +234,35 @@ fn match_row<'a>(doc: Doc, index: usize, selected: bool) -> Element<'a, Message>
         0..=9 => index.to_string(),
         _ => String::new(),
     };
-    let subtle = |theme: &Theme| text::Style {
-        color: Some(Roles::of(theme).fg_subtle),
+    let name = title(&doc);
+    // The folder's end, which names it, is kept when the row is too narrow for all of it.
+    let room = (PANEL_WIDTH - 2.0 * INSET) / CH - 2.0 - 3.0 - 2.0;
+    let room = (room as usize).saturating_sub(name.chars().count());
+    let skip = folder.chars().count().saturating_sub(room);
+    let folder = match skip {
+        0 => folder,
+        _ => format!("…{}", folder.chars().skip(skip + 1).collect::<String>()),
     };
-    button(
-        row![
-            text(number).size(11).width(8).style(subtle),
-            text(GLYPH_FILE).size(14),
-            text(title(&doc)).size(13),
-            space::horizontal(),
-            text(folder).size(11).style(subtle),
-        ]
-        .spacing(10)
-        .align_y(iced::Center),
-    )
-    .width(Fill)
-    .padding([5, 10])
-    .style(move |theme, status| row_style(theme, status, selected))
-    .on_press(Message::SwitcherPick(index))
-    .into()
+    let quiet = |words: String| line(words, subtle).wrapping(Wrapping::None);
+    let name = text(name)
+        .size(SIZE)
+        .line_height(LINE)
+        .wrapping(Wrapping::None);
+    let words = row![
+        quiet(number).width(3.0 * CH),
+        name,
+        space::horizontal(),
+        quiet(folder)
+    ];
+    list_row(words.spacing(CH), selected, Message::SwitcherPick(index))
 }
 
-/// The search box's look: an outline in the focus colour.
-pub fn search_style(theme: &Theme, _status: text_input::Status) -> text_input::Style {
+/// The prompt's box: no frame and no fill, as the assistant's.
+fn search_style(theme: &Theme, _status: text_input::Status) -> text_input::Style {
     let roles = Roles::of(theme);
     text_input::Style {
         background: Background::Color(Color::TRANSPARENT),
-        border: Border::default()
-            .rounded(4)
-            .width(1)
-            .color(roles.accent_text),
+        border: Border::default(),
         icon: roles.fg_muted,
         placeholder: roles.fg_subtle,
         value: roles.fg,
@@ -230,7 +271,7 @@ pub fn search_style(theme: &Theme, _status: text_input::Status) -> text_input::S
 }
 
 /// A row's look: lit while hovered, and in the focus colour while `selected`.
-pub fn row_style(theme: &Theme, status: button::Status, selected: bool) -> button::Style {
+fn row_style(theme: &Theme, status: button::Status, selected: bool) -> button::Style {
     let roles = Roles::of(theme);
     let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
     button::Style {
@@ -240,7 +281,6 @@ pub fn row_style(theme: &Theme, status: button::Status, selected: bool) -> butto
         } else {
             roles.fg
         },
-        border: Border::default().rounded(4),
         ..button::Style::default()
     }
 }
