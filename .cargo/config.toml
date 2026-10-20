@@ -1,0 +1,4 @@
+# Builds Microsoft's C runtime into the Windows .exe, so it starts on a PC that doesn't have the
+# Visual C++ Redistributable installed. Linux, macOS and the MinGW (windows-gnu) build are unchanged.
+[target.'cfg(all(windows, target_env = "msvc"))']
+rustflags = ["-C", "target-feature=+crt-static"]
