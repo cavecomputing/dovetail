@@ -1156,11 +1156,12 @@ fn shortcut(event: iced::Event, status: event::Status, _window: window::Id) -> O
     }
 }
 
-/// The keys that still work while Settings is open: Esc closes it, Ctrl+W closes the window and
-/// ⌘M (macOS) minimizes it, and the zoom keys and Ctrl+Shift+L change a setting the panel shows.
-/// The rest would act on the document behind it.
+/// The keys that still work while Settings is open: Esc and Ctrl+, close it, Ctrl+W closes the
+/// window and ⌘M (macOS) minimizes it, and the zoom keys and Ctrl+Shift+L change a setting the
+/// panel shows. The rest would act on the document behind it.
 fn settings_key(message: Message) -> Option<Message> {
     match message {
+        Message::OpenSettings => Some(Message::CloseMenu),
         Message::CloseMenu
         | Message::CloseRequested
         | Message::Minimize
@@ -1243,6 +1244,16 @@ mod tests {
         assert!(matches!(
             press(keyboard::Modifiers::COMMAND),
             Some(Message::Assistant(AssistantAction::Toggle))
+        ));
+    }
+
+    #[test]
+    fn ctrl_comma_opens_settings_and_closes_them_again() {
+        let press = shortcut_for(",", ",", keyboard::Modifiers::COMMAND);
+        assert!(matches!(press, Some(Message::OpenSettings)));
+        assert!(matches!(
+            press.and_then(settings_key),
+            Some(Message::CloseMenu)
         ));
     }
 
