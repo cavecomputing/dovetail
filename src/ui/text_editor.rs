@@ -296,6 +296,7 @@ where
         renderer: &Renderer,
         layout: Layout<'_>,
         horizontal_scroll: f32,
+        selection: Selection, // ours: see `selection`
     ) -> InputMethod<&'b str> {
         let Some(Focus {
             is_window_focused: true,
@@ -306,12 +307,11 @@ where
         };
 
         let bounds = layout.bounds();
-        let internal = self.content.0.borrow_mut();
 
         let text_bounds = bounds.shrink(self.padding);
         let translation = text_bounds.position() - Point::ORIGIN;
 
-        let cursor = match internal.editor.selection() {
+        let cursor = match selection {
             Selection::Caret(position) => position,
             Selection::Range(ranges) => ranges.first().cloned().unwrap_or_default().position(),
         };
@@ -602,6 +602,23 @@ pub struct ScrollRows {
     pub top: f32,
     pub shown: f32,
     pub total: f32,
+}
+
+/// ours: iced's `selection()`, without its crash. iced finds the caret's place in its line's
+/// layout, which colouring a line drops and only lines in view get back. So colouring lines above
+/// the view with the caret up there (a theme change, or a first frame drawn already scrolled
+/// down) crashed the app. A caret out of view has nothing to draw.
+fn selection(editor: &graphics::text::Editor) -> Selection {
+    let cursor = editor.cursor();
+    let laid_out = editor
+        .buffer()
+        .lines
+        .get(cursor.position.line)
+        .is_some_and(|line| line.layout_opt().is_some());
+    match cursor.selection.is_none() && !laid_out {
+        true => Selection::Range(Vec::new()),
+        false => editor.selection(),
+    }
 }
 
 /// ours: how far long lines are scrolled sideways. cosmic-text keeps this on the cursor, but iced
@@ -1181,13 +1198,17 @@ where
         if is_redraw {
             self.last_status = Some(status);
 
-            let horizontal_scroll =
-                horizontal_scroll(&self.content.0.borrow().editor, self.wrapping); // ours
+            // ours: the sideways scroll, and the selection without its crash.
+            let internal = self.content.0.borrow();
+            let horizontal_scroll = horizontal_scroll(&internal.editor, self.wrapping);
+            let selection = selection(&internal.editor);
+            drop(internal);
             shell.request_input_method(&self.input_method(
                 state,
                 renderer,
                 layout,
                 horizontal_scroll,
+                selection,
             ));
         } else if self
             .last_status
@@ -1361,7 +1382,7 @@ where
         let translation = text_bounds.position() - Point::ORIGIN - scrolled;
 
         if let Some(focus) = state.focus.as_ref() {
-            match internal.editor.selection() {
+            match selection(&internal.editor) {
                 Selection::Caret(position) if focus.is_cursor_visible() => {
                     let cursor = Rectangle::new(
                         position + translation,
