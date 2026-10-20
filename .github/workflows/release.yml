@@ -1,4 +1,4 @@
-# Builds the release binary on Linux, macOS and Windows when a semantic version tag (v1.2.3, or
+# Builds the release binary on Linux and Windows when a semantic version tag (v1.2.3, or
 # v1.2.3-beta.1 for a pre-release) is pushed, and posts them on a GitHub Release named for the tag.
 # Nothing else releases: no push to main, no schedule. To release, set `version` in Cargo.toml,
 # commit, then tag that commit to match (`git tag v0.2.0 && git push origin v0.2.0`). Every name
@@ -19,9 +19,8 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: linux-x86_64
-          # GitHub's macOS runners are Apple silicon; Intel Macs build from source.
-          - os: macos-latest
-            platform: macos-arm64
+          # No macOS download: an unsigned binary is blocked by Gatekeeper, so Macs install with
+          # scripts/install-macos.sh, which builds an app bundle from source.
           - os: windows-latest
             platform: windows-x86_64
     runs-on: ${{ matrix.os }}
