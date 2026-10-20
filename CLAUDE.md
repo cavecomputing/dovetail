@@ -211,6 +211,7 @@ drawing and event wiring.
 .github/workflows/ci.yml build, test, clippy and fmt on Linux, macOS and Windows for every push
 .github/workflows/release.yml  on a version tag the owner pushes: builds Linux and Windows, posts a Release
 Cargo.toml, Cargo.lock   dependencies (see "Rust in plain terms")
+.cargo/config.toml       build flags: the Windows .exe carries its own C runtime (crt-static)
 LICENSE                  MIT, the app's licence (the font has its own, OFL)
 assets/fonts/            the bundled JetBrains Mono NL Nerd Font (no ligatures) and its licence
 assets/icon/             the app icon: SVGs for Linux, icon.icns for macOS, icon.ico for Windows,
