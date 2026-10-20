@@ -58,7 +58,7 @@ Matt writes prompts by putting two Typora windows side by side: the old version 
 - **Everything autosaves**, scratch included. There's never a "save changes?" prompt.
 - `Ctrl+S` still does something useful (Matt, 2026-10-18). In a `.txt` (or a project, on the `rewrite` branch) it writes now instead of after the pause. Scratch has no file, so there it asks where to save: the window becomes that `.txt`, and scratch is cleared with its text kept for the next scratch window's undo (as after a Rewrite, on the `rewrite` branch).
 - `Ctrl+Shift+S` (Save as) moves a `.txt` to a new file and keeps editing there; the old file keeps its last save. On the `rewrite` branch, projects live in their own folder, so they have no Save as.
-- **Closing waits for the save.** The window only closes once the latest autosave has been written. If a save fails, the window stays open and says why. Known gap: logging out, shutting down or restarting the computer (every OS; on Windows that includes Windows Update's restarts), and Quit from the Dock on macOS, end the app without waiting (`⌘Q` and the app menu's Quit do wait).
+- **Closing waits for the save.** The window only closes once the latest autosave has been written. If a save fails, the window stays open and says why. Logging out, shutting down or restarting the computer (Windows Update's restarts too), Quit from the Dock on macOS, and the app being killed or losing its display don't close the window first, so the text autosave hasn't written yet is written then, as the app goes (`core/shutdown.rs`).
 - The scratch space persists between launches as a single document.
 - Plain docs are ordinary `.txt` files, or Markdown `.md` files, saved exactly the same way.
 

@@ -46,7 +46,11 @@ fn main() -> iced::Result {
     if let Some(base) = directories::BaseDirs::new() {
         let _ = std::env::set_current_dir(base.home_dir());
     }
-    ui::app::run(doc)
+    core::shutdown::write_unsaved_at_end();
+    let ran = ui::app::run(doc);
+    // The window can end without closing, as when the display server goes away under it.
+    core::shutdown::write_unsaved();
+    ran
 }
 
 /// Shell variable lines, e.g. `APP_NAME='...'`, for the install scripts: the bash ones `eval`

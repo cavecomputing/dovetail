@@ -22,6 +22,16 @@ toml = "1.1.8"
 # Word bounds as cosmic-text finds them for a double click's selection (iced already uses it).
 unicode-segmentation = "1.13.3"
 
+[target.'cfg(unix)'.dependencies]
+# The atexit hook that saves when macOS quits the app from the Dock or at logout (already in the build).
+libc = "0.2"
+# Hears SIGTERM, SIGHUP and SIGINT on a thread of its own, so the app saves before logout ends it.
+signal-hook = "0.3"
+
+[target.'cfg(windows)'.dependencies]
+# The hidden window that hears WM_ENDSESSION, so the app saves before logout ends it (winit uses it).
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_LibraryLoader", "Win32_UI_WindowsAndMessaging"] }
+
 [target.'cfg(target_os = "macos")'.dependencies]
 # Points macOS's Quit at closing the window, so quitting waits for the save (rfd already uses both).
 objc2 = "0.6"

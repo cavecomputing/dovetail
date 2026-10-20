@@ -244,6 +244,8 @@ previous match), ⌘M (minimise) and ⌘Q (closes the window, waiting for the sa
   and turns orange with the reason if a save fails. Dovetail tries again after each pause, so the
   dot turns aqua once the cause is fixed.
 - A save is written whole or not at all, so a crash mid-save never leaves half a file.
+- Logging out or shutting down with a window open still saves what you typed last, before the
+  app goes.
 - **Ctrl+S** writes now instead of after the pause. In scratch, which has no file, it asks where to
   save one: the window becomes that file and scratch is emptied. The next scratch window opens
   empty, and Ctrl+Z there brings the text back.

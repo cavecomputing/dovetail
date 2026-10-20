@@ -248,6 +248,8 @@ src/
                          validity check for each; Ctrl+/'s comments
     shell.rs             shell scripts: which parts of a line to colour, whether a `#!` line
                          names sh or bash, and the `bash -n` check
+    shutdown.rs          the save when the app ends without closing its window: logout,
+                         shutdown, signals, Dock Quit, a lost display
     json.rs              which parts of a .json line to colour, whether the text is valid JSON,
                          and Format and Minify (whitespace only, so key order and digits are kept)
     text_file.rs         reading and saving text files: line endings, outside-change check
