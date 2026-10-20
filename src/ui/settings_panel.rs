@@ -8,7 +8,8 @@ use iced::{Background, Border, Color, Element, Fill, Padding, Theme};
 use crate::ai::key::KeyStore;
 use crate::core::paths::display_path;
 use crate::core::settings::{
-    DEFAULT_BASE_URL, ReadingMode, RequestFormat, Settings, Theme as ThemeSetting, WindowControls,
+    DEFAULT_BASE_URL, ReadingMode, RequestFormat, ScratchSyntax, Settings, Theme as ThemeSetting,
+    WindowControls,
 };
 use crate::core::syntax::Token;
 use crate::ui::app::{App, Message};
@@ -28,6 +29,7 @@ pub enum Change {
     WordWrap(bool),
     LineNumbers(bool),
     ColourMarkup(bool),
+    ScratchSyntax(ScratchSyntax),
     ShowLineCol(bool),
     AutosaveDelay(u64),
     BaseUrl(String),
@@ -66,6 +68,7 @@ pub fn apply(change: Change, settings: &mut Settings) {
         Change::WordWrap(on) => settings.word_wrap = on,
         Change::LineNumbers(on) => settings.line_numbers = on,
         Change::ColourMarkup(on) => settings.colour_markup = on,
+        Change::ScratchSyntax(syntax) => settings.scratch_syntax = syntax,
         Change::ShowLineCol(on) => settings.show_line_col = on,
         Change::AutosaveDelay(ms) => settings.autosave_delay_ms = ms,
         Change::BaseUrl(url) => settings.base_url = url,
@@ -170,6 +173,18 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 "colour_markup",
                 on_off(settings.colour_markup, Change::ColourMarkup),
                 comment("XML tags and {{macros}}"),
+            ),
+            setting_row(
+                "scratch_syntax",
+                pick(
+                    settings.scratch_syntax,
+                    &[
+                        ("plain", ScratchSyntax::Plain),
+                        ("markdown", ScratchSyntax::Markdown),
+                    ],
+                    Change::ScratchSyntax,
+                ),
+                comment("the rules scratch follows"),
             ),
             setting_row(
                 "show_line_col",

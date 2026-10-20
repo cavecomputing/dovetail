@@ -14,6 +14,7 @@ use crate::ai::context::{self, DocKind, Snapshot, shorter_request};
 use crate::ai::key::{KeyStore, api_key, key_store, set_api_key};
 use crate::ai::tools::Suggestion;
 use crate::core::opened::Doc;
+use crate::core::syntax::Syntax;
 use crate::ui::app::{App, Message};
 use crate::ui::editor::{self, Decision};
 use crate::ui::settings_panel::Connection;
@@ -320,7 +321,9 @@ impl App {
     /// in it.
     pub fn snapshot(&self) -> Snapshot {
         let doc = match &self.doc {
-            Doc::Scratch => DocKind::Scratch,
+            Doc::Scratch => DocKind::Scratch {
+                markdown: self.syntax() == Syntax::Markdown,
+            },
             doc => DocKind::TextFile {
                 name: status_bar::title(doc),
             },

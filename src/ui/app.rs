@@ -17,7 +17,7 @@ use crate::core::paths::Paths;
 use crate::core::recent::existing_recent_files;
 use crate::core::save::{Autosaver, SaveState, failure_reason};
 use crate::core::scratch::{ScratchState, ScratchView};
-use crate::core::settings::{ReadingMode, Settings, Theme as ThemeSetting};
+use crate::core::settings::{ReadingMode, ScratchSyntax, Settings, Theme as ThemeSetting};
 use crate::core::syntax::Syntax;
 use crate::core::text_file::{DiskStamp, changed_on_disk, read_text, save_text};
 use crate::core::typing::is_code;
@@ -1004,11 +1004,14 @@ impl App {
 
     /// The kind of text the document is, by its file's extension (or a script's `#!` line):
     /// coloured to match, and for a data file (JSON, YAML, TOML, INI) or a shell script checked
-    /// as you type. Scratch is always plain.
+    /// as you type. Scratch is plain or Markdown, as Settings says.
     pub fn syntax(&self) -> Syntax {
         match &self.doc {
             Doc::File { path, .. } => Syntax::of(path, self.pane.model.text()),
-            Doc::Scratch => Syntax::Plain,
+            Doc::Scratch => match self.settings.scratch_syntax {
+                ScratchSyntax::Plain => Syntax::Plain,
+                ScratchSyntax::Markdown => Syntax::Markdown,
+            },
         }
     }
 }
