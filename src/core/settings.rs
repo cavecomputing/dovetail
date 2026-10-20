@@ -46,6 +46,15 @@ pub enum WindowControls {
     Hide,
 }
 
+/// Which file's rules scratch follows: plain text, or Markdown's colours and list keys.
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScratchSyntax {
+    #[default]
+    Plain,
+    Markdown,
+}
+
 /// How requests to the assistant's server are shaped. Both are OpenAI's formats, which most
 /// servers copy.
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
@@ -76,6 +85,7 @@ pub struct Settings {
     pub line_numbers: bool,
     /// Colour XML tags and `{{macros}}`.
     pub colour_markup: bool,
+    pub scratch_syntax: ScratchSyntax,
     /// How long typing must pause before an autosave starts.
     pub autosave_delay_ms: u64,
     /// The assistant's server: any OpenAI-compatible API. Blank means `DEFAULT_BASE_URL`.
@@ -101,6 +111,7 @@ impl Default for Settings {
             word_wrap: true,
             line_numbers: false,
             colour_markup: true,
+            scratch_syntax: ScratchSyntax::Plain,
             autosave_delay_ms: 500,
             base_url: DEFAULT_BASE_URL.to_string(),
             model: String::new(),
@@ -150,6 +161,12 @@ impl Settings {
                 &table,
                 "colour_markup",
                 defaults.colour_markup,
+                &mut bad_keys,
+            ),
+            scratch_syntax: key(
+                &table,
+                "scratch_syntax",
+                defaults.scratch_syntax,
                 &mut bad_keys,
             ),
             autosave_delay_ms: key(
@@ -283,6 +300,7 @@ mod tests {
         assert!(settings.word_wrap);
         assert!(!settings.line_numbers);
         assert!(settings.colour_markup);
+        assert_eq!(settings.scratch_syntax, ScratchSyntax::Plain);
         assert!(!settings.show_line_col);
         assert_eq!(settings.theme, Theme::Dark);
         assert_eq!(settings.font_size, 14.0);
@@ -311,6 +329,7 @@ mod tests {
             reading_mode: ReadingMode::FullWidth,
             tab_spaces: 2,
             line_numbers: true,
+            scratch_syntax: ScratchSyntax::Markdown,
             ..Settings::default()
         };
         settings.save(&path).unwrap();

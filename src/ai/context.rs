@@ -43,22 +43,31 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
-    /// The kind of text open, as the editor colours and checks it. Scratch is plain.
+    /// The kind of text open, as the editor colours and checks it.
     pub fn syntax(&self) -> Syntax {
         match &self.doc {
-            DocKind::Scratch => Syntax::Plain,
+            DocKind::Scratch { markdown: false } => Syntax::Plain,
+            DocKind::Scratch { markdown: true } => Syntax::Markdown,
             DocKind::TextFile { name } => Syntax::of(Path::new(name), &self.text),
         }
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub enum DocKind {
-    #[default]
-    Scratch,
+    /// Scratch, written in Markdown when Settings says so.
+    Scratch {
+        markdown: bool,
+    },
     TextFile {
         name: String,
     },
+}
+
+impl Default for DocKind {
+    fn default() -> DocKind {
+        DocKind::Scratch { markdown: false }
+    }
 }
 
 /// The standing instructions: what the app is, the suggest-only rule, how to use the tools, and
@@ -104,8 +113,11 @@ pub fn open_text(snapshot: &Snapshot) -> String {
 /// One paragraph on the open document, without anything that changes as the user types.
 fn summary(snapshot: &Snapshot) -> String {
     match &snapshot.doc {
-        DocKind::Scratch => {
+        DocKind::Scratch { markdown: false } => {
             "the scratch space, a quick notepad that isn't a named file.".to_string()
+        }
+        DocKind::Scratch { markdown: true } => {
+            "the scratch space, a quick Markdown notepad that isn't a named file.".to_string()
         }
         DocKind::TextFile { name } => {
             let kind = match snapshot.syntax() {
@@ -226,6 +238,13 @@ pub(crate) mod tests {
             ..scratch("a lot more text")
         };
         assert_eq!(before, instructions(&typed));
+        let markdown = Snapshot {
+            doc: DocKind::Scratch { markdown: true },
+            ..scratch("a")
+        };
+        assert!(
+            instructions(&markdown).ends_with("a quick Markdown notepad that isn't a named file.")
+        );
 
         let file = Snapshot {
             doc: DocKind::TextFile {
