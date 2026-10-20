@@ -16,6 +16,7 @@ pub mod save;
 pub mod scratch;
 pub mod settings;
 pub mod shell;
+pub mod shutdown;
 pub mod syntax;
 pub mod text_file;
 pub mod text_model;

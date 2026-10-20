@@ -10,8 +10,8 @@ use crate::core::paths::Paths;
 use crate::core::recent::{remember, same_file};
 use crate::core::save::{atomic_write, check_writable, failure_reason};
 use crate::core::scratch::{
-    ScratchState, claim_scratch, scratch_lock_path, scratch_open_elsewhere, scratch_text_path,
-    take_cleared,
+    ScratchState, ScratchView, claim_scratch, scratch_lock_path, scratch_open_elsewhere,
+    scratch_text_path, take_cleared,
 };
 use crate::core::text_file::{DiskStamp, LineEnding, read_text, save_text};
 
@@ -244,6 +244,26 @@ fn writable_reason(path: &Path) -> Option<String> {
         Ok(()) => None,
         Err(_) => Some(NO_PERMISSION.to_string()),
     }
+}
+
+/// Writes `text` as `doc`'s (with `view`, scratch's cursor, for scratch), as of the file on disk
+/// at `disk_stamp`. Returns the file as written, or the reason it failed.
+pub fn write_doc(
+    doc: &Doc,
+    text: String,
+    view: ScratchView,
+    data_dir: &Path,
+    disk_stamp: Option<DiskStamp>,
+) -> Result<Option<DiskStamp>, String> {
+    let result = match doc {
+        Doc::Scratch => ScratchState { text, view }.save(data_dir).map(|_| None),
+        Doc::File {
+            path,
+            line_ending,
+            bom,
+        } => save_text(path, &text, *line_ending, *bom, disk_stamp),
+    };
+    result.map_err(|error| failure_reason(&error))
 }
 
 #[cfg(test)]

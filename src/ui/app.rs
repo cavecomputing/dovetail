@@ -2,7 +2,7 @@
 //! One process shows one document in one window; Settings opens over it.
 
 use std::fs::File;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime};
 
 use iced::widget::{column, container, responsive, space, stack};
@@ -12,14 +12,15 @@ use iced::{Element, Size, Subscription, Task, Theme, event, keyboard};
 use crate::core::config::yaml_indent;
 use crate::core::counts::{Counts, load_tokenizer_in_background, word_count};
 use crate::core::json::reformat;
-use crate::core::opened::{Doc, OpenedDoc, open_doc};
+use crate::core::opened::{Doc, OpenedDoc, open_doc, write_doc};
 use crate::core::paths::Paths;
 use crate::core::recent::existing_recent_files;
-use crate::core::save::{Autosaver, SaveState, failure_reason};
-use crate::core::scratch::{ScratchState, ScratchView};
+use crate::core::save::{Autosaver, SaveState};
+use crate::core::scratch::ScratchView;
 use crate::core::settings::{ReadingMode, ScratchSyntax, Settings, Theme as ThemeSetting};
+use crate::core::shutdown::{self, Unsaved};
 use crate::core::syntax::Syntax;
-use crate::core::text_file::{DiskStamp, changed_on_disk, read_text, save_text};
+use crate::core::text_file::{DiskStamp, changed_on_disk, read_text};
 use crate::core::typing::is_code;
 use crate::ui::assistant_actions::{Assistant, AssistantAction, CardState};
 use crate::ui::editor::{Decision, Pane};
@@ -515,6 +516,10 @@ impl App {
                 self.autosaver.finish(generation, result.map(|_| ()));
                 if self.autosaver.state() == SaveState::Saved {
                     self.saving_since = None;
+                    shutdown::forget();
+                } else {
+                    // Still unsaved, but as of the file this save wrote.
+                    self.remember_unsaved();
                 }
                 self.disk_conflict = match &self.doc {
                     Doc::File { path, .. } if failed => changed_on_disk(path, self.disk_stamp),
@@ -684,6 +689,7 @@ impl App {
                             self.pane.replace(0..length, &file.text);
                             self.text_changed();
                             self.autosaver.mark_saved();
+                            shutdown::forget();
                             self.saving_since = None;
                             self.disk_conflict = false;
                         }
@@ -771,6 +777,7 @@ impl App {
     fn text_changed(&mut self) {
         let now = Instant::now();
         self.autosaver.edited(now);
+        self.remember_unsaved();
         self.saving_since.get_or_insert(now);
         self.uncounted_edit = Some(now);
         if self.find.open {
@@ -899,6 +906,17 @@ impl App {
         open
     }
 
+    /// Hands the text autosave hasn't written yet to `shutdown`, for logging out and the like.
+    fn remember_unsaved(&self) {
+        shutdown::remember(Unsaved {
+            doc: self.doc.clone(),
+            text: self.pane.model.text().to_string(),
+            view: self.scratch_view(),
+            data_dir: self.paths.data_dir.clone(),
+            disk_stamp: self.disk_stamp,
+        });
+    }
+
     fn scratch_view(&self) -> ScratchView {
         let position = self.pane.content.cursor().position;
         ScratchView {
@@ -1014,26 +1032,6 @@ impl App {
             },
         }
     }
-}
-
-/// Writes `text` as `doc`'s (with `view`, scratch's cursor, for scratch), as of the file on disk
-/// at `disk_stamp`. Returns the file as written, or the reason it failed.
-fn write_doc(
-    doc: &Doc,
-    text: String,
-    view: ScratchView,
-    data_dir: &Path,
-    disk_stamp: Option<DiskStamp>,
-) -> Result<Option<DiskStamp>, String> {
-    let result = match doc {
-        Doc::Scratch => ScratchState { text, view }.save(data_dir).map(|_| None),
-        Doc::File {
-            path,
-            line_ending,
-            bom,
-        } => save_text(path, &text, *line_ending, *bom, disk_stamp),
-    };
-    result.map_err(|error| failure_reason(&error))
 }
 
 /// The editor for `opened`: its text, cursor and view. Scratch emptied by Save to a file opens
@@ -1182,10 +1180,11 @@ fn modified_time(paths: &Paths) -> Option<SystemTime> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::scratch::scratch_open_elsewhere;
+    use crate::core::scratch::{ScratchState, scratch_open_elsewhere};
     use crate::core::text_file::LineEnding;
     use crate::ui::text_editor::Content;
     use iced::widget::text_editor::Motion;
+    use std::path::Path;
 
     #[test]
     fn restored_cursor_after_a_multi_byte_character_can_be_typed_at() {
