@@ -4,6 +4,7 @@
 //! - a path: that text file, created if missing
 //! - `--print-brand`: prints the names from `brand.rs`, and the version, for the install scripts,
 //!   then exits
+//! - `--version`: prints the name and version, then exits
 
 // A release build on Windows is a GUI program, so no console window opens beside it. Its output
 // still reaches a pipe or a file (`--print-brand` in a script); debug builds keep the console, for
@@ -28,6 +29,10 @@ fn main() -> iced::Result {
     let doc = match argument {
         Some(flag) if flag == Path::new("--print-brand") => {
             print_brand();
+            return Ok(());
+        }
+        Some(flag) if flag == Path::new("--version") => {
+            println!("{} {}", brand::BIN_NAME, env!("CARGO_PKG_VERSION"));
             return Ok(());
         }
         // An absolute path, so a window opened from here still finds it.
