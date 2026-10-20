@@ -46,11 +46,11 @@ if ($Uninstall) {
 # Windows won't replace a running .exe, so close the app's windows before reinstalling.
 New-Item -ItemType Directory -Force $installDir | Out-Null
 Copy-Item $binary $exe -Force
-Copy-Item assets\icon\icon.ico "$installDir\icon.ico" -Force
 
 $link = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcut)
 $link.TargetPath = $exe
-$link.IconLocation = "$installDir\icon.ico"
+# The icon is built into the .exe (build.rs).
+$link.IconLocation = "$exe,0"
 $link.Save()
 
 # The command key first: -Force makes the keys above it, and would empty a key that already exists.

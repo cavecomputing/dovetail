@@ -9,8 +9,9 @@ The monogram: a D with a dovetail socket cut into its spine, in the Gruvbox `acc
 - `icon.icns`: the macOS icon, which `scripts/install-macos.sh` puts in the app bundle. It is
   `icon.svg` on Apple's icon grid (the tile 824 px wide in 1024), so it sits level with other apps
   in the Dock.
-- `icon.ico`: the Windows icon, for the Start Menu entry `scripts/install-windows.ps1` makes. As on
-  Linux, 16 to 32 px come from `icon-small.svg` and 48 px and up from `icon.svg`.
+- `icon.ico`: the Windows icon, which `build.rs` builds into the .exe, so Explorer, "Open with"
+  and the Start Menu entry show it. As on Linux, 16 to 32 px come from `icon-small.svg` and 48 px
+  and up from `icon.svg`.
 - `icon-64.rgba`: `icon.svg` at 64x64 as raw RGBA bytes, which the app sets as its window icon
   (it needs no image decoder that way).
 
