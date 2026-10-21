@@ -2,8 +2,6 @@
 //! running its tools (the loop itself is `ai::agent`), showing proposed edits as suggestions in
 //! the document, and the Settings panel's API key and connection test.
 
-use std::time::{Duration, Instant};
-
 use iced::Task;
 use iced::widget::operation::{focus, snap_to_end};
 use iced::widget::{scrollable, text_editor};
@@ -20,8 +18,6 @@ use crate::ui::editor::{self, Decision};
 use crate::ui::settings_panel::Connection;
 use crate::ui::status_bar;
 
-/// How long the pane takes to slide in or out.
-const SLIDE: Duration = Duration::from_millis(300);
 pub const COMPOSER_ID: &str = "assistant-composer";
 pub const CHAT_ID: &str = "assistant-chat";
 
@@ -58,8 +54,6 @@ pub enum AssistantAction {
 #[derive(Default)]
 pub struct Assistant {
     pub open: bool,
-    /// When the pane began sliding in or out; `None` once it has finished.
-    pub slide_started: Option<Instant>,
     pub conversation: Conversation,
     pub composer: text_editor::Content,
     pub cards: Vec<Card>,
@@ -97,28 +91,6 @@ pub enum CardState {
 }
 
 impl Assistant {
-    /// How much of the pane shows, from 0 (closed) to 1 (open), eased.
-    pub fn shown(&self, now: Instant) -> f32 {
-        let t = match self.slide_started {
-            Some(start) => {
-                (now.saturating_duration_since(start).as_secs_f32() / SLIDE.as_secs_f32()).min(1.0)
-            }
-            None => 1.0,
-        };
-        let eased = 1.0 - (1.0 - t).powi(3);
-        if self.open { eased } else { 1.0 - eased }
-    }
-
-    /// Ends the slide once it has played.
-    pub fn finish_slide(&mut self, now: Instant) {
-        if self
-            .slide_started
-            .is_some_and(|start| now.saturating_duration_since(start) >= SLIDE)
-        {
-            self.slide_started = None;
-        }
-    }
-
     /// Stops the reply arriving now, keeping the text that came.
     pub fn stop(&mut self) {
         self.question += 1;
@@ -158,7 +130,6 @@ impl App {
             AssistantAction::Toggle => {
                 let assistant = &mut self.assistant;
                 assistant.open = !assistant.open;
-                assistant.slide_started = Some(Instant::now());
                 return match assistant.open {
                     true => Task::batch([focus(COMPOSER_ID), self.follow()]),
                     false => focus(editor::EDITOR_ID),
