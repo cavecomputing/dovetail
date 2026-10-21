@@ -19,27 +19,8 @@ use crate::ui::highlighter::{Highlight, highlight_format};
 use crate::ui::status_bar::{bar, dot, glyph_button, keys, small};
 use crate::ui::theme::{self, GLYPH_CLOSE, GLYPH_MENU, Roles, bold, icon_button};
 
-/// One edit made in the Settings panel.
-#[derive(Debug, Clone)]
-pub enum Change {
-    Theme(ThemeSetting),
-    FontSize(f32),
-    ReadingMode(ReadingMode),
-    TabSpaces(u8),
-    WordWrap(bool),
-    LineNumbers(bool),
-    ColourMarkup(bool),
-    ScratchSyntax(ScratchSyntax),
-    ShowLineCol(bool),
-    AutosaveDelay(u64),
-    BaseUrl(String),
-    Model(String),
-    RequestFormat(RequestFormat),
-    WindowControls(WindowControls),
-}
-
 /// The assistant's API key field. The key is saved as it changes, off the UI thread, since the
-/// keyring may be slow; it never goes through `Change`.
+/// keyring may be slow; it never goes through `Message::Setting`.
 #[derive(Debug, Default)]
 pub struct KeyField {
     pub text: String,
@@ -58,27 +39,6 @@ pub enum Connection {
     Failed(String),
 }
 
-/// Applies `change`, then keeps the numbers in range (`Settings::clamp` holds the limits).
-pub fn apply(change: Change, settings: &mut Settings) {
-    match change {
-        Change::Theme(theme) => settings.theme = theme,
-        Change::FontSize(size) => settings.font_size = size,
-        Change::ReadingMode(mode) => settings.reading_mode = mode,
-        Change::TabSpaces(spaces) => settings.tab_spaces = spaces,
-        Change::WordWrap(on) => settings.word_wrap = on,
-        Change::LineNumbers(on) => settings.line_numbers = on,
-        Change::ColourMarkup(on) => settings.colour_markup = on,
-        Change::ScratchSyntax(syntax) => settings.scratch_syntax = syntax,
-        Change::ShowLineCol(on) => settings.show_line_col = on,
-        Change::AutosaveDelay(ms) => settings.autosave_delay_ms = ms,
-        Change::BaseUrl(url) => settings.base_url = url,
-        Change::Model(model) => settings.model = model,
-        Change::RequestFormat(format) => settings.request_format = format,
-        Change::WindowControls(controls) => settings.window_controls = controls,
-    }
-    settings.clamp();
-}
-
 pub fn view(app: &App) -> Element<'_, Message> {
     let settings = &app.settings;
     // The comfort width is remembered while full width is on, so switching back keeps it.
@@ -87,7 +47,11 @@ pub fn view(app: &App) -> Element<'_, Message> {
         ReadingMode::FullWidth => app.last_comfort_chars,
     };
     let comfort = matches!(settings.reading_mode, ReadingMode::Comfort { .. });
-    let comfort_with = |chars| Change::ReadingMode(ReadingMode::Comfort { chars });
+    let comfort_with = |chars| {
+        changed(settings, |s| {
+            s.reading_mode = ReadingMode::Comfort { chars }
+        })
+    };
 
     let appearance = section(
         "appearance",
@@ -95,13 +59,14 @@ pub fn view(app: &App) -> Element<'_, Message> {
             setting_row(
                 "theme",
                 pick(
+                    settings,
                     settings.theme,
                     &[
                         ("dark", ThemeSetting::Dark),
                         ("light", ThemeSetting::Light),
                         ("system", ThemeSetting::System),
                     ],
-                    Change::Theme,
+                    |s, theme| s.theme = theme,
                 ),
                 comment(""),
             ),
@@ -114,8 +79,8 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 "font_size",
                 stepper(
                     settings.font_size.to_string(),
-                    Change::FontSize(settings.font_size - 1.0),
-                    Change::FontSize(settings.font_size + 1.0),
+                    changed(settings, |s| s.font_size -= 1.0),
+                    changed(settings, |s| s.font_size += 1.0),
                 ),
                 comment(format!(
                     "px, also {} and {}",
@@ -130,7 +95,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
                         (
                             "full width",
                             !comfort,
-                            Change::ReadingMode(ReadingMode::FullWidth)
+                            changed(settings, |s| s.reading_mode = ReadingMode::FullWidth)
                         ),
                         ("comfort", comfort, comfort_with(comfort_chars)),
                     ]),
@@ -154,41 +119,46 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 "tab_spaces",
                 stepper(
                     settings.tab_spaces.to_string(),
-                    Change::TabSpaces(settings.tab_spaces.saturating_sub(1)),
-                    Change::TabSpaces(settings.tab_spaces.saturating_add(1)),
+                    changed(settings, |s| s.tab_spaces = s.tab_spaces.saturating_sub(1)),
+                    changed(settings, |s| s.tab_spaces = s.tab_spaces.saturating_add(1)),
                 ),
                 comment("spaces, never tabs; YAML follows the file, 2 if new"),
             ),
             setting_row(
                 "word_wrap",
-                on_off(settings.word_wrap, Change::WordWrap),
+                on_off(settings, settings.word_wrap, |s, on| s.word_wrap = on),
                 comment("off cuts long lines at the edge"),
             ),
             setting_row(
                 "line_numbers",
-                on_off(settings.line_numbers, Change::LineNumbers),
+                on_off(settings, settings.line_numbers, |s, on| s.line_numbers = on),
                 comment(keys("Ctrl+Shift+L")),
             ),
             setting_row(
                 "colour_markup",
-                on_off(settings.colour_markup, Change::ColourMarkup),
+                on_off(settings, settings.colour_markup, |s, on| {
+                    s.colour_markup = on
+                }),
                 comment("XML tags and {{macros}}"),
             ),
             setting_row(
                 "scratch_syntax",
                 pick(
+                    settings,
                     settings.scratch_syntax,
                     &[
                         ("plain", ScratchSyntax::Plain),
                         ("markdown", ScratchSyntax::Markdown),
                     ],
-                    Change::ScratchSyntax,
+                    |s, syntax| s.scratch_syntax = syntax,
                 ),
                 comment("the rules scratch follows"),
             ),
             setting_row(
                 "show_line_col",
-                on_off(settings.show_line_col, Change::ShowLineCol),
+                on_off(settings, settings.show_line_col, |s, on| {
+                    s.show_line_col = on
+                }),
                 comment("in the status bar"),
             ),
         ],
@@ -201,8 +171,10 @@ pub fn view(app: &App) -> Element<'_, Message> {
             "autosave_delay_ms",
             stepper(
                 delay.to_string(),
-                Change::AutosaveDelay(delay.saturating_sub(250)),
-                Change::AutosaveDelay(delay + 250),
+                changed(settings, |s| {
+                    s.autosave_delay_ms = delay.saturating_sub(250)
+                }),
+                changed(settings, |s| s.autosave_delay_ms = delay + 250),
             ),
             comment("pause in typing"),
         )],
@@ -214,23 +186,31 @@ pub fn view(app: &App) -> Element<'_, Message> {
         vec![
             setting_row(
                 "base_url",
-                field(DEFAULT_BASE_URL, &settings.base_url, Change::BaseUrl),
+                field(settings, DEFAULT_BASE_URL, &settings.base_url, |s, url| {
+                    s.base_url = url
+                }),
                 comment(""),
             ),
             setting_row(
                 "model",
-                field("as the server knows it", &settings.model, Change::Model),
+                field(
+                    settings,
+                    "as the server knows it",
+                    &settings.model,
+                    |s, model| s.model = model,
+                ),
                 comment(""),
             ),
             setting_row(
                 "request_format",
                 pick(
+                    settings,
                     format,
                     &[
                         ("responses", RequestFormat::Responses),
                         ("chat completions", RequestFormat::ChatCompletions),
                     ],
-                    Change::RequestFormat,
+                    |s, format| s.request_format = format,
                 ),
                 comment(""),
             ),
@@ -256,13 +236,14 @@ pub fn view(app: &App) -> Element<'_, Message> {
         vec![setting_row(
             "window_controls",
             pick(
+                settings,
                 settings.window_controls,
                 &[
                     ("auto", WindowControls::Auto),
                     ("show", WindowControls::Show),
                     ("hide", WindowControls::Hide),
                 ],
-                Change::WindowControls,
+                |s, controls| s.window_controls = controls,
             ),
             comment("auto hides them on tiling WMs"),
         )],
@@ -521,11 +502,11 @@ fn comment<'a>(words: impl Into<String>) -> Element<'a, Message> {
 }
 
 /// Options side by side; the chosen one is coloured as a TOML string.
-fn choices<'a>(options: Vec<(&'a str, bool, Change)>) -> Element<'a, Message> {
+fn choices<'a>(options: Vec<(&'a str, bool, Message)>) -> Element<'a, Message> {
     choices_as(options, Token::String)
 }
 
-fn choices_as<'a>(options: Vec<(&'a str, bool, Change)>, token: Token) -> Element<'a, Message> {
+fn choices_as<'a>(options: Vec<(&'a str, bool, Message)>, token: Token) -> Element<'a, Message> {
     let mut line = row![].spacing(CH).align_y(iced::Center);
     for (label, chosen, change) in options {
         let look = if chosen {
@@ -533,11 +514,7 @@ fn choices_as<'a>(options: Vec<(&'a str, bool, Change)>, token: Token) -> Elemen
         } else {
             Look::Other
         };
-        line = line.push(value_button(
-            label.to_string(),
-            look,
-            Message::Setting(change),
-        ));
+        line = line.push(value_button(label.to_string(), look, change));
     }
     line.into()
 }
@@ -545,31 +522,45 @@ fn choices_as<'a>(options: Vec<(&'a str, bool, Change)>, token: Token) -> Elemen
 /// One of a setting's values: `options` are each label and value, `current` is coloured as
 /// chosen, and picking one sends `change` with its value.
 fn pick<'a, T: Copy + PartialEq>(
+    settings: &Settings,
     current: T,
     options: &[(&'a str, T)],
-    change: fn(T) -> Change,
+    change: fn(&mut Settings, T),
 ) -> Element<'a, Message> {
     let options = options
         .iter()
-        .map(|&(label, value)| (label, value == current, change(value)))
+        .map(|&(label, value)| {
+            (
+                label,
+                value == current,
+                changed(settings, |s| change(s, value)),
+            )
+        })
         .collect();
     choices(options)
 }
 
 /// On and off, the chosen one coloured as a TOML `true` or `false`.
-fn on_off<'a>(on: bool, change: fn(bool) -> Change) -> Element<'a, Message> {
+fn on_off<'a>(
+    settings: &Settings,
+    on: bool,
+    change: fn(&mut Settings, bool),
+) -> Element<'a, Message> {
     choices_as(
-        vec![("on", on, change(true)), ("off", !on, change(false))],
+        vec![
+            ("on", on, changed(settings, |s| change(s, true))),
+            ("off", !on, changed(settings, |s| change(s, false))),
+        ],
         Token::Literal,
     )
 }
 
 /// A number, coloured as one, with − and + on either side.
-fn stepper<'a>(value: String, less: Change, more: Change) -> Element<'a, Message> {
+fn stepper<'a>(value: String, less: Message, more: Message) -> Element<'a, Message> {
     row![
-        value_button("−".to_string(), Look::Other, Message::Setting(less)),
+        value_button("−".to_string(), Look::Other, less),
         value_text(value, Token::Number),
-        value_button("+".to_string(), Look::Other, Message::Setting(more)),
+        value_button("+".to_string(), Look::Other, more),
     ]
     .align_y(iced::Center)
     .into()
@@ -577,10 +568,23 @@ fn stepper<'a>(value: String, less: Change, more: Change) -> Element<'a, Message
 
 /// A text box for a free-form setting, its text coloured as a TOML string; empty shows
 /// `placeholder`.
-fn field<'a>(placeholder: &str, value: &str, change: fn(String) -> Change) -> Element<'a, Message> {
+fn field<'a>(
+    settings: &Settings,
+    placeholder: &str,
+    value: &str,
+    change: fn(&mut Settings, String),
+) -> Element<'a, Message> {
+    let settings = settings.clone();
     text_box(placeholder, value)
-        .on_input(move |typed| Message::Setting(change(typed)))
+        .on_input(move |typed| changed(&settings, |s| change(s, typed)))
         .into()
+}
+
+/// The settings with one change made, as the message that applies them (`Message::Setting`).
+fn changed(settings: &Settings, change: impl FnOnce(&mut Settings)) -> Message {
+    let mut settings = settings.clone();
+    change(&mut settings);
+    Message::Setting(settings)
 }
 
 /// The API key, shown as dots. Each change is saved (see `KeyField`); empty deletes it.
@@ -729,18 +733,4 @@ fn value_button<'a>(label: String, look: Look, message: Message) -> Element<'a, 
 /// A value that isn't clicked, lined up with the buttons' text.
 fn value_text<'a>(value: impl text::IntoFragment<'a>, token: Token) -> Element<'a, Message> {
     container(coloured(value, token)).padding([0, 4]).into()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn changes_are_kept_in_range() {
-        let mut settings = Settings::default();
-        apply(Change::TabSpaces(0), &mut settings);
-        assert_eq!(settings.tab_spaces, 1);
-        apply(Change::FontSize(100.0), &mut settings);
-        assert_eq!(settings.font_size, 40.0);
-    }
 }
