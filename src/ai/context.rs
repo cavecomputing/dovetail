@@ -12,7 +12,7 @@ use serde_json::Value;
 
 use crate::ai::tools::{self, Suggestion};
 use crate::brand::APP_NAME;
-use crate::core::counts::{Counts, word_count};
+use crate::core::counts::Counts;
 use crate::core::syntax::Syntax;
 use crate::core::text_model::position;
 
@@ -197,13 +197,6 @@ left the text as it was.]\n",
     note
 }
 
-/// What the user is focused on, for the pane's focus chip: the selection, if any.
-pub fn focus(text: &str, selection: Option<Range<usize>>) -> Option<String> {
-    let words = word_count(&text[selection?]);
-    let plural = if words == 1 { "word" } else { "words" };
-    Some(format!("selection · {words} {plural}"))
-}
-
 /// What the pane's "Try shorter" asks for.
 pub fn shorter_request(suggestion: &Suggestion) -> String {
     format!(
@@ -323,19 +316,5 @@ pub(crate) mod tests {
         // A selection that isn't on character boundaries is ignored rather than trusted.
         let note = turn_note(&selected("ü", 0..1));
         assert!(note.ends_with("Nothing selected; the caret is on line 1.]"));
-    }
-
-    #[test]
-    fn focus_is_the_selection() {
-        let text = "Let tension build. Act.";
-        assert_eq!(focus(text, None), None);
-        assert_eq!(
-            focus(text, Some(0..11)).as_deref(),
-            Some("selection · 2 words")
-        );
-        assert_eq!(
-            focus(text, Some(19..23)).as_deref(),
-            Some("selection · 1 word")
-        );
     }
 }
