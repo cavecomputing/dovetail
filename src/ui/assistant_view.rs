@@ -16,7 +16,7 @@ use crate::ai::context;
 use crate::ai::tools::{describe, shorten};
 use crate::core::opened::Doc;
 use crate::ui::app::{App, Message};
-use crate::ui::assistant_actions::{AssistantAction, COMPOSER_ID, Card, CardState};
+use crate::ui::assistant_actions::{AssistantAction, CHAT_ID, COMPOSER_ID, Card, CardState};
 use crate::ui::editor::{self, Decision};
 use crate::ui::status_bar::{keys, title};
 use crate::ui::theme::{CHAR_WIDTH_RATIO, Roles, fill};
@@ -208,7 +208,8 @@ fn chat(app: &App) -> Element<'_, Message> {
         bottom: SIZE * LINE,
         left: 16.0,
     }))
-    .anchor_bottom()
+    .id(CHAT_ID)
+    .on_scroll(|viewport| Message::Assistant(AssistantAction::Scrolled(viewport)))
     .height(Fill)
     .into()
 }
