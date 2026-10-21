@@ -56,7 +56,7 @@ learning Rust only while the code stays small and plain.
   constants in `brand.rs`. A second implementation of something the repo already does is the most
   expensive kind of code.
 - **No new crate without a reason you can state in one line.** The spec's list (iced, serde,
-  serde_json, toml, directories, tiktoken-rs, git2/gix, reqwest, keyring, notify) is pre-approved;
+  serde_json, toml, directories, git2/gix, reqwest, keyring, notify) is pre-approved;
   anything else, say why in the commit message.
 - Leave out what nothing needs yet: config knobs, generic traits with one implementation, `Box<dyn>`
   where a plain enum works, error handling around code that cannot fail.
@@ -237,7 +237,7 @@ src/
     lock.rs              OS file locks so two windows never edit the same document
     config.rs            YAML, TOML and INI: which parts of a line to colour, the checks, and
                          YAML's indent step
-    counts.rs            word and token counts (tokenizer loads in the background)
+    counts.rs            word count and the token estimate (about four bytes a token)
     find.rs              every match of a find query, ignoring case
     folder.rs            what's in a folder (the Ctrl+O picker's rows, `..` first) and reading
                          the path typed into the picker
@@ -316,7 +316,7 @@ files (`pub mod save;`); keep that list current. Tests sit at the bottom of the 
   for the latest save; if it failed, the window stays open and the status bar says why. There is no
   "unsaved" state and no "save changes?" prompt. Ctrl+S only writes sooner, or in scratch (which has
   no file) asks where to save one.
-- **Startup must stay near-instant.** Anything slow (loading the tokenizer, network) happens
+- **Startup must stay near-instant.** Anything slow (network, a long file's counts) happens
   off the UI thread after the first frame. The window shows text first and fills in counts later.
 - **Tab never writes a tab character.** It inserts N spaces (default 4, from settings).
 - **Shortcuts are written Ctrl+X but mean ⌘X on macOS.** Check a shortcut with iced's

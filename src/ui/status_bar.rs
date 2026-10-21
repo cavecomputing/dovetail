@@ -63,13 +63,10 @@ pub fn view(app: &App) -> Element<'_, Message> {
     // The path comes last, so in a narrow window a long one is what gets cut.
     left = left.push(small(doc_label(&app.doc)));
 
-    let tokens = match app.counts.tokens {
-        Some(count) => format!("{count} tokens"),
-        None => "… tokens".to_string(),
-    };
+    let tokens = format!("~{} tokens", app.counts.tokens);
     let mut right = row![
         small(format!("{} words · ", app.counts.words)),
-        hint(small(tokens), "o200k tokenizer · UTF-8"),
+        hint(small(tokens), "about 4 bytes a token · UTF-8"),
     ]
     .align_y(iced::Center);
     if app.settings.show_line_col {

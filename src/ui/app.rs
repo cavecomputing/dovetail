@@ -10,7 +10,7 @@ use iced::window::{self, Direction};
 use iced::{Element, Size, Subscription, Task, Theme, event, keyboard};
 
 use crate::core::config::yaml_indent;
-use crate::core::counts::{Counts, load_tokenizer_in_background, word_count};
+use crate::core::counts::Counts;
 use crate::core::json::reformat;
 use crate::core::opened::{Doc, OpenedDoc, open_doc, write_doc};
 use crate::core::paths::Paths;
@@ -155,7 +155,6 @@ pub enum Message {
     /// A save of the document with this number (`App::document`) ended: its generation and
     /// how it went.
     Saved(u64, u64, Result<Option<DiskStamp>, String>),
-    TokenizerReady,
     /// The counts of the document with this number (`App::document`).
     Counted(u64, Counts),
     /// The syntax check of the document with this number (`App::document`) ended.
@@ -280,7 +279,7 @@ fn window_settings() -> window::Settings {
 }
 
 /// How long typing must pause before the counts are redone. Counting a long text takes a while
-/// (about 2 ms for 1 MB of words, 40 ms of tokens), too long to do on every key.
+/// (about 2 ms for 1 MB), too long to do on every key.
 const COUNT_PAUSE: Duration = Duration::from_millis(300);
 
 /// How long a notice stays in the status bar: long enough to read, gone before it goes stale.
@@ -301,18 +300,11 @@ impl App {
         let pane = pane_for(&opened);
 
         let (main_window, open) = window::open(window_settings());
-        let (tokenizer_sender, tokenizer_ready) = iced::futures::channel::oneshot::channel();
-        load_tokenizer_in_background(move || {
-            let _ = tokenizer_sender.send(());
-        });
 
         let app = App {
             settings_modified: modified_time(&paths),
             recent: existing_recent_files(&paths.data_dir),
-            counts: Counts {
-                words: word_count(&opened.text),
-                tokens: None,
-            },
+            counts: Counts::of(&opened.text),
             uncounted_edit: None,
             last_comfort_chars: match settings.reading_mode {
                 ReadingMode::Comfort { chars } => chars,
@@ -354,7 +346,6 @@ impl App {
         let tasks = Task::batch([
             app.check_syntax(),
             open.map(|_| Message::WindowOpened),
-            Task::perform(tokenizer_ready, |_| Message::TokenizerReady),
             iced::system::theme().map(Message::SystemTheme),
         ]);
         (app, tasks)
@@ -367,10 +358,7 @@ impl App {
     pub fn show(&mut self, opened: OpenedDoc) -> Task<Message> {
         self.document += 1;
         self.pane = pane_for(&opened);
-        self.counts = Counts {
-            words: word_count(&opened.text),
-            tokens: None,
-        };
+        self.counts = Counts::of(&opened.text);
         self.uncounted_edit = None;
         self.doc = opened.doc;
         self.read_only_reason = opened.read_only_reason;
@@ -539,7 +527,6 @@ impl App {
                     return self.save_as(path);
                 }
             }
-            Message::TokenizerReady => return self.count(),
             Message::Counted(document, counts) if document == self.document => self.counts = counts,
             Message::Counted(..) => {}
             Message::SyntaxChecked(document, problem) if document == self.document => {
