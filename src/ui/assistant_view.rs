@@ -1,7 +1,7 @@
 //! The assistant pane beside the document, drawn like a terminal transcript: `#` comment lines
 //! saying which model it is and what it sees, your questions after a `>`, each reply's tool use
-//! and suggested edits (why, with accept, reject and try shorter: the change itself shows in the
-//! document), and the composer as a `>` prompt.
+//! and suggested edits (why, with accept and reject: the change itself shows in the document),
+//! and the composer as a `>` prompt.
 
 use iced::keyboard::{Key, key::Named};
 use iced::widget::text::Wrapping;
@@ -244,8 +244,8 @@ fn cards(app: &App, turn: usize) -> impl Iterator<Item = Element<'_, Message>> {
         .map(move |card| card_view(app, card))
 }
 
-/// A waiting suggestion, as the call that made it with the line it's on, why, and accept, reject
-/// and try shorter. What it changes shows in the document. The current one (what Ctrl+Enter and
+/// A waiting suggestion, as the call that made it with the line it's on, why, and accept and
+/// reject. What it changes shows in the document. The current one (what Ctrl+Enter and
 /// Ctrl+Backspace decide) has its accept lit. A decided one shrinks to one line saying how it
 /// went.
 fn card_view<'a>(app: &'a App, card: &'a Card) -> Element<'a, Message> {
@@ -282,9 +282,6 @@ fn card_view<'a>(app: &'a App, card: &'a Card) -> Element<'a, Message> {
         let why = line(format!("# {}", suggestion.why.trim()), subtle);
         card_column = card_column.push(container(why).padding(Padding::default().left(2.0 * CH)));
     }
-    let shorter = app
-        .can_ask()
-        .then_some(Message::Assistant(AssistantAction::TryShorter(id)));
     let current = app.pane.current_suggestion() == Some(id);
     let buttons = row![
         word(
@@ -297,7 +294,6 @@ fn card_view<'a>(app: &'a App, card: &'a Card) -> Element<'a, Message> {
             fg_muted,
             Some(Message::Decide(Decision::Reject(Some(id))))
         ),
-        word("try shorter", fg_muted, shorter),
     ]
     .spacing(CH);
     // Indented two characters, the buttons' text lined up with the line above inside their

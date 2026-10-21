@@ -8,7 +8,7 @@ use iced::widget::{scrollable, text_editor};
 
 use crate::ai::agent::{Conversation, Next, test_connection};
 use crate::ai::client::{Item, Reply, StreamEvent};
-use crate::ai::context::{self, DocKind, Snapshot, shorter_request};
+use crate::ai::context::{self, DocKind, Snapshot};
 use crate::ai::key::{KeyStore, api_key, key_store, set_api_key};
 use crate::ai::tools::Suggestion;
 use crate::core::opened::Doc;
@@ -32,8 +32,6 @@ pub enum AssistantAction {
     Stop,
     /// The header's "new chat": stops the reply, rejects the waiting suggestions and starts over.
     NewChat,
-    /// An edit's "try shorter": rejects the suggestion with this id and asks for a shorter one.
-    TryShorter(u64),
     /// The chat scrolled, by the reader or because the reply grew.
     Scrolled(scrollable::Viewport),
     /// The API key, read for the question with this number.
@@ -166,17 +164,6 @@ impl App {
                 self.decide(Decision::RejectAll);
                 self.assistant.new_chat();
                 return focus(COMPOSER_ID);
-            }
-            AssistantAction::TryShorter(id) => {
-                let card = self.assistant.cards.iter();
-                let question = card
-                    .filter(|card| card.state == CardState::Waiting(id))
-                    .map(|card| shorter_request(&card.suggestion))
-                    .next();
-                if let (Some(question), true) = (question, self.can_ask()) {
-                    self.decide(Decision::Reject(Some(id)));
-                    return self.ask(&question);
-                }
             }
             AssistantAction::KeyRead(question, key) if question == self.assistant.question => {
                 match key {
