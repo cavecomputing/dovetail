@@ -4,7 +4,6 @@ use std::fs;
 use std::io::{self, ErrorKind};
 use std::path::Path;
 
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::core::save::{atomic_write, failure_reason};
@@ -138,7 +137,7 @@ impl Settings {
                 return (Settings::default(), Some(warning));
             }
         };
-        let table: toml::Table = match toml::from_str(&text) {
+        let mut table: toml::Table = match toml::from_str(&text) {
             Ok(table) => table,
             Err(error) => {
                 let warning = format!(
@@ -148,60 +147,20 @@ impl Settings {
                 return (Settings::default(), Some(warning));
             }
         };
-        let defaults = Settings::default();
+        // Every key parses on its own (`#[serde(default)]` fills in the rest), so a key that
+        // doesn't is a bad value: it is dropped and named, and the others still load.
         let mut bad_keys = Vec::new();
-        let mut settings = Settings {
-            theme: key(&table, "theme", defaults.theme, &mut bad_keys),
-            font_size: key(&table, "font_size", defaults.font_size, &mut bad_keys),
-            reading_mode: key(&table, "reading_mode", defaults.reading_mode, &mut bad_keys),
-            tab_spaces: key(&table, "tab_spaces", defaults.tab_spaces, &mut bad_keys),
-            word_wrap: key(&table, "word_wrap", defaults.word_wrap, &mut bad_keys),
-            line_numbers: key(&table, "line_numbers", defaults.line_numbers, &mut bad_keys),
-            colour_markup: key(
-                &table,
-                "colour_markup",
-                defaults.colour_markup,
-                &mut bad_keys,
-            ),
-            scratch_syntax: key(
-                &table,
-                "scratch_syntax",
-                defaults.scratch_syntax,
-                &mut bad_keys,
-            ),
-            autosave_delay_ms: key(
-                &table,
-                "autosave_delay_ms",
-                defaults.autosave_delay_ms,
-                &mut bad_keys,
-            ),
-            base_url: key(&table, "base_url", defaults.base_url, &mut bad_keys),
-            model: key(&table, "model", defaults.model, &mut bad_keys),
-            request_format: key(
-                &table,
-                "request_format",
-                defaults.request_format,
-                &mut bad_keys,
-            ),
-            api_key_fallback: key(
-                &table,
-                "api_key_fallback",
-                defaults.api_key_fallback,
-                &mut bad_keys,
-            ),
-            window_controls: key(
-                &table,
-                "window_controls",
-                defaults.window_controls,
-                &mut bad_keys,
-            ),
-            show_line_col: key(
-                &table,
-                "show_line_col",
-                defaults.show_line_col,
-                &mut bad_keys,
-            ),
-        };
+        table.retain(|name, value| {
+            let alone = toml::Table::from_iter([(name.to_string(), value.clone())]);
+            let parses = alone.try_into::<Settings>().is_ok();
+            if !parses {
+                bad_keys.push(name.to_string());
+            }
+            parses
+        });
+        let mut settings: Settings = table
+            .try_into()
+            .expect("keys that parse alone parse together");
         settings.clamp();
         let warning = if bad_keys.is_empty() {
             None
@@ -267,26 +226,6 @@ fn owner_only(path: &Path) -> io::Result<()> {
         .mode(0o600)
         .open(path)?;
     file.set_permissions(Permissions::from_mode(0o600))
-}
-
-/// The value of `name` in the file, or `fallback` if it is missing or wrong (then its name is
-/// added to `bad_keys`, except when it's just missing).
-fn key<T: DeserializeOwned>(
-    table: &toml::Table,
-    name: &str,
-    fallback: T,
-    bad_keys: &mut Vec<String>,
-) -> T {
-    let Some(value) = table.get(name) else {
-        return fallback;
-    };
-    match value.clone().try_into() {
-        Ok(value) => value,
-        Err(_) => {
-            bad_keys.push(name.to_string());
-            fallback
-        }
-    }
 }
 
 #[cfg(test)]

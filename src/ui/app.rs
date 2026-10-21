@@ -27,7 +27,7 @@ use crate::ui::editor::{Decision, Pane};
 use crate::ui::find_bar::{self, Find, FindAction};
 use crate::ui::palette::{self, Palette};
 use crate::ui::picker::{self, Picker, PickerAction};
-use crate::ui::settings_panel::{self, Change, Connection, KeyField};
+use crate::ui::settings_panel::{self, Connection, KeyField};
 use crate::ui::switcher::{self, Switcher};
 use crate::ui::text_editor::{Action, Cursor, Edit, Motion, Position};
 use crate::ui::theme::{self, Roles};
@@ -207,7 +207,8 @@ pub enum Message {
     ReloadFromDisk,
     KeepMine,
 
-    Setting(Change),
+    /// The settings as the Settings panel (or a shortcut) just changed them.
+    Setting(Settings),
     /// Ctrl+= and Ctrl+-: the font a size bigger or smaller.
     Zoom(f32),
     /// Ctrl+Shift+L and the menu: line numbers on or off.
@@ -710,24 +711,27 @@ impl App {
                 }
             }
 
-            Message::Setting(change) => {
-                if let Change::ReadingMode(ReadingMode::Comfort { chars }) = change {
+            Message::Setting(mut settings) => {
+                settings.clamp();
+                if let ReadingMode::Comfort { chars } = settings.reading_mode {
                     self.last_comfort_chars = chars;
                 }
-                settings_panel::apply(change, &mut self.settings);
+                self.settings = settings;
                 // A test result is about the settings it ran with.
                 self.connection = None;
                 self.save_settings();
                 self.settings_changed();
             }
             Message::Zoom(step) => {
-                let size = self.settings.font_size + step;
-                return self.update(Message::Setting(Change::FontSize(size)));
+                let mut settings = self.settings.clone();
+                settings.font_size += step;
+                return self.update(Message::Setting(settings));
             }
             Message::ToggleLineNumbers => {
                 self.menu_open = false;
-                let on = !self.settings.line_numbers;
-                return self.update(Message::Setting(Change::LineNumbers(on)));
+                let mut settings = self.settings.clone();
+                settings.line_numbers = !settings.line_numbers;
+                return self.update(Message::Setting(settings));
             }
             Message::PollSettings => {
                 if let Some((_, shown)) = &self.notice
