@@ -1,7 +1,9 @@
 //! A copy of iced's multi-line text editor widget, so the app can reach the text layout.
 //!
 //! Copied from iced_widget 0.14.2 `src/text_editor.rs` (MIT licence, Copyright 2019 Héctor Ramón,
-//! Iced contributors). Re-copy it at each iced upgrade, then re-apply the blocks marked `ours:`.
+//! Iced contributors). Cargo.toml pins iced and iced_widget to these exact versions. To upgrade:
+//! raise both pins, copy the new file over this one, re-apply the blocks marked `ours:`, then
+//! run the tests and the app.
 //! What changed from upstream:
 //! - `Binding`, `KeyPress`, `Status`, `Style`, `Catalog` and `StyleFn` are iced's own, re-exported.
 //! - The renderer must use iced's `graphics::text::Editor`, so the layout (`buffer()`) is reachable.
