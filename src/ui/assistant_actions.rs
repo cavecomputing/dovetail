@@ -5,8 +5,8 @@
 use std::time::{Duration, Instant};
 
 use iced::Task;
-use iced::widget::operation::focus;
-use iced::widget::text_editor;
+use iced::widget::operation::{focus, snap_to_end};
+use iced::widget::{scrollable, text_editor};
 
 use crate::ai::agent::{Conversation, Next, test_connection};
 use crate::ai::client::{Item, Reply, StreamEvent};
@@ -23,6 +23,7 @@ use crate::ui::status_bar;
 /// How long the pane takes to slide in or out.
 const SLIDE: Duration = Duration::from_millis(300);
 pub const COMPOSER_ID: &str = "assistant-composer";
+pub const CHAT_ID: &str = "assistant-chat";
 
 #[derive(Debug, Clone)]
 pub enum AssistantAction {
@@ -37,6 +38,8 @@ pub enum AssistantAction {
     NewChat,
     /// An edit's "try shorter": rejects the suggestion with this id and asks for a shorter one.
     TryShorter(u64),
+    /// The chat scrolled, by the reader or because the reply grew.
+    Scrolled(scrollable::Viewport),
     /// The API key, read for the question with this number.
     KeyRead(u64, Result<Option<String>, String>),
     /// The next piece of a reply to the question with this number.
@@ -60,6 +63,11 @@ pub struct Assistant {
     pub conversation: Conversation,
     pub composer: text_editor::Content,
     pub cards: Vec<Card>,
+    /// Whether the chat keeps its end in view as the reply grows: until the reader scrolls up,
+    /// and again once they scroll back to the end.
+    following: bool,
+    /// How far down the chat is scrolled, in pixels, as it last said.
+    chat_offset: f32,
     /// Numbers the questions, so pieces of a reply that was stopped are ignored.
     question: u64,
     /// The API key for the question being answered, read when it was asked.
@@ -152,11 +160,25 @@ impl App {
                 assistant.open = !assistant.open;
                 assistant.slide_started = Some(Instant::now());
                 return match assistant.open {
-                    true => focus(COMPOSER_ID),
+                    true => Task::batch([focus(COMPOSER_ID), self.follow()]),
                     false => focus(editor::EDITOR_ID),
                 };
             }
             AssistantAction::Composer(action) => self.assistant.composer.perform(action),
+            AssistantAction::Scrolled(viewport) => {
+                // The offset stays put when only the reply grew: that leaves following as it was.
+                // When the reader moved it, the chat follows only if they're at the end.
+                let offset = viewport.absolute_offset().y;
+                let end = viewport.content_bounds().height - viewport.bounds().height;
+                let moved = offset != self.assistant.chat_offset;
+                self.assistant.chat_offset = offset;
+                if moved {
+                    self.assistant.following = end - offset < 2.0;
+                }
+                if self.assistant.following && end - offset >= 2.0 {
+                    return self.follow();
+                }
+            }
             AssistantAction::Send => {
                 let question = self.assistant.composer.text().trim().to_string();
                 if !question.is_empty() && self.can_ask() {
@@ -290,9 +312,17 @@ impl App {
         self.assistant.question += 1;
         let question = self.assistant.question;
         let settings = self.settings.clone();
-        Task::perform(async move { api_key(&settings) }, move |key| {
+        let key = Task::perform(async move { api_key(&settings) }, move |key| {
             Message::Assistant(AssistantAction::KeyRead(question, key))
-        })
+        });
+        Task::batch([key, self.follow()])
+    }
+
+    /// Scrolls the chat to its end, and keeps it there as the reply grows until the reader
+    /// scrolls up.
+    fn follow(&mut self) -> Task<Message> {
+        self.assistant.following = true;
+        snap_to_end(CHAT_ID)
     }
 
     /// Sends the conversation and streams the reply, one `Reply` message per piece. When the
