@@ -6,7 +6,10 @@ license = "MIT"
 
 [dependencies]
 directories = "6.0.0"
-iced = { version = "0.14", features = ["tokio", "advanced", "tiny-skia", "wgpu"] }
+# Both pinned to the exact versions ui/text_editor.rs was copied from: that file is iced_widget's
+# text editor with our changes, so iced must not move under it until the copy is redone.
+iced = { version = "=0.14.0", features = ["tokio", "advanced", "tiny-skia", "wgpu"] }
+iced_widget = "=0.14.2"
 keyring = "4"
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "json"] }
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
