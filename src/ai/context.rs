@@ -197,14 +197,6 @@ left the text as it was.]\n",
     note
 }
 
-/// What the pane's "Try shorter" asks for.
-pub fn shorter_request(suggestion: &Suggestion) -> String {
-    format!(
-        "Try a shorter version of your suggestion to replace \"{}\" with \"{}\".",
-        suggestion.find, suggestion.replace
-    )
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
