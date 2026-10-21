@@ -28,6 +28,11 @@ libc = "0.2"
 # Hears SIGTERM, SIGHUP and SIGINT on a thread of its own, so the app saves before logout ends it.
 signal-hook = "0.3"
 
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+# Hear files dropped on the window under Wayland, which winit leaves out (both already in the build).
+wayland-client = "0.31"
+wayland-backend = { version = "0.3", features = ["client_system"] }
+
 [target.'cfg(windows)'.dependencies]
 # The hidden window that hears WM_ENDSESSION, so the app saves before logout ends it (winit uses it).
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_LibraryLoader", "Win32_UI_WindowsAndMessaging"] }

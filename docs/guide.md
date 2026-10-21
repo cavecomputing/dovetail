@@ -105,10 +105,10 @@ scroll position. It is a plain `scratch.txt` in the data folder (on Linux,
 `~/.local/share/dovetail/scratch.txt`), readable without the app.
 
 **One document per window.** Each launch is its own window and process, which suits tiling window
-managers. Opening from inside the app (Ctrl+O, Ctrl+P, the ☰ menu, Ctrl+N, or Ctrl+0 for scratch)
-swaps the document in the same window: the one you're leaving is saved first, and if that save
-fails, or the new one can't be opened, the window stays as it was and the status bar says why. A
-document is edited in one window at a time: a second window on the same file, or on scratch, opens
+managers. Opening from inside the app (Ctrl+O, Ctrl+P, the ☰ menu, Ctrl+N, Ctrl+0 for scratch, or
+dropping a file from a file manager onto the window) swaps the document in the same window: the one
+you're leaving is saved first, and if that save fails, or the new one can't be opened, the window
+stays as it was and the status bar says why. A document is edited in one window at a time: a second window on the same file, or on scratch, opens
 read-only and says why, and opening one that another window has open is refused.
 
 **Opening** (Ctrl+O) shows a box holding a path, starting at the open file's folder, with

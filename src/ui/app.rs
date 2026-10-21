@@ -31,6 +31,8 @@ use crate::ui::settings_panel::{self, Change, Connection, KeyField};
 use crate::ui::switcher::{self, Switcher};
 use crate::ui::text_editor::{Action, Cursor, Edit, Motion, Position};
 use crate::ui::theme::{self, Roles};
+#[cfg(all(unix, not(target_os = "macos")))]
+use crate::ui::wayland_drop;
 use crate::ui::{assistant_view, editor, key_guard, status_bar, window_controls};
 
 pub struct App {
@@ -574,6 +576,10 @@ impl App {
                 #[cfg(target_os = "macos")]
                 window_controls::quit_closes_window();
                 let focus = iced::widget::operation::focus(editor::EDITOR_ID);
+                // Under Wayland, files dropped on the window come from a listener of our own.
+                // Elsewhere winit hears them (`shortcut`).
+                #[cfg(all(unix, not(target_os = "macos")))]
+                let focus = Task::batch([focus, wayland_drop::listen(self.main_window)]);
                 if self.scroll_restored {
                     return focus;
                 }
@@ -648,7 +654,11 @@ impl App {
             Message::FocusNext { .. } if self.picker.is_some() => {
                 return self.update_picker(PickerAction::Complete);
             }
-            Message::OpenPath(path) => return self.open_file(path),
+            Message::OpenPath(path) => {
+                // A file dropped on Settings opens behind it, so Settings closes to show it.
+                self.settings_open = false;
+                return self.open_file(path);
+            }
             Message::OpenSettings => {
                 self.close_panels();
                 if std::mem::replace(&mut self.settings_open, true) {
@@ -1065,6 +1075,11 @@ fn shortcut(event: iced::Event, status: event::Status, _window: window::Id) -> O
         iced::Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) => {
             return Some(Message::Modifiers(modifiers));
         }
+        // A file dropped on the window opens in it, as Ctrl+O would (X11, macOS and Windows;
+        // Wayland's drops come from `wayland_drop`).
+        iced::Event::Window(window::Event::FileDropped(path)) => {
+            return Some(Message::OpenPath(path));
+        }
         _ => return None,
     };
     // Ctrl+Enter and Ctrl+Backspace accept and reject the current suggested edit, and with Shift
@@ -1167,6 +1182,7 @@ fn settings_key(message: Message) -> Option<Message> {
         | Message::Minimize
         | Message::Zoom(_)
         | Message::ToggleLineNumbers
+        | Message::OpenPath(_)
         | Message::Modifiers(_) => Some(message),
         _ => None,
     }
@@ -1273,6 +1289,23 @@ mod tests {
             let _ = app.update(Message::Edit(Action::Edit(Edit::Insert(letter))));
         }
         (dir, paths, app, notes)
+    }
+
+    #[test]
+    fn a_file_dropped_on_settings_opens_and_closes_settings() {
+        let (_dir, _paths, mut app, notes) = scratch_window("");
+        let _ = app.update(Message::OpenSettings);
+        let dropped = shortcut(
+            iced::Event::Window(window::Event::FileDropped(notes.clone())),
+            event::Status::Ignored,
+            app.main_window,
+        );
+        let message = dropped
+            .and_then(settings_key)
+            .expect("a drop gets past Settings");
+        let _ = app.update(message);
+        assert!(!app.settings_open);
+        assert!(matches!(&app.doc, Doc::File { path, .. } if *path == notes));
     }
 
     #[test]

@@ -192,7 +192,7 @@ and posts the Linux and Windows builds on a GitHub Release (Macs install with
 
 One process per window: launching with no file opens scratch, with a file (`.txt`, `.md`, `.json`,
 ...) opens that file. Each launch gets its own window, which plays well with tiling window managers. Opening another
-document from inside the app (Ctrl+O, Ctrl+P, Recent, Ctrl+N, Ctrl+0) replaces the one in the same
+document from inside the app (Ctrl+O, Ctrl+P, Recent, Ctrl+N, Ctrl+0, a dropped file) replaces the one in the same
 window, once the one being left is saved (`App::open_here`). A process has exactly one window:
 Settings, the Ctrl+O picker, the Ctrl+P switcher, the Ctrl+Shift+P palette and the menu open over
 it; the assistant pane sits beside the text.
@@ -255,6 +255,7 @@ src/
     text_file.rs         reading and saving text files: line endings, outside-change check
     recent.rs            the recently opened files (data folder), fuzzy matching
     text_model.rs        a pane's text and its undo/redo history, in byte offsets
+    uri_list.rs          the files in a `text/uri-list`, the form Wayland hands dropped files over in
     typing.rs            typing in shell scripts, JSON and YAML: pairs that close themselves, and
                          Enter that indents a block and lines up the line that ends one
     review.rs            suggested edits waiting in a pane, and the display text that shows
@@ -280,6 +281,8 @@ src/
     find_bar.rs          the Ctrl+F find bar: its matches, stepping through them, how they're lit
     file_actions.rs      App's handlers for opening a document in the window's place (Ctrl+O,
                          Ctrl+P, Ctrl+0), New file (Ctrl+N), Save (Ctrl+S) and Save as
+    wayland_drop.rs      files dropped on the window under Wayland, which winit doesn't hear (X11,
+                         macOS and Windows drops come through iced's FileDropped)
     window_controls.rs   the top strip's window controls and the resize edges; on macOS, Quit
                          pointed at closing the window
     settings_panel.rs    the Settings panel over the text (Ctrl+,), laid out like settings.toml,
