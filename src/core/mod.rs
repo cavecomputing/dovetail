@@ -21,3 +21,6 @@ pub mod syntax;
 pub mod text_file;
 pub mod text_model;
 pub mod typing;
+// Only Wayland hands dropped files over as a URI list; macOS and Windows get paths from winit.
+#[cfg(all(unix, not(target_os = "macos")))]
+pub mod uri_list;

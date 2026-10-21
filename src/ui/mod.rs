@@ -16,4 +16,7 @@ pub mod status_bar;
 pub mod switcher;
 pub mod text_editor;
 pub mod theme;
+// Only Wayland needs a drop listener of our own; elsewhere winit hears drops.
+#[cfg(all(unix, not(target_os = "macos")))]
+pub mod wayland_drop;
 pub mod window_controls;
