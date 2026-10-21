@@ -481,7 +481,6 @@ impl App {
             Message::Decide(decision) => self.decide(decision),
             Message::Tick(now) => {
                 self.now = now;
-                self.assistant.finish_slide(now);
                 let mut tasks = Vec::new();
                 if self
                     .uncounted_edit
@@ -958,10 +957,6 @@ impl App {
         // counts' pause, and animate the dot.
         if self.autosaver.state() != SaveState::Saved || self.uncounted_edit.is_some() {
             subscriptions.push(iced::time::every(Duration::from_millis(50)).map(Message::Tick));
-        }
-        // While the assistant pane's slide plays: about 60 frames a second.
-        if self.assistant.slide_started.is_some() {
-            subscriptions.push(iced::time::every(Duration::from_millis(16)).map(Message::Tick));
         }
         Subscription::batch(subscriptions)
     }

@@ -34,32 +34,23 @@ const SEES_CHARS: usize = 36;
 /// The longest model name the header shows, in characters, so "suggests only" and new chat fit.
 const NAME_CHARS: usize = 16;
 
-/// The document `width` pixels wide, with the pane on the right while it shows (or slides). The
-/// document narrows to make room; in a narrow window the pane slides over it instead. The layout
-/// keeps its shape for the whole slide, so the composer keeps its focus.
+/// The document `width` pixels wide, with the pane on the right while it is open. The document
+/// narrows to make room; in a narrow window the pane covers it instead.
 pub fn beside(app: &App, width: f32) -> Element<'_, Message> {
     let document = container(app.document_view()).width(Fill);
-    let shown = app.assistant.shown(app.now);
-    if !app.assistant.open && shown == 0.0 {
+    if !app.assistant.open {
         return row![document].into();
     }
-    // The pane is laid out at its full width and only the part that has slid in shows, so its
-    // contents never squeeze and rewrap mid-slide: a horizontal scrollable gives them all the
-    // width they ask for. At least a pixel shows: a widget with no width can't take focus.
-    let pane = |full_width: f32| {
-        let pane_width = (full_width * shown).round().max(1.0);
-        let full = container(pane(app)).width(full_width);
-        let hidden = scrollable::Direction::Horizontal(scrollable::Scrollbar::hidden());
-        container(scrollable(full).direction(hidden)).width(pane_width)
-    };
     if width <= NARROW {
-        let pane = pane(width).style(|theme: &Theme| fill(Roles::of(theme).bg_surface));
+        let pane = container(pane(app))
+            .width(width)
+            .style(|theme: &Theme| fill(Roles::of(theme).bg_surface));
         let pane = container(opaque(pane)).align_right(Fill);
         return stack![document, pane].into();
     }
     let divider = container(space().width(1).height(Fill))
         .style(|theme: &Theme| fill(Roles::of(theme).border));
-    row![document, divider, pane(PANE_WIDTH)]
+    row![document, divider, container(pane(app)).width(PANE_WIDTH)]
         .height(Fill)
         .into()
 }
