@@ -12,7 +12,6 @@ use iced::widget::{
 use iced::{Background, Border, Color, Element, Fill, Padding, Theme};
 
 use crate::ai::client::{Item, ToolCall};
-use crate::ai::context;
 use crate::ai::tools::{describe, shorten};
 use crate::core::opened::Doc;
 use crate::ui::app::{App, Message};
@@ -29,7 +28,7 @@ pub const SIZE: f32 = 13.0;
 pub const LINE: f32 = 1.6;
 /// The width of one character, for indents.
 pub const CH: f32 = SIZE * CHAR_WIDTH_RATIO;
-/// The longest file or focus name a header line shows, in characters.
+/// The longest file name the header shows, in characters.
 const SEES_CHARS: usize = 36;
 /// The longest model name the header shows, in characters, so "suggests only" and new chat fit.
 const NAME_CHARS: usize = 16;
@@ -77,11 +76,6 @@ fn pane(app: &App) -> Element<'_, Message> {
         format!("# sees {}", shorten(&sees, SEES_CHARS)),
         subtle,
     ));
-    // What the assistant is focused on, in the accent.
-    if let Some(focus) = context::focus(app.pane.model.text(), app.pane.selection()) {
-        let focus = format!("# focus: {}", shorten(&focus, SEES_CHARS));
-        head = head.push(line(focus, |roles| roles.accent_text));
-    }
     let head = container(head).padding(Padding {
         top: 14.0,
         right: 16.0,
