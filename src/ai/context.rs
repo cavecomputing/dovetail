@@ -93,7 +93,7 @@ including XML tags and {{{{macros}}}}, unless they ask otherwise.
 that would leave a JSON, YAML, TOML, INI or shell file invalid still shows, but propose_edit's \
 result says what breaks, so you can correct it.
 - When no edit is wanted, just answer. Keep replies short and plain: the chat pane is narrow.
-- Word and token counts come from count_tokens (OpenAI's o200k tokenizer).
+- Word and token counts come from count_tokens (tokens are an estimate, about four bytes each).
 "
     );
     text.push_str("\nWhat is open: ");
@@ -158,13 +158,11 @@ left the text as it was.]\n",
         ));
     }
     note.push_str(&format!(
-        "[Document now: {} lines, {} words",
+        "[Document now: {} lines, {} words, about {} tokens",
         text.split('\n').count(),
-        counts.words
+        counts.words,
+        counts.tokens
     ));
-    if let Some(tokens) = counts.tokens {
-        note.push_str(&format!(", {tokens} tokens"));
-    }
     let selected = snapshot
         .selection
         .clone()
@@ -298,9 +296,8 @@ pub(crate) mod tests {
 
     #[test]
     fn the_note_gives_sizes_the_selection_and_the_caret() {
-        crate::core::counts::load_tokenizer();
         let note = turn_note(&scratch("one two\nthree"));
-        assert!(note.starts_with("[Document now: 2 lines, 3 words, "));
+        assert!(note.starts_with("[Document now: 2 lines, 3 words, about 4 tokens. "));
         assert!(note.ends_with("tokens. Nothing selected; the caret is on line 1.]"));
         let lower = Snapshot {
             caret: 9,

@@ -92,7 +92,7 @@ Left to right:
 Rules:
 - On the `rewrite` branch the bottom-right corner always holds the **next step**: the pen icon on plain docs, Commit in projects. On `main` it holds the assistant toggle.
 - **Save dot:** green means saved (quiet, with the word on hover). Yellow with a gentle pulse means saving. Orange with words means the save failed, for example "Save failed: disk full", and also blocks closing. There's no "unsaved" state, because everything autosaves.
-- The tokenizer and encoding show on hover over the token count, not in the bar. Line and column are off by default and can be turned on.
+- What the token count is (an estimate, four bytes a token) and the encoding show on hover over it, not in the bar. Line and column are off by default and can be turned on.
 - The menu holds new file, open, open recent, save as (save to a file in scratch), find, replace, go to line, show or hide line numbers, settings and scratch, then the six most recent files last, so the commands stay put (2026-10-18; six, 2026-10-19). It is drawn like the `Ctrl+P` switcher (2026-10-19): lowercase words in the 13px mono size, shortcuts dimmed on the right, `# recent` over the files, no rounded rows. File-type tools (Format and Minify JSON) are in the `Ctrl+Shift+P` palette instead (2026-10-18). On the `rewrite` branch a project's menu adds version history and idea weights.
 
 ## 7. Projects: the rewrite flow (`rewrite` branch)
@@ -168,7 +168,7 @@ A settings panel that opens over the app, from the menu or `Ctrl+,`, in whicheve
 ## 11. Counting
 
 - Word and token counts update live (in both panes of a project, on the `rewrite` branch).
-- The tokenizer is OpenAI's o200k, counted by our own `core/counts.rs` from tiktoken's vocabulary (it keeps only what counting needs: 14 MB, where `tiktoken-rs` took 47). That's a good enough estimate for Claude and Gemini.
+- The token count is an estimate, one token per four bytes (`core/counts.rs`): within about a tenth of o200k, Claude and Gemini on prose and code, with no vocabulary to ship or load. An exact o200k count is a `rewrite` branch concern, where the idea weights need it.
 - Later: count `{{macros}}` separately from real text, since they expand at runtime.
 
 ## 12. Tech direction (not locked)

@@ -89,8 +89,8 @@ pub fn catalogue() -> Vec<Tool> {
         },
         Tool {
             name: "count_tokens",
-            description: "Count the words and tokens (OpenAI's o200k tokenizer) of some text, or \
-                of the whole document when no text is given.",
+            description: "Count the words and tokens (an estimate: about four bytes a token) of \
+                some text, or of the whole document when no text is given.",
             parameters: json!({
                 "type": "object",
                 "properties": { "text": { "type": "string", "description": "The text to count." } },
@@ -269,17 +269,10 @@ fn find_text(text: &str, query: &str) -> String {
     json!({ "matches": total, "lines": matches }).to_string()
 }
 
-/// Words and tokens; tokens are null while the tokenizer is still loading.
+/// Words and (estimated) tokens.
 fn count(text: &str) -> Value {
     let counts = Counts::of(text);
-    match counts.tokens {
-        Some(tokens) => json!({ "words": counts.words, "tokens": tokens }),
-        None => json!({
-            "words": counts.words,
-            "tokens": null,
-            "note": "The tokenizer is still loading; try again in a moment.",
-        }),
-    }
+    json!({ "words": counts.words, "tokens": counts.tokens })
 }
 
 /// `find` and `replace` without what both have at their start and end, and how many bytes were
@@ -537,7 +530,6 @@ mod tests {
 
     #[test]
     fn count_tokens_counts_given_text_or_the_document() {
-        crate::core::counts::load_tokenizer();
         let snapshot = scratch("one two three");
         let whole = as_json(&output(&snapshot, "count_tokens", json!({})));
         assert_eq!(whole["words"], 3);
