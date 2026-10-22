@@ -92,8 +92,8 @@ pub struct Settings {
     /// The model name the server knows. Empty until set; the assistant pane asks for one.
     pub model: String,
     pub request_format: RequestFormat,
-    /// The API key, kept here only when there is no system keyring (see `ai::key`), which happens
-    /// only on Linux. The file is then readable by its owner only.
+    /// The API key, kept here on macOS, and on Linux when there is no system keyring (see
+    /// `ai::key`). The file is then readable by its owner only.
     pub api_key_fallback: Option<String>,
     pub window_controls: WindowControls,
     /// Show line and column in the status bar.

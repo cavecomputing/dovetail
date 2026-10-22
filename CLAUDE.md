@@ -300,7 +300,8 @@ src/
     tools.rs             the tools the model may call, run against a snapshot; suggested edits
     agent.rs             a conversation and its agent loop: ask, stream, run tools, repeat
     context.rs           the document snapshot, the standing instructions, the note per question
-    key.rs               the API key: the system keyring, or settings.toml when there is none
+    key.rs               the API key: the system keyring, or settings.toml on macOS (the Keychain
+                         asked for the password every build) and when there is no keyring
 ```
 
 One file per concern, named for that concern. When a file passes a few hundred lines, or starts
