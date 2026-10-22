@@ -619,14 +619,6 @@ const KEYRING: &str = if cfg!(target_os = "macos") {
     "the system keyring"
 };
 
-/// settings.toml as the key's home, with why: on macOS the Keychain would ask for the login
-/// password after every build (see `ai::key`); elsewhere it's the fallback when no keyring runs.
-const SETTINGS_FILE: &str = if cfg!(target_os = "macos") {
-    "settings.toml, readable by you only (the Keychain would ask for your password every build)"
-} else {
-    "settings.toml, readable by you only (no keyring found)"
-};
-
 /// Where the key is kept, in words: the keyring, or settings.toml on macOS or when there is none.
 fn key_status<'a>(field: &KeyField) -> Element<'a, Message> {
     if let Some(error) = &field.error {
@@ -637,9 +629,9 @@ fn key_status<'a>(field: &KeyField) -> Element<'a, Message> {
         (_, true, _) => "saving…".to_string(),
         (Some(KeyStore::Keyring), _, false) => format!("stored in {KEYRING}"),
         (Some(KeyStore::Keyring), _, true) => format!("none saved · a key goes in {KEYRING}"),
-        (Some(KeyStore::SettingsFile), _, false) => format!("stored in {SETTINGS_FILE}"),
+        (Some(KeyStore::SettingsFile), _, false) => "stored in settings.toml".to_string(),
         (Some(KeyStore::SettingsFile), _, true) => {
-            format!("none saved · a key goes in {SETTINGS_FILE}")
+            "none saved · a key goes in settings.toml".to_string()
         }
     };
     comment(words)
