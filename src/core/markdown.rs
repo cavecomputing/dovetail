@@ -1,9 +1,9 @@
 //! Markdown in a .md or .markdown file: which parts of each line to colour, what Enter and Tab do
-//! in a list, and the markers Ctrl+B and Ctrl+I put in. Nothing is rendered; the text stays
+//! in a list, the markers Ctrl+B and Ctrl+I put in, and the task boxes Ctrl+Shift+X ticks. Nothing is rendered; the text stays
 //! exactly as typed. Lines are read one at a time, each starting in the `Block` the line above
 //! left it in: prose, or inside a fenced code block.
 
-use std::ops::Range;
+use std::ops::{Range, RangeInclusive};
 
 /// The marker Ctrl+B puts around text, for bold.
 pub const BOLD: &str = "**";
@@ -235,6 +235,70 @@ pub fn fence_enter(text: &str, caret: usize) -> Option<(String, usize)> {
 /// outside fenced code.
 pub fn is_list_item(text: &str, at: usize) -> bool {
     prose_line(text, at).is_some_and(|(_, line)| list_marker(line, 0).is_some() && !is_rule(line))
+}
+
+/// Ctrl+Shift+X: the edits, in text order, that tick the task boxes on `lines` of `text`
+/// (`[ ]` to `[x]`), or untick them when every one is ticked. First, though, any of the lines
+/// without a box gets an empty one: a list item after its marker, any other line a `- [ ]` at its
+/// indent, so a few plain lines become a task list in one press and get ticked with the next.
+/// Blank lines, headings, rules and fenced code are left alone.
+pub fn toggle_tasks(text: &str, lines: RangeInclusive<usize>) -> Vec<(Range<usize>, String)> {
+    // Each line that counts, as (where its box's state byte is, whether it's ticked), or
+    // (where an empty box goes in, how it's written) for a line with no box yet.
+    let mut boxes = Vec::new();
+    let mut boxless = Vec::new();
+    for (start, line) in prose_lines(text, lines) {
+        let body = line.trim_start_matches([' ', '\t', '>']);
+        if body.trim().is_empty() || is_heading(body) || is_rule(body) {
+            continue;
+        }
+        match list_marker(line, line.len() - body.len()) {
+            Some(marker) if line[..marker.end].ends_with(']') => {
+                let state = start + marker.end - 2;
+                boxes.push((state, text.as_bytes()[state] != b' '));
+            }
+            Some(marker) => boxless.push((start + marker.end + 1, "[ ] ")),
+            None => boxless.push((start + line.len() - body.len(), "- [ ] ")),
+        }
+    }
+    if !boxless.is_empty() {
+        return boxless
+            .into_iter()
+            .map(|(at, with)| (at..at, with.to_string()))
+            .collect();
+    }
+    let tick = !boxes.iter().all(|(_, ticked)| *ticked);
+    let state = if tick { "x" } else { " " };
+    boxes
+        .into_iter()
+        .map(|(at, _)| (at..at + 1, state.to_string()))
+        .collect()
+}
+
+/// Whether a line's body (after its indent and quote markers) is a `#` heading.
+fn is_heading(body: &str) -> bool {
+    let hashes = body.bytes().take_while(|byte| *byte == b'#').count();
+    (1..=6).contains(&hashes) && matches!(body.as_bytes().get(hashes), None | Some(b' ' | b'\t'))
+}
+
+/// The `lines` of `text` that are prose: outside fenced code, and not a fence either, each with
+/// where it starts.
+fn prose_lines(text: &str, lines: RangeInclusive<usize>) -> Vec<(usize, &str)> {
+    let mut block = Block::Prose;
+    let mut start = 0;
+    let mut found = Vec::new();
+    for (index, line) in text.split('\n').enumerate() {
+        if index > *lines.end() {
+            break;
+        }
+        let after = block_after(line, block);
+        if lines.contains(&index) && block == Block::Prose && after == Block::Prose {
+            found.push((start, line));
+        }
+        block = after;
+        start += line.len() + 1;
+    }
+    found
 }
 
 /// The line byte `at` of `text` is on, and where it starts, unless it is inside fenced code.
@@ -550,6 +614,42 @@ mod tests {
             vec![("* * *", Rule)],
             "a break, not a list"
         );
+    }
+
+    /// `text` with `toggle_tasks` done on `lines`.
+    fn ticked(text: &str, lines: RangeInclusive<usize>) -> String {
+        let mut result = text.to_string();
+        for (range, with) in toggle_tasks(text, lines).into_iter().rev() {
+            result.replace_range(range, &with);
+        }
+        result
+    }
+
+    #[test]
+    fn ctrl_shift_x_adds_task_boxes_then_ticks_them_and_back() {
+        // Plain lines and bare items get boxes first.
+        let text = "shop\n- milk\n  * eggs\n\n> idea";
+        let boxed = ticked(text, 0..=4);
+        assert_eq!(
+            boxed,
+            "- [ ] shop\n- [ ] milk\n  * [ ] eggs\n\n> - [ ] idea"
+        );
+        // Then they tick together, and untick once all are ticked.
+        let all = ticked(&boxed, 0..=4);
+        assert_eq!(all, "- [x] shop\n- [x] milk\n  * [x] eggs\n\n> - [x] idea");
+        assert_eq!(ticked(&all, 0..=4), boxed);
+        // A mix ticks the rest; one line on its own flips.
+        assert_eq!(ticked("- [x] a\n- [ ] b", 0..=1), "- [x] a\n- [x] b");
+        assert_eq!(ticked("1. [X] a", 0..=0), "1. [ ] a");
+        // A line that already has a box isn't given another while others get theirs.
+        assert_eq!(ticked("- [ ] a\nb", 0..=1), "- [ ] a\n- [ ] b");
+        // Headings, rules and fenced code are left alone.
+        let text = "# Title\n---\n```\ncode\n```\n- [ ] after";
+        assert_eq!(
+            ticked(text, 0..=5),
+            "# Title\n---\n```\ncode\n```\n- [x] after"
+        );
+        assert_eq!(ticked("# Title", 0..=0), "# Title");
     }
 
     #[test]

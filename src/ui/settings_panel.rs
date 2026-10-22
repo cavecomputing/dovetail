@@ -376,6 +376,11 @@ const SHORTCUTS: [(&str, &[Shortcut]); 5] = [
                 "comment the lines out, in scripts and config files",
             ),
             ("Ctrl+B / Ctrl+I", "", "bold or italic, in Markdown"),
+            (
+                "Ctrl+Shift+X",
+                "",
+                "tick the lines' task boxes, in Markdown",
+            ),
             ("Ctrl+A, C, X, V", "", "select all, copy, cut, paste"),
         ],
     ),
