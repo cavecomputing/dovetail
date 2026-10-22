@@ -1,5 +1,5 @@
 //! Markdown in a .md or .markdown file: which parts of each line to colour, what Enter and Tab do
-//! in a list, the markers Ctrl+B and Ctrl+I put in, and the task boxes Ctrl+Shift+X ticks. Nothing is rendered; the text stays
+//! in a list, the markers Ctrl+B and Ctrl+I put in, and the task boxes Ctrl+Shift+Enter ticks. Nothing is rendered; the text stays
 //! exactly as typed. Lines are read one at a time, each starting in the `Block` the line above
 //! left it in: prose, or inside a fenced code block.
 
@@ -237,7 +237,7 @@ pub fn is_list_item(text: &str, at: usize) -> bool {
     prose_line(text, at).is_some_and(|(_, line)| list_marker(line, 0).is_some() && !is_rule(line))
 }
 
-/// Ctrl+Shift+X: the edits, in text order, that tick the task boxes on `lines` of `text`
+/// Ctrl+Shift+Enter: the edits, in text order, that tick the task boxes on `lines` of `text`
 /// (`[ ]` to `[x]`), or untick them when every one is ticked. First, though, any of the lines
 /// without a box gets an empty one: a list item after its marker, any other line a `- [ ]` at its
 /// indent, so a few plain lines become a task list in one press and get ticked with the next.

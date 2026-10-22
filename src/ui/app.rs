@@ -142,7 +142,7 @@ pub enum Message {
     /// Ctrl+/ in the editor: in a script or config file, comment out the lines or uncomment them
     /// (`Pane::toggle_comment`).
     ToggleComment,
-    /// Ctrl+Shift+X in the editor: in a Markdown file, tick the lines' task boxes, untick them,
+    /// Ctrl+Shift+Enter in the editor: in a Markdown file, tick the lines' task boxes, untick them,
     /// or give the lines boxes (`Pane::toggle_tasks`).
     ToggleTasks,
     Undo,

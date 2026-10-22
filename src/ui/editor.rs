@@ -220,7 +220,9 @@ fn key_binding(press: KeyPress, editable: bool, reviewing: bool) -> Option<Bindi
             Key::Character("k" | "K") if press.modifiers.shift() => {
                 Some(Binding::Custom(Message::DeleteLines))
             }
-            Key::Character("x" | "X") if press.modifiers.shift() => {
+            // Only reached while no suggestion waits; then Ctrl+Shift+Enter accepts them all
+            // (see `decides` above).
+            Key::Named(Named::Enter) if press.modifiers.shift() => {
                 Some(Binding::Custom(Message::ToggleTasks))
             }
             _ => Binding::from_key_press(press),
@@ -1132,7 +1134,7 @@ impl Pane {
         Ok(true)
     }
 
-    /// Ctrl+Shift+X in a Markdown file: ticks or unticks the task boxes on the caret's line, or
+    /// Ctrl+Shift+Enter in a Markdown file: ticks or unticks the task boxes on the caret's line, or
     /// every line the selection is on, or gives them boxes (see `markdown::toggle_tasks`), as one
     /// undo step. Lines with a suggestion on them are refused. Returns whether the text changed,
     /// or why it can't.
@@ -1697,6 +1699,24 @@ mod tests {
                 Some(Binding::Custom(Message::NewLine { shift })) if shift == modifiers.shift()
             ));
         }
+    }
+
+    #[test]
+    fn ctrl_shift_enter_ticks_tasks_unless_suggestions_wait() {
+        let press = KeyPress {
+            key: Key::Named(Named::Enter),
+            modified_key: Key::Named(Named::Enter),
+            physical_key: Physical::Unidentified(NativeCode::Unidentified),
+            modifiers: Modifiers::COMMAND | Modifiers::SHIFT,
+            text: None,
+            status: Status::Focused { is_hovered: false },
+        };
+        assert!(matches!(
+            key_binding(press.clone(), true, false),
+            Some(Binding::Custom(Message::ToggleTasks))
+        ));
+        // While suggestions wait it's theirs: accept every one.
+        assert!(key_binding(press, true, true).is_none());
     }
 
     #[test]
