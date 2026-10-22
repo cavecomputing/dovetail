@@ -36,6 +36,8 @@ optdepends=(
 # makepkg's lto adds -flto to CFLAGS, which makes the C half of the TLS library (aws-lc-sys) GCC
 # LTO objects that Rust's linker can't read ("undefined symbol: aws_lc_...").
 options=('!lto')
+# Prints, once, how to make the app the default for its file types (xdg-mime).
+install="$_pkgname.install"
 provides=("$_pkgname")
 conflicts=("$_pkgname")
 source=("$_pkgname::git+$url.git")

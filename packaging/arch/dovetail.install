@@ -1,0 +1,10 @@
+# Shown once, on first install: a package mustn't change anyone's default apps, so this only says
+# how. Names come from the binary, as in the PKGBUILD.
+post_install() {
+  eval "$(dovetail --print-brand)"
+  cat <<MESSAGE
+==> $APP_NAME now appears in "Open with" for text, Markdown, JSON, YAML, TOML, INI and shell files.
+==> To make it your default for them (per user, in ~/.config/mimeapps.list), run as yourself:
+    xdg-mime default $APP_ID.desktop text/plain text/markdown application/json application/yaml application/x-yaml application/toml text/x-ini application/x-shellscript
+MESSAGE
+}

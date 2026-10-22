@@ -218,7 +218,8 @@ assets/fonts/            the bundled JetBrains Mono NL Nerd Font (no ligatures) 
 assets/icon/             the app icon: SVGs for Linux, icon.icns for macOS, icon.ico for Windows,
                          and a 64px raw RGBA copy for the window (see its README)
 docs/                    spec.md (the design), design-tokens.json (the Gruvbox palette)
-packaging/arch/          PKGBUILD for a pacman package (dovetail-git) built from GitHub
+packaging/arch/          PKGBUILD for a pacman package (dovetail-git) built from GitHub, and its
+                         install message (how to make the app the default, with xdg-mime)
 scripts/                 per-OS installers: install.sh (Linux: binary, icon, .desktop file),
                          install-macos.sh (an app bundle in ~/Applications), install-windows.ps1
                          (Start Menu and Open with entries)
