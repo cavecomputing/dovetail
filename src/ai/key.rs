@@ -1,8 +1,12 @@
 //! The assistant's API key. It lives in the system keyring: the Secret Service on Linux, which
-//! gnome-keyring and KeePassXC provide, the Keychain on macOS and Credential Manager on Windows.
-//! Only when no keyring is running does it go in settings.toml, which is then readable by its
-//! owner only; the Settings window says which. macOS and Windows always have theirs, so that is
-//! Linux only in practice.
+//! gnome-keyring and KeePassXC provide, and Credential Manager on Windows. When no keyring is
+//! running, and always on macOS, it goes in settings.toml instead, which is readable by its owner
+//! only; the Settings window says which.
+//!
+//! macOS has a keyring, the Keychain, but it isn't used (Matt, 2026-10-22, issue #16). A Keychain
+//! item remembers which app may read it by the app's code signature, and ours is ad hoc (no Apple
+//! account), which changes with every build, so each rebuild or reinstall looked like a new app
+//! and the Keychain asked for the login password again, on every launch and on opening Settings.
 //!
 //! These calls can block (on Linux they talk to the keyring over D-Bus, and it may ask to
 //! unlock), so call them off the UI thread.
@@ -19,12 +23,18 @@ const KEY_USER: &str = "api-key";
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum KeyStore {
     Keyring,
-    /// settings.toml, readable by its owner only, because no keyring is running (Linux only).
+    /// settings.toml, readable by its owner only: on macOS always, elsewhere because no keyring
+    /// is running.
     SettingsFile,
 }
 
-/// Where a key is kept on this machine. Connects to the keyring the first time.
+/// Where a key is kept on this machine. Connects to the keyring the first time. On macOS it is
+/// always the settings file (see the top of this file); the other OSes use their keyring when one
+/// is running.
 pub fn key_store() -> KeyStore {
+    if cfg!(target_os = "macos") {
+        return KeyStore::SettingsFile;
+    }
     match Entry::store_status() {
         Ok(()) => KeyStore::Keyring,
         Err(_) => KeyStore::SettingsFile,
@@ -87,6 +97,13 @@ fn keyring_words(error: Error) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Runs in CI's macOS job; the other OSes' answer depends on the machine.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn on_macos_the_key_lives_in_settings_never_the_keychain() {
+        assert_eq!(key_store(), KeyStore::SettingsFile);
+    }
 
     // Only the settings-file path is tested: the keyring path would touch the real keyring of
     // whoever runs the tests.
