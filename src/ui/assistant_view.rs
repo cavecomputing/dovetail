@@ -88,16 +88,18 @@ fn pane(app: &App) -> Element<'_, Message> {
     let mut keys_help = column![];
     let waiting = app.pane.suggestions().len();
     if waiting > 0 {
-        keys_help = keys_help.push(line(keys("# Ctrl+Enter accepts"), subtle));
-        keys_help = keys_help.push(line(keys("# Ctrl+Backspace rejects"), subtle));
-    }
-    if waiting > 1 {
+        keys_help = keys_help.push(line(keys("# Ctrl+Enter accepts them all"), subtle));
+        keys_help = keys_help.push(line(keys("# Ctrl+Backspace rejects one"), subtle));
+        let count = match waiting {
+            1 => "# 1 suggestion".to_string(),
+            _ => format!("# {waiting} suggestions"),
+        };
         keys_help = keys_help.push(
             row![
-                line(format!("# {waiting} suggestions"), subtle),
+                line(count, subtle),
                 space::horizontal(),
                 word(
-                    "accept all",
+                    "accept",
                     accent_text,
                     Some(Message::Decide(Decision::AcceptAll))
                 ),
@@ -244,10 +246,10 @@ fn cards(app: &App, turn: usize) -> impl Iterator<Item = Element<'_, Message>> {
         .map(move |card| card_view(app, card))
 }
 
-/// A waiting suggestion, as the call that made it with the line it's on, why, and accept and
-/// reject. What it changes shows in the document. The current one (what Ctrl+Enter and
-/// Ctrl+Backspace decide) has its accept lit. A decided one shrinks to one line saying how it
-/// went.
+/// A waiting suggestion, as the call that made it with the line it's on, why, and reject (accept
+/// is for all of them at once, under the chat). What it changes shows in the document. The
+/// current one (what Ctrl+Backspace rejects) has its reject lit. A decided one shrinks to one line
+/// saying how it went.
 fn card_view<'a>(app: &'a App, card: &'a Card) -> Element<'a, Message> {
     let suggestion = &card.suggestion;
     let id = match &card.state {
@@ -283,19 +285,11 @@ fn card_view<'a>(app: &'a App, card: &'a Card) -> Element<'a, Message> {
         card_column = card_column.push(container(why).padding(Padding::default().left(2.0 * CH)));
     }
     let current = app.pane.current_suggestion() == Some(id);
-    let buttons = row![
-        word(
-            "accept",
-            if current { accent_text } else { fg_muted },
-            Some(Message::Decide(Decision::Accept(Some(id))))
-        ),
-        word(
-            "reject",
-            fg_muted,
-            Some(Message::Decide(Decision::Reject(Some(id))))
-        ),
-    ]
-    .spacing(CH);
+    let buttons = row![word(
+        "reject",
+        if current { accent_text } else { fg_muted },
+        Some(Message::Decide(Decision::Reject(Some(id))))
+    )];
     // Indented two characters, the buttons' text lined up with the line above inside their
     // padding.
     card_column
