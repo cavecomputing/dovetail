@@ -147,8 +147,8 @@ pub fn view(app: &App) -> Element<'_, Message> {
                     settings,
                     settings.scratch_syntax,
                     &[
-                        ("plain", ScratchSyntax::Plain),
                         ("markdown", ScratchSyntax::Markdown),
+                        ("plain", ScratchSyntax::Plain),
                     ],
                     |s, syntax| s.scratch_syntax = syntax,
                 ),
