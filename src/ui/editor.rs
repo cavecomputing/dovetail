@@ -17,7 +17,7 @@ use iced::{Background, Border, Element, Fill, Padding, Theme};
 
 use crate::core::find::{find_all, word_at};
 use crate::core::markdown::{
-    BOLD, ITALIC, ListEnter, fence_enter, is_list_item, list_enter, toggle_marker,
+    BOLD, ITALIC, ListEnter, fence_enter, is_list_item, list_enter, toggle_marker, toggle_tasks,
 };
 use crate::core::review::{DisplayMap, Review, Shown, Suggestion, clashes};
 use crate::core::scratch::clamp_column;
@@ -219,6 +219,9 @@ fn key_binding(press: KeyPress, editable: bool, reviewing: bool) -> Option<Bindi
             Key::Character("d") => Some(Binding::Custom(Message::SelectNextMatch)),
             Key::Character("k" | "K") if press.modifiers.shift() => {
                 Some(Binding::Custom(Message::DeleteLines))
+            }
+            Key::Character("x" | "X") if press.modifiers.shift() => {
+                Some(Binding::Custom(Message::ToggleTasks))
             }
             _ => Binding::from_key_press(press),
         };
@@ -1117,6 +1120,29 @@ impl Pane {
         let (first, last) = selected_lines(text, caret, anchor);
         self.lines_free(first, last)?;
         let edits = toggle_comments(text, first..=last, marker);
+        let edits: Vec<_> = edits
+            .iter()
+            .map(|(range, with)| (range.clone(), with.as_str()))
+            .collect();
+        let changes = self.model.replace_each(&edits);
+        if !self.replay(&changes) {
+            return Ok(false);
+        }
+        self.follow(&changes, caret, cursor.selection.map(|_| anchor), false);
+        Ok(true)
+    }
+
+    /// Ctrl+Shift+X in a Markdown file: ticks or unticks the task boxes on the caret's line, or
+    /// every line the selection is on, or gives them boxes (see `markdown::toggle_tasks`), as one
+    /// undo step. Lines with a suggestion on them are refused. Returns whether the text changed,
+    /// or why it can't.
+    pub fn toggle_tasks(&mut self) -> Result<bool, String> {
+        let cursor = self.content.cursor();
+        let (caret, anchor) = self.caret_and_anchor();
+        let text = self.model.text();
+        let (first, last) = selected_lines(text, caret, anchor);
+        self.lines_free(first, last)?;
+        let edits = toggle_tasks(text, first..=last);
         let edits: Vec<_> = edits
             .iter()
             .map(|(range, with)| (range.clone(), with.as_str()))
@@ -2450,5 +2476,33 @@ mod tests {
         assert_eq!(pane.toggle_comment("#"), Ok(true));
         assert_eq!(pane.content.text(), "x\n# y");
         assert_eq!(pane.content.cursor(), cursor_at(1, 3));
+    }
+
+    #[test]
+    fn ctrl_shift_x_ticks_the_selected_lines_tasks_and_keeps_them_selected() {
+        let mut pane = Pane::new("- [ ] a\n- [ ] b\nc");
+        pane.select(6..17);
+        assert_eq!(pane.toggle_tasks(), Ok(true));
+        assert_eq!(
+            pane.content.text(),
+            "- [ ] a\n- [ ] b\n- [ ] c",
+            "c gets a box first"
+        );
+        assert_eq!(pane.selection(), Some(6..23), "still from `a` to `c`");
+        assert_eq!(pane.toggle_tasks(), Ok(true));
+        assert_eq!(pane.content.text(), "- [x] a\n- [x] b\n- [x] c");
+        assert_eq!(pane.selection(), Some(6..23));
+        pane.undo();
+        assert_eq!(
+            pane.content.text(),
+            "- [ ] a\n- [ ] b\n- [ ] c",
+            "one undo step"
+        );
+        // With only the caret, its line; the caret stays on its text.
+        let mut pane = Pane::new("- [ ] a");
+        pane.content.move_to(cursor_at(0, 7));
+        assert_eq!(pane.toggle_tasks(), Ok(true));
+        assert_eq!(pane.content.text(), "- [x] a");
+        assert_eq!(pane.content.cursor(), cursor_at(0, 7));
     }
 }

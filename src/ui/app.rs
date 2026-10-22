@@ -142,6 +142,9 @@ pub enum Message {
     /// Ctrl+/ in the editor: in a script or config file, comment out the lines or uncomment them
     /// (`Pane::toggle_comment`).
     ToggleComment,
+    /// Ctrl+Shift+X in the editor: in a Markdown file, tick the lines' task boxes, untick them,
+    /// or give the lines boxes (`Pane::toggle_tasks`).
+    ToggleTasks,
     Undo,
     Redo,
     /// Ctrl+X or Ctrl+C while reviewing: copy the selected text, without the suggestions, and
@@ -419,7 +422,8 @@ impl App {
             | Message::DeleteLines
             | Message::SelectNextMatch
             | Message::ToggleMarker(_)
-            | Message::ToggleComment => {
+            | Message::ToggleComment
+            | Message::ToggleTasks => {
                 if !self.editable() {
                     return Task::none();
                 }
@@ -456,12 +460,13 @@ impl App {
                     Message::DeleteLines => self.pane.delete_lines(),
                     Message::SelectNextMatch => self.pane.select_next_match(),
                     Message::ToggleMarker(marker) if markdown => self.pane.toggle_marker(marker),
+                    Message::ToggleTasks if markdown => self.pane.toggle_tasks(),
                     Message::ToggleComment => match syntax.comment_marker() {
                         Some(marker) => self.pane.toggle_comment(marker),
                         None => Ok(false),
                     },
-                    // Ctrl+B and Ctrl+I outside Markdown do nothing, and the arm's pattern lets
-                    // no other message in.
+                    // Ctrl+B, Ctrl+I and Ctrl+Shift+X outside Markdown do nothing, and the arm's
+                    // pattern lets no other message in.
                     _ => Ok(false),
                 };
                 self.after_edit(edited);
