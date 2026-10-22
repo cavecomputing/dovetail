@@ -1,15 +1,30 @@
-# Builds, tests and lints the app on Linux, macOS and Windows on every push, so a change that only
-# breaks another OS shows up here instead of on that machine. These are the same three commands
-# CLAUDE.md asks for before every commit; warnings fail the run.
+# Builds, tests and lints the app. These are the same three commands CLAUDE.md asks for before
+# every commit; warnings fail the run.
+#
+# A push or pull request checks Linux only, the primary platform, to keep runs quick. macOS and
+# Windows are checked before every release (release.yml runs this workflow first, and a failure
+# stops the release), and on demand from the Actions tab ("Run workflow"), which runs all three.
 name: CI
 
 on:
   push:
+    # Tags are left to release.yml, which runs this workflow itself on every OS.
+    branches: ['**']
+    # Changes to docs alone (README, CLAUDE.md, docs/, the licence) can't break the build.
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE']
   pull_request:
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE']
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
+
+# A newer push to the same branch cancels the run still going for the older one (a manual run is
+# grouped apart, so a push doesn't cancel it).
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -20,7 +35,9 @@ jobs:
       # Let every OS finish, so one failure doesn't hide another.
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # Linux alone for a branch push or pull request; every OS for a release tag (through
+        # release.yml) or a manual run.
+        os: ${{ fromJSON((github.event_name == 'pull_request' || (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/'))) && '["ubuntu-latest"]' || '["ubuntu-latest", "macos-latest", "windows-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
