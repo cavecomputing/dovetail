@@ -247,7 +247,7 @@ fn key_binding(press: KeyPress, editable: bool, reviewing: bool) -> Option<Bindi
 
 /// Whether a key press is Ctrl+Enter, or Ctrl+Backspace with or without Shift, which accept and
 /// reject suggestions while any wait. Text boxes leave them to `App`'s shortcuts then.
-/// Ctrl+Shift+Enter isn't one: it ticks Markdown task boxes (Matt dropped accepting them all).
+/// Ctrl+Shift+Enter isn't one: it ticks Markdown task boxes (accepting them all by key was dropped).
 pub fn decides(press: &KeyPress) -> bool {
     press.modifiers.command()
         && match press.key.as_ref() {
@@ -257,7 +257,7 @@ pub fn decides(press: &KeyPress) -> bool {
         }
 }
 
-/// What to do with suggested edits: accept every one together (Matt, 2026-10-22: never one at a
+/// What to do with suggested edits: accept every one together (2026-10-22: never one at a
 /// time, since Ctrl+Z takes them back), or reject one (by id; `None` is the current one, see
 /// `Pane::current_suggestion`) or all of them.
 #[derive(Debug, Clone, Copy, PartialEq)]

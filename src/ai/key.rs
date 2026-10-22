@@ -3,7 +3,7 @@
 //! running, and always on macOS, it goes in settings.toml instead, which is readable by its owner
 //! only; the Settings window says which.
 //!
-//! macOS has a keyring, the Keychain, but it isn't used (Matt, 2026-10-22, issue #16). A Keychain
+//! macOS has a keyring, the Keychain, but it isn't used (2026-10-22, issue #16). A Keychain
 //! item remembers which app may read it by the app's code signature, and ours is ad hoc (no Apple
 //! account), which changes with every build, so each rebuild or reinstall looked like a new app
 //! and the Keychain asked for the login password again, on every launch and on opening Settings.
