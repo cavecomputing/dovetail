@@ -4,7 +4,7 @@ How the editor holds text, undo and paint, and how paint is drawn. Phases are th
 [spec.md](spec.md) section 13. Line numbers below point into the crate sources in
 `~/.cargo/registry/src/*/` and were checked against iced 0.14.
 
-> **On `main` (Matt, 2026-10-18):** idea paint is on the `rewrite` branch with the rest of project
+> **On `main` (2026-10-18):** idea paint is on the `rewrite` branch with the rest of project
 > mode: `project/paint.rs`, paint in `TextModel` and its undo steps, the brush, paint kept through
 > cut and paste, gutter stripes and the Rewrite clear. `main` keeps phase 2, the copied widget
 > (phase 3's drawing) for find matches and phase 5's review mode, without idea colours or the
@@ -304,7 +304,7 @@ It works in any editable pane: scratch, a `.txt` and a project's draft.
 - Drawing: `PaintLook::Removed` (a see-through Gruvbox red and a line through) and
   `PaintLook::Added` (a see-through green) are drawn in the paint pass; the highlighter
   (`Colouring`, now always on) keeps both in plain `fg`, so syntax colours never sit on the red or
-  green. Matt asked for red and green (2026-10-19); it is the app's only red.
+  green. Red and green were asked for (2026-10-19); it is the app's only red.
   In a project the paragraph also gets a dashed "pending" gutter stripe.
 
 ## Not built

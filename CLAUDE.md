@@ -2,8 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-The app is **Dovetail**, a native desktop text editor written in Rust. Linux (Matt's
-Omarchy/Hyprland machines) comes first, and it also builds and runs on macOS and Windows: a change
+The app is **Dovetail**, a native desktop text editor written in Rust. Linux (tiling
+Wayland setups like Hyprland) comes first, and it also builds and runs on macOS and Windows: a change
 for one OS must leave the others working, Linux above all. On `main` it is a fast, minimal
 plain-text editor and scratchpad, with an assistant pane that reads the text and suggests edits.
 The full design is in [docs/spec.md](docs/spec.md); read the section you are building before you
@@ -12,15 +12,14 @@ start.
 Project mode (Rewrite, ideas, paint, versions) lives on the `rewrite` branch, and project work
 happens there.
 
-The owner, Matt, is new to Rust. When you report back, explain Rust-specific things in plain words
-(what a crate is, why the borrow checker complained, what a command does) rather than assuming he
-knows them. [Rust in plain terms](#rust-in-plain-terms) below is the shared vocabulary.
+The owner is new to Rust. When you report back, explain Rust-specific things in plain words
+(what a crate is, why the borrow checker complained, what a command does) rather than assuming
+they are known. [Rust in plain terms](#rust-in-plain-terms) below is the shared vocabulary.
 
 ## Git workflow
 
-Matt has given standing permission to **commit and push to `main` as needed**, without asking. This
-is the opposite of Cozy's rule, on purpose: there are no outside users yet, and Matt wants the work
-to land where he can see it.
+The owner has given standing permission to **commit and push to `main` as needed**, without
+asking. There are no outside users yet, and the owner wants the work to land where it can be seen.
 
 - Commit when a piece of work is finished and verified (see [Verification](#how-much-verification-a-change-needs)),
   then `git push`. Don't leave finished work sitting only in the working tree.
@@ -157,8 +156,8 @@ name from `brand.rs` through `<bin> --print-brand`:
 
 ### Releases
 
-Versions follow semantic versioning (`1.2.3`). Only Matt decides when to release, so never bump the
-version, push a tag or create a release unless he asks. A release is: set `version` in
+Versions follow semantic versioning (`1.2.3`). Only the owner decides when to release, so never bump the
+version, push a tag or create a release unless the owner asks. A release is: set `version` in
 `Cargo.toml`, commit, then `git tag v1.2.3 && git push origin v1.2.3` on that commit. The tag runs
 [release.yml](.github/workflows/release.yml), which refuses a tag that doesn't match `Cargo.toml`
 and posts the Linux and Windows builds on a GitHub Release (Macs install with
@@ -187,7 +186,7 @@ and posts the Linux and Windows builds on a GitHub Release (Macs install with
 - Anything visual (layout, colours, the status bar, panes): run the app and look. In a headless
   container: `xvfb-run -a -s "-screen 0 1280x800x24" env ICED_BACKEND=tiny-skia cargo run`, then
   screenshot with `import -window root shot.png` (ImageMagick). Compare against the mockups
-  (linked from the spec). Never claim a change was checked in the app when it wasn't.
+  (on the `rewrite` branch, see the spec). Never claim a change was checked in the app when it wasn't.
 
 ## Architecture
 
@@ -210,7 +209,7 @@ drawing and event wiring.
 
 ```
 .github/workflows/ci.yml build, test, clippy and fmt on Linux, macOS and Windows for every push
-.github/workflows/release.yml  on a version tag Matt pushes: builds Linux and Windows, posts a Release
+.github/workflows/release.yml  on a version tag the owner pushes: builds Linux and Windows, posts a Release
 Cargo.toml, Cargo.lock   dependencies (see "Rust in plain terms")
 build.rs                 runs before the build: puts the icon inside the Windows .exe
 .cargo/config.toml       build flags: the Windows .exe carries its own C runtime (crt-static)
@@ -331,12 +330,12 @@ files (`pub mod save;`); keep that list current. Tests sit at the bottom of the 
 - **Colours come from roles, not hex.** `ui/theme.rs` maps the cavecomputing Gruvbox tokens
   ([docs/design-tokens.json](docs/design-tokens.json)) to roles: `bg-surface` window, `bg-page`
   status bar, `bg-raised` cards and chips, `fg`/`fg-muted` text, `accent-text` (yellow) for focus
-  and active, aqua for success, `accent-warm` (orange) for warnings. **No red**, except the see-through red behind text a suggested edit takes out (Matt asked
-  for red and green there). Every status
+  and active, aqua for success, `accent-warm` (orange) for warnings. **No red**, except the see-through red behind text a suggested edit takes out (red and
+  green were asked for there). Every status
   also carries a word, not colour alone.
 - **One font**: JetBrains Mono Nerd Font, in its **NL** (no ligatures) Mono build (bundled in
   [assets/fonts/](assets/fonts/), OFL licensed). The ligature build merged pairs like `</` into one
-  glyph, which Matt found cramped and not monospace-feeling, so never switch back to it. It is used
+  glyph, which read as cramped and not monospace-feeling, so never switch back to it. It is used
   in the UI and the editor. Nerd Font glyphs are the in-app icons; the only image is the app icon in
   [assets/icon/](assets/icon/).
 - **No branding in the UI**: no logo, no app name in the window.

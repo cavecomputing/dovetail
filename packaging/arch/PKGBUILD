@@ -1,4 +1,4 @@
-# Maintainer: Matt <matt@cavecomputing.io>
+# Maintainer: cavecomputing
 #
 # Builds the latest main from GitHub: cd here, then `makepkg -si`. Installed files, the .desktop
 # entry included, take their names from the binary (`--print-brand`), as scripts/install.sh does.

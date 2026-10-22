@@ -132,7 +132,7 @@ list or a quote, Tab nests a list item, and Ctrl+B and Ctrl+I put in bold and it
 [Keys](#keys)). `.txt` files stay plain, and so does scratch unless `scratch_syntax` in Settings
 is set to `markdown`.
 
-**JSON** files (`.json`), such as Cozy exports, open the same way and are coloured as you type:
+**JSON** files (`.json`) open the same way and are coloured as you type:
 keys in blue, strings in green, numbers in yellow, and `true`, `false` and `null` in orange. Tags
 and `{{macros}}` inside strings are still coloured. A moment after you stop typing, the file is
 checked: if it isn't valid JSON, the status bar says where and why, such as `Invalid JSON at line
