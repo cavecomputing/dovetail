@@ -377,7 +377,7 @@ const SHORTCUTS: [(&str, &[Shortcut]); 5] = [
             ),
             ("Ctrl+B / Ctrl+I", "", "bold or italic, in Markdown"),
             (
-                "Ctrl+Shift+X",
+                "Ctrl+Shift+Enter",
                 "",
                 "tick the lines' task boxes, in Markdown",
             ),
