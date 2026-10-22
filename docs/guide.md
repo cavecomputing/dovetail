@@ -129,8 +129,8 @@ a name exactly as you type it, whatever its extension (`test.sh` stays `test.sh`
 as you type: headings, list markers and task boxes, quotes, code, bold, italic, struck text and
 links. Nothing is rendered: the text stays exactly as typed, markers and all. Enter continues a
 list or a quote, Tab nests a list item, and Ctrl+B and Ctrl+I put in bold and italic markers (see
-[Keys](#keys)). `.txt` files stay plain, and so does scratch unless `scratch_syntax` in Settings
-is set to `markdown`.
+[Keys](#keys)). `.txt` files stay plain. Scratch follows Markdown's rules too, unless `scratch_syntax` in
+Settings is set to `plain`.
 
 **JSON** files (`.json`) open the same way and are coloured as you type:
 keys in blue, strings in green, numbers in yellow, and `true`, `false` and `null` in orange. Tags
@@ -345,7 +345,7 @@ Changes apply at once and are saved to `settings.toml`, whose path the status ba
 | Section | Settings, by key (default) |
 |---|---|
 | appearance | `theme`: dark (default), light or system. `font_size` (14). `reading_mode`: full width (default) or comfort, which caps lines at 80 characters (adjustable) |
-| editor | `tab_spaces`: Tab inserts 4 spaces (YAML files use their own step, 2 if new). `word_wrap` (on). `line_numbers` left of the text (off; Ctrl+Shift+L). `colour_markup`: colour for XML tags and `{{macros}}` (on). `scratch_syntax`: `plain` or `markdown`, the rules scratch follows (plain). `show_line_col`: line and column in the status bar (off) |
+| editor | `tab_spaces`: Tab inserts 4 spaces (YAML files use their own step, 2 if new). `word_wrap` (on). `line_numbers` left of the text (off; Ctrl+Shift+L). `colour_markup`: colour for XML tags and `{{macros}}` (on). `scratch_syntax`: `markdown` or `plain`, the rules scratch follows (markdown). `show_line_col`: line and column in the status bar (off) |
 | saving | `autosave_delay_ms`: pause in typing before an autosave (500) |
 | assistant | `base_url` (`https://api.openai.com/v1`). `model` (none: the pane asks for one). `request_format` (responses). `api_key` (none; kept in the system keyring when there is one, see above). Test connection |
 | window | `window_controls`, the minimise, maximise and close buttons: auto (default) hides them under a tiling window manager (Hyprland, Sway, i3, niri, river) and shows them elsewhere; or show, or hide. Not on macOS, which keeps its own |
