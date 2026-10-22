@@ -28,9 +28,8 @@ libc = "0.2"
 signal-hook = "0.3"
 
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
-# Hear files dropped on the window under Wayland, which winit leaves out (both already in the build).
-wayland-client = "0.31"
-wayland-backend = { version = "0.3", features = ["client_system"] }
+# Hears files dropped on the window under Wayland, through our patched copy (iced already uses it).
+smithay-clipboard = "0.7.3"
 
 [target.'cfg(windows)'.dependencies]
 # The hidden window that hears WM_ENDSESSION, so the app saves before logout ends it (winit uses it).
@@ -49,3 +48,8 @@ winresource = { version = "0.1.34", default-features = false }
 tempfile = "3.27.0"
 # A tiny local HTTP server in the assistant client's tests; the app already runs on tokio via iced.
 tokio = { version = "1", features = ["macros", "rt", "net", "io-util"] }
+
+# The Wayland clipboard with drops added: Hyprland tells only its data device about a drag (see
+# vendor/smithay-clipboard/README.md).
+[patch.crates-io]
+smithay-clipboard = { path = "vendor/smithay-clipboard" }

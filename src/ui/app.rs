@@ -568,10 +568,10 @@ impl App {
                 #[cfg(target_os = "macos")]
                 window_controls::quit_closes_window();
                 let focus = iced::widget::operation::focus(editor::EDITOR_ID);
-                // Under Wayland, files dropped on the window come from a listener of our own.
+                // Under Wayland, files dropped on the window come through the clipboard crate.
                 // Elsewhere winit hears them (`shortcut`).
                 #[cfg(all(unix, not(target_os = "macos")))]
-                let focus = Task::batch([focus, wayland_drop::listen(self.main_window)]);
+                let focus = Task::batch([focus, wayland_drop::listen()]);
                 if self.scroll_restored {
                     return focus;
                 }
