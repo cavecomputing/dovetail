@@ -220,6 +220,9 @@ assets/icon/             the app icon: SVGs for Linux, icon.icns for macOS, icon
 docs/                    spec.md (the design), design-tokens.json (the Gruvbox palette)
 packaging/arch/          PKGBUILD for a pacman package (dovetail-git) built from GitHub, and its
                          install message (how to make the app the default, with xdg-mime)
+vendor/smithay-clipboard/  the Wayland clipboard iced uses, patched to hear drops too (Hyprland
+                         tells only an app's first data device, the clipboard's, about a drag);
+                         its README says what changed and how to update it
 scripts/                 per-OS installers: install.sh (Linux: binary, icon, .desktop file),
                          install-macos.sh (an app bundle in ~/Applications), install-windows.ps1
                          (Start Menu and Open with entries)
@@ -282,8 +285,9 @@ src/
     find_bar.rs          the Ctrl+F find bar: its matches, stepping through them, how they're lit
     file_actions.rs      App's handlers for opening a document in the window's place (Ctrl+O,
                          Ctrl+P, Ctrl+0), New file (Ctrl+N), Save (Ctrl+S) and Save as
-    wayland_drop.rs      files dropped on the window under Wayland, which winit doesn't hear (X11,
-                         macOS and Windows drops come through iced's FileDropped)
+    wayland_drop.rs      files dropped on the window under Wayland, which winit doesn't hear: they
+                         come from our patched clipboard crate (X11, macOS and Windows drops come
+                         through iced's FileDropped)
     window_controls.rs   the top strip's window controls and the resize edges; on macOS, Quit
                          pointed at closing the window
     settings_panel.rs    the Settings panel over the text (Ctrl+,), laid out like settings.toml,
