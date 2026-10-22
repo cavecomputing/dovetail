@@ -64,7 +64,7 @@ fn dropped_files(handles: Handles) -> impl Stream<Item = PathBuf> {
     files
 }
 
-/// Listens for drops until the app ends, or until the connection fails.
+/// Listens for drops until the connection fails, which is how the app ending reaches this thread.
 fn hear_drops(handles: Handles, sender: UnboundedSender<PathBuf>) -> Option<()> {
     // Safety: winit's display and surface live as long as the window, which is as long as the app.
     let backend = unsafe { Backend::from_foreign_display(handles.display as *mut _) };
@@ -81,9 +81,13 @@ fn hear_drops(handles: Handles, sender: UnboundedSender<PathBuf>) -> Option<()> 
         connection,
         offer: None,
     };
-    loop {
-        queue.blocking_dispatch(&mut drops).ok()?;
-    }
+    while queue.blocking_dispatch(&mut drops).is_ok() {}
+    // The dispatch fails when the window closes: winit disconnects the display this thread
+    // shares while the main thread is still on its way out. Dropping what's above would then
+    // destroy our proxies and queue on that gone display, which crashed the exit (a segfault in
+    // libwayland's object table). So nothing is released here; the process ending frees it all.
+    std::mem::forget((queue, drops, globals, manager, seat));
+    Some(())
 }
 
 struct Drops {
