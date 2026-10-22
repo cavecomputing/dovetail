@@ -18,8 +18,8 @@ they are known. [Rust in plain terms](#rust-in-plain-terms) below is the shared 
 
 ## Git workflow
 
-The owner has given standing permission to **commit and push to `main` as needed**, without asking. There are no outside users yet, and the owner wants the work
-to land where it can be seen.
+The owner has given standing permission to **commit and push to `main` as needed**, without
+asking. There are no outside users yet, and the owner wants the work to land where it can be seen.
 
 - Commit when a piece of work is finished and verified (see [Verification](#how-much-verification-a-change-needs)),
   then `git push`. Don't leave finished work sitting only in the working tree.
@@ -186,7 +186,7 @@ and posts the Linux and Windows builds on a GitHub Release (Macs install with
 - Anything visual (layout, colours, the status bar, panes): run the app and look. In a headless
   container: `xvfb-run -a -s "-screen 0 1280x800x24" env ICED_BACKEND=tiny-skia cargo run`, then
   screenshot with `import -window root shot.png` (ImageMagick). Compare against the mockups
-  (linked from the spec). Never claim a change was checked in the app when it wasn't.
+  (on the `rewrite` branch, see the spec). Never claim a change was checked in the app when it wasn't.
 
 ## Architecture
 
