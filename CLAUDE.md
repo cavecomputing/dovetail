@@ -29,6 +29,10 @@ asking. There are no outside users yet, and the owner wants the work to land whe
 - Say in the message what broke and why the fix works, not just what you typed.
 - Never commit a red build. `cargo build`, `cargo test` and `cargo clippy` must all pass first.
 - Only include files that belong to the task.
+- **Nothing personal in the repo.** It is public, so tracked files hold no personal names, emails,
+  machine or host names, home paths, private links (claude.ai artifacts and the like) or personal
+  notes and prompts. A design decision keeps its date, not who made it: `(2026-10-18)`, not
+  `(Name, 2026-10-18)`. The `cavecomputing` name in the licence and URLs is fine.
 
 [AGENTS.md](AGENTS.md) is a short pointer to this file, not a copy. Edit this file directly.
 
