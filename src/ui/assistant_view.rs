@@ -346,7 +346,8 @@ fn composer(app: &App) -> Element<'_, Message> {
 }
 
 /// Enter sends and Shift+Enter starts a new line. While suggestions wait (`reviewing`), Ctrl+Enter
-/// and Ctrl+Backspace are left to the app, which accepts and rejects with them.
+/// and Ctrl+Backspace are left to the app, which accepts and rejects with them (see
+/// `editor::decides`).
 fn composer_keys(press: KeyPress, reviewing: bool) -> Option<Binding<Message>> {
     if reviewing && editor::decides(&press) {
         return None;

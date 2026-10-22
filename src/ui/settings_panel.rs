@@ -398,7 +398,6 @@ const SHORTCUTS: [(&str, &[Shortcut]); 5] = [
                 "accept the suggestion at the caret, or else the first",
             ),
             ("Ctrl+Backspace", "", "reject it"),
-            ("Ctrl+Shift+Enter", "", "accept every suggestion"),
             ("Ctrl+Shift+Backspace", "", "reject every suggestion"),
         ],
     ),

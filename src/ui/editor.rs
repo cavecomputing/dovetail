@@ -220,8 +220,6 @@ fn key_binding(press: KeyPress, editable: bool, reviewing: bool) -> Option<Bindi
             Key::Character("k" | "K") if press.modifiers.shift() => {
                 Some(Binding::Custom(Message::DeleteLines))
             }
-            // Only reached while no suggestion waits; then Ctrl+Shift+Enter accepts them all
-            // (see `decides` above).
             Key::Named(Named::Enter) if press.modifiers.shift() => {
                 Some(Binding::Custom(Message::ToggleTasks))
             }
@@ -247,14 +245,16 @@ fn key_binding(press: KeyPress, editable: bool, reviewing: bool) -> Option<Bindi
     }
 }
 
-/// Whether a key press is Ctrl+Enter or Ctrl+Backspace (with or without Shift), which accept and
+/// Whether a key press is Ctrl+Enter, or Ctrl+Backspace with or without Shift, which accept and
 /// reject suggestions while any wait. Text boxes leave them to `App`'s shortcuts then.
+/// Ctrl+Shift+Enter isn't one: it ticks Markdown task boxes (accepting them all by key was dropped).
 pub fn decides(press: &KeyPress) -> bool {
     press.modifiers.command()
-        && matches!(
-            press.key.as_ref(),
-            Key::Named(Named::Enter | Named::Backspace)
-        )
+        && match press.key.as_ref() {
+            Key::Named(Named::Enter) => !press.modifiers.shift(),
+            Key::Named(Named::Backspace) => true,
+            _ => false,
+        }
 }
 
 /// What to do with suggested edits: accept or reject one (by id; `None` is the current one, see
@@ -1473,13 +1473,19 @@ mod tests {
             text: None,
             status: Status::Focused { is_hovered: false },
         };
-        for key in [Named::Enter, Named::Backspace] {
-            for modifiers in [Modifiers::COMMAND, Modifiers::COMMAND | Modifiers::SHIFT] {
-                assert!(decides(&press(key, modifiers)));
-                assert!(key_binding(press(key, modifiers), true, true).is_none());
-            }
+        for (key, modifiers) in [
+            (Named::Enter, Modifiers::COMMAND),
+            (Named::Backspace, Modifiers::COMMAND),
+            (Named::Backspace, Modifiers::COMMAND | Modifiers::SHIFT),
+        ] {
+            assert!(decides(&press(key, modifiers)));
+            assert!(key_binding(press(key, modifiers), true, true).is_none());
         }
         assert!(!decides(&press(Named::Enter, Modifiers::empty())));
+        assert!(!decides(&press(
+            Named::Enter,
+            Modifiers::COMMAND | Modifiers::SHIFT
+        )));
         // Not reviewing, Ctrl+Backspace still deletes a word.
         assert!(key_binding(press(Named::Backspace, Modifiers::COMMAND), true, false).is_some());
     }
@@ -1496,6 +1502,15 @@ mod tests {
         // Accepting puts the caret after the new text.
         assert!(pane.decide(Decision::AcceptAll));
         assert_eq!(pane.content.cursor().position, cursor_at(0, 15).position);
+    }
+
+    #[test]
+    fn ctrl_z_takes_back_one_accepted_suggestion() {
+        let (mut pane, first, _) = reviewing_pane();
+        assert!(pane.decide(Decision::Accept(Some(first))));
+        assert_eq!(pane.model.text(), "Take your time. Stay calm.");
+        assert!(pane.undo());
+        assert_eq!(pane.model.text(), "Be quick. Stay calm.");
     }
 
     #[test]
@@ -1702,7 +1717,7 @@ mod tests {
     }
 
     #[test]
-    fn ctrl_shift_enter_ticks_tasks_unless_suggestions_wait() {
+    fn ctrl_shift_enter_ticks_tasks_even_while_suggestions_wait() {
         let press = KeyPress {
             key: Key::Named(Named::Enter),
             modified_key: Key::Named(Named::Enter),
@@ -1711,12 +1726,12 @@ mod tests {
             text: None,
             status: Status::Focused { is_hovered: false },
         };
-        assert!(matches!(
-            key_binding(press.clone(), true, false),
-            Some(Binding::Custom(Message::ToggleTasks))
-        ));
-        // While suggestions wait it's theirs: accept every one.
-        assert!(key_binding(press, true, true).is_none());
+        for reviewing in [false, true] {
+            assert!(matches!(
+                key_binding(press.clone(), true, reviewing),
+                Some(Binding::Custom(Message::ToggleTasks))
+            ));
+        }
     }
 
     #[test]
