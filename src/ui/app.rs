@@ -1073,13 +1073,15 @@ fn shortcut(event: iced::Event, status: event::Status, _window: window::Id) -> O
         }
         _ => return None,
     };
-    // Ctrl+Enter and Ctrl+Backspace accept and reject the current suggested edit, and with Shift
-    // all of them. The editor and the message box leave these keys alone while any wait.
+    // Ctrl+Enter and Ctrl+Backspace accept and reject the current suggested edit, and
+    // Ctrl+Shift+Backspace rejects all of them. The editor and the message box leave these keys
+    // alone while any wait. Ctrl+Shift+Enter is the editor's (Markdown task boxes).
     if modifiers.command() && status == event::Status::Ignored {
         let all = modifiers.shift();
         let decision = match key.as_ref() {
-            keyboard::Key::Named(keyboard::key::Named::Enter) if all => Some(Decision::AcceptAll),
-            keyboard::Key::Named(keyboard::key::Named::Enter) => Some(Decision::Accept(None)),
+            keyboard::Key::Named(keyboard::key::Named::Enter) if !all => {
+                Some(Decision::Accept(None))
+            }
             keyboard::Key::Named(keyboard::key::Named::Backspace) if all => {
                 Some(Decision::RejectAll)
             }
