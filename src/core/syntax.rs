@@ -1,5 +1,5 @@
 //! Which kind of text a document is (plain, Markdown, JSON, YAML, TOML, INI or a shell script,
-//! by its file's extension or `#!` line), the colour tokens and string and indent scanning the
+//! by its file's name, extension or `#!` line), the colour tokens and string and indent scanning the
 //! colourers share, whether the text is valid, and commenting lines out with Ctrl+/.
 
 use std::ops::{Range, RangeInclusive};
@@ -18,22 +18,42 @@ pub enum Syntax {
     Json,
     Yaml,
     Toml,
+    /// A .ini, .cfg or .conf file, a `.desktop` file or a systemd unit, or one of git's,
+    /// EditorConfig's or npm's dotfiles, all `key = value` under `[sections]`.
     Ini,
-    /// A .sh or .bash file, or one with no extension whose `#!` line names sh or bash.
+    /// A .sh or .bash file, bash's own dotfiles or a PKGBUILD, or a file with no extension whose
+    /// `#!` line names sh or bash.
     Shell,
 }
 
 impl Syntax {
-    /// The syntax of the file at `path`, by its extension in any case, or for a file with no
-    /// extension by the `#!` line at the top of its `text`.
+    /// The syntax of the file at `path`: by its whole name for the config files that have no
+    /// telling extension (`.bashrc`, `PKGBUILD`, `.gitconfig`, ...), else by its extension in any
+    /// case, or for a file with no extension by the `#!` line at the top of its `text`.
     pub fn of(path: &Path, text: &str) -> Syntax {
+        let name = path.file_name().and_then(|name| name.to_str());
+        match name {
+            // bash's own files and sh's `.profile` and X session scripts. zsh's (`.zshrc`) are
+            // left plain: `bash -n` would call zsh-only syntax an error.
+            Some(
+                ".bashrc" | ".bash_profile" | ".bash_aliases" | ".bash_logout" | ".profile"
+                | ".xinitrc" | ".xprofile" | "PKGBUILD",
+            ) => return Syntax::Shell,
+            Some(".gitconfig" | ".gitmodules" | ".editorconfig" | ".npmrc" | ".env") => {
+                return Syntax::Ini;
+            }
+            _ => {}
+        }
         let extension = path.extension().and_then(|extension| extension.to_str());
         match extension.map(str::to_ascii_lowercase).as_deref() {
             Some("md" | "markdown") => Syntax::Markdown,
             Some("json") => Syntax::Json,
             Some("yaml" | "yml") => Syntax::Yaml,
             Some("toml") => Syntax::Toml,
-            Some("ini" | "cfg" | "conf") => Syntax::Ini,
+            // Desktop entries and systemd units are INI files too.
+            Some("ini" | "cfg" | "conf" | "desktop" | "service" | "timer" | "socket") => {
+                Syntax::Ini
+            }
             Some("sh" | "bash") => Syntax::Shell,
             None if is_shell_script(text) => Syntax::Shell,
             _ => Syntax::Plain,
@@ -180,6 +200,24 @@ mod tests {
         assert_eq!(syntax("toml"), Syntax::Plain);
         assert_eq!(syntax("deploy.sh"), Syntax::Shell);
         assert_eq!(syntax("init.BASH"), Syntax::Shell);
+        assert_eq!(syntax("app.desktop"), Syntax::Ini);
+        assert_eq!(syntax("backup.service"), Syntax::Ini);
+        assert_eq!(syntax("backup.timer"), Syntax::Ini);
+    }
+
+    #[test]
+    fn some_config_files_are_known_by_their_whole_name() {
+        let syntax = |name| Syntax::of(Path::new(name), "");
+        assert_eq!(syntax("/home/me/.bashrc"), Syntax::Shell);
+        assert_eq!(syntax(".bash_profile"), Syntax::Shell);
+        assert_eq!(syntax(".profile"), Syntax::Shell);
+        assert_eq!(syntax("aur/dovetail/PKGBUILD"), Syntax::Shell);
+        assert_eq!(syntax(".gitconfig"), Syntax::Ini);
+        assert_eq!(syntax(".editorconfig"), Syntax::Ini);
+        assert_eq!(syntax(".env"), Syntax::Ini);
+        assert_eq!(syntax(".zshrc"), Syntax::Plain, "bash -n can't check zsh");
+        assert_eq!(syntax(".bashrc.txt"), Syntax::Plain);
+        assert_eq!(syntax("pkgbuild"), Syntax::Plain, "the name is exact");
     }
 
     #[test]
