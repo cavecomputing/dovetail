@@ -257,13 +257,13 @@ pub fn decides(press: &KeyPress) -> bool {
         }
 }
 
-/// What to do with suggested edits: accept or reject one (by id; `None` is the current one, see
-/// `Pane::current_suggestion`), or all of them.
+/// What to do with suggested edits: accept every one together (2026-10-22: never one at a
+/// time, since Ctrl+Z takes them back), or reject one (by id; `None` is the current one, see
+/// `Pane::current_suggestion`) or all of them.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Decision {
-    Accept(Option<u64>),
-    Reject(Option<u64>),
     AcceptAll,
+    Reject(Option<u64>),
     RejectAll,
 }
 
@@ -325,7 +325,7 @@ impl Pane {
         let current = self.current_suggestion();
         let caret = self.caret();
         let chosen: Vec<Suggestion> = match decision {
-            Decision::Accept(id) | Decision::Reject(id) => id
+            Decision::Reject(id) => id
                 .or(current)
                 .and_then(|id| self.review.take(id))
                 .into_iter()
@@ -333,7 +333,7 @@ impl Pane {
             Decision::AcceptAll | Decision::RejectAll => self.review.take_all(),
         };
         let changes = match decision {
-            Decision::Accept(_) | Decision::AcceptAll => self.model.accept(&chosen),
+            Decision::AcceptAll => self.model.accept(&chosen),
             Decision::Reject(_) | Decision::RejectAll => Vec::new(),
         };
         let changed = self.replay(&changes);
@@ -1425,15 +1425,11 @@ mod tests {
     }
 
     #[test]
-    fn accept_is_one_undo_step_and_reject_drops_the_suggestion() {
-        let (mut pane, first, second) = reviewing_pane();
-        assert!(pane.decide(Decision::Accept(Some(first))));
-        assert_eq!(pane.model.text(), "Take your time. Stay calm.");
-        assert_eq!(pane.content.text(), "Take your time. Stay calmsteady.");
-        // The other suggestion moved along.
-        assert_eq!(pane.suggestions()[0].range, 21..25);
-
+    fn reject_drops_one_suggestion_and_accept_takes_the_rest_as_one_undo_step() {
+        let (mut pane, _, second) = reviewing_pane();
         assert!(!pane.decide(Decision::Reject(Some(second))));
+        assert_eq!(pane.content.text(), "Be quick.Take your time. Stay calm.");
+        assert!(pane.decide(Decision::AcceptAll));
         assert!(!pane.reviewing());
         assert_eq!(pane.content.text(), "Take your time. Stay calm.");
         // Typing works again, and one undo takes the accepted text back out.
@@ -1450,17 +1446,18 @@ mod tests {
         // In " Stay", away from both suggestions, the first one is current.
         pane.put_caret(11);
         assert_eq!(pane.current_suggestion(), Some(first));
-        // On "calm", that one is: accepting with no id takes it.
+        // On "calm", that one is: rejecting with no id takes it.
         pane.put_caret(16);
         assert_eq!(pane.current_suggestion(), Some(second));
-        assert!(pane.decide(Decision::Accept(None)));
-        assert_eq!(pane.model.text(), "Be quick. Stay steady.");
+        assert!(!pane.decide(Decision::Reject(None)));
+        assert_eq!(pane.suggestions().len(), 1);
+        assert_eq!(pane.current_suggestion(), Some(first));
         // Rejecting with no id, the caret anywhere, takes the one left.
-        pane.put_caret(20);
+        pane.put_caret(5);
         assert!(!pane.decide(Decision::Reject(None)));
         assert!(!pane.reviewing());
         assert_eq!(pane.current_suggestion(), None);
-        assert_eq!(pane.content.text(), "Be quick. Stay steady.");
+        assert_eq!(pane.content.text(), "Be quick. Stay calm.");
     }
 
     #[test]
@@ -1502,15 +1499,6 @@ mod tests {
         // Accepting puts the caret after the new text.
         assert!(pane.decide(Decision::AcceptAll));
         assert_eq!(pane.content.cursor().position, cursor_at(0, 15).position);
-    }
-
-    #[test]
-    fn ctrl_z_takes_back_one_accepted_suggestion() {
-        let (mut pane, first, _) = reviewing_pane();
-        assert!(pane.decide(Decision::Accept(Some(first))));
-        assert_eq!(pane.model.text(), "Take your time. Stay calm.");
-        assert!(pane.undo());
-        assert_eq!(pane.model.text(), "Be quick. Stay calm.");
     }
 
     #[test]
