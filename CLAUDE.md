@@ -102,7 +102,7 @@ Renaming existing code is its own task. Don't fold a rename into an unrelated ch
   macOS, `#[cfg(windows)]` is Windows, `#[cfg(target_os = "macos")]` is one OS. `cfg!(...)` is the
   same test as a plain true or false inside a function, where both branches still have to compile.
   Code behind a cfg for another OS isn't even compiled on this one, which is why CI builds on all
-  three.
+  three (before a release, or when run by hand).
 - **Target**: the OS and processor a build is for, such as `x86_64-pc-windows-gnu`. Cargo builds
   for the machine it runs on unless given `--target`; `rustup target add <target>` downloads the
   standard library another target needs.
@@ -166,9 +166,14 @@ and posts the Linux and Windows builds on a GitHub Release (Macs install with
 ### How much verification a change needs
 
 - Every change: `cargo build`, `cargo test` and `cargo clippy --all-targets` with no warnings.
-  CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs the same three on Linux, macOS and
-  Windows, plus `cargo fmt --check`, on every push. After pushing, check that run (the Actions tab
-  on GitHub, or `gh run list`): a red OS is a red build, so fix it before moving on.
+  CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs the same three on Linux, plus
+  `cargo fmt --check`, on every push that changes more than docs (Markdown, `docs/`, the licence);
+  a newer push cancels the older run. After pushing, check that run (the Actions tab on GitHub, or
+  `gh run list`): red is a red build, so fix it before moving on.
+- macOS and Windows are checked only before a release (release.yml runs the same CI on all three
+  first, and a failure stops the release) or by hand: Actions tab, CI, "Run workflow". Run it by
+  hand after a change with OS-specific code (a `cfg`, a path, a key binding), so a break shows up
+  next to the commit that caused it rather than at tag time.
 - Code that only one OS needs goes behind `#[cfg(unix)]`, `#[cfg(windows)]` or
   `#[cfg(target_os = "...")]` (or `cfg!(...)` inside a function), with a comment saying what the
   other OSes do, even when that is nothing. A test that uses one OS's API gets the same cfg.
@@ -179,7 +184,7 @@ and posts the Linux and Windows builds on a GitHub Release (Macs install with
   else installed, at `target/x86_64-pc-windows-gnu/release/<bin name>.exe`. With wine installed,
   `CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUNNER=wine cargo test --target x86_64-pc-windows-gnu` runs
   the tests too. Only CI builds and tests macOS, so write macOS-only code against the crate sources
-  and treat its first CI run as its first real test.
+  and treat its first full CI run (run by hand) as its first real test.
 - Logic (saving, counting, undo, finding, suggested edits, the assistant's tools): unit tests next
   to the code, in a `#[cfg(test)] mod tests` block at the bottom of the file. Keep that logic out of
   UI code so it can be tested without a window.
@@ -208,8 +213,9 @@ never import iced**, so all the logic can be tested without opening a window, an
 drawing and event wiring.
 
 ```
-.github/workflows/ci.yml build, test, clippy and fmt on Linux, macOS and Windows for every push
-.github/workflows/release.yml  on a version tag the owner pushes: builds Linux and Windows, posts a Release
+.github/workflows/ci.yml build, test, clippy and fmt: Linux on every push, all three OSes by hand
+.github/workflows/release.yml  on a version tag the owner pushes: runs CI on all three OSes, builds
+                         Linux and Windows, posts a Release
 Cargo.toml, Cargo.lock   dependencies (see "Rust in plain terms")
 build.rs                 runs before the build: puts the icon inside the Windows .exe
 .cargo/config.toml       build flags: the Windows .exe carries its own C runtime (crt-static)
