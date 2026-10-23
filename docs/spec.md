@@ -94,7 +94,23 @@ Rules:
 - What the token count is (an estimate, four bytes a token) and the encoding show on hover over it, not in the bar. Line and column are off by default and can be turned on.
 - The menu holds new file, open, open recent, save as (save to a file in scratch), find, replace, go to line, show or hide line numbers, settings and scratch, then the six most recent files last, so the commands stay put (2026-10-18; six, 2026-10-19). It is drawn like the `Ctrl+P` switcher (2026-10-19): lowercase words in the 13px mono size, shortcuts dimmed on the right, `# recent` over the files, no rounded rows. File-type tools (Format and Minify JSON) are in the `Ctrl+Shift+P` palette instead (2026-10-18). On the `rewrite` branch a project's menu adds version history and idea weights.
 
-## 7. Projects: the rewrite flow (`rewrite` branch)
+## 7. Split review: the first step of rewriting
+
+The `rewrite` branch below is set aside; its features come back one step at a time (2026-10-23).
+The first step is a split review, in any file or scratch: `Ctrl+R` (2026-10-23, so `Ctrl+Shift+S`
+stays Save as), the pen in the status bar beside the assistant toggle, or "rewrite" in the menu.
+
+- The window splits: the original on the left, read-only and dimmed, and an editable copy on the
+  right.
+- The copy autosaves to a draft file in the data folder (`drafts/`, named like the document's lock),
+  never to the original. `Ctrl+S` writes it over the original and the left side shows the result;
+  the split stays.
+- Ending the rewrite (`Ctrl+R` again, the pen, the menu) goes back to the original as last saved,
+  deletes the draft, and leaves the dropped changes one `Ctrl+Z` away (2026-10-23).
+- A draft left by a closed window, or a crash, brings the split back the next time its document
+  opens in a window that can edit it.
+
+## 7a. Projects: the rewrite flow (`rewrite` branch)
 
 1. In scratch or a `.txt`, paste or write the text, then click the **pen (Rewrite)**.
 2. The text **slides left and becomes v1**, read-only. A copy lands on the right as the **draft**.

@@ -36,6 +36,8 @@ use crate::ui::text_editor::{
 use crate::ui::theme::{CHAR_WIDTH_RATIO, Roles};
 
 pub const EDITOR_ID: &str = "doc";
+/// The original beside a rewrite's draft.
+pub const ORIGINAL_ID: &str = "original";
 /// Why an edit to the text a suggestion changes was refused.
 const IN_A_SUGGESTION: &str = "Accept or reject the suggestion there first";
 /// Why Ctrl+D was refused.
@@ -60,6 +62,7 @@ pub fn view<'a>(
     editable: bool,
     syntax: Syntax,
     paint: Vec<PaintRun>,
+    id: &'static str,
 ) -> Element<'a, Message> {
     let reviewing = pane.reviewing();
     let colouring = Colouring {
@@ -77,7 +80,7 @@ pub fn view<'a>(
         ..PADDING
     };
     let editor = TextEditor::new(&pane.content)
-        .id(EDITOR_ID)
+        .id(id)
         .key_binding(move |press| key_binding(press, editable, reviewing))
         .wrapping(if settings.word_wrap {
             Wrapping::WordOrGlyph

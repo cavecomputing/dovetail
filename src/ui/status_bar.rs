@@ -15,7 +15,7 @@ use crate::ui::assistant_actions::AssistantAction;
 use crate::ui::assistant_view::{LINE, SIZE, line, subtle};
 use crate::ui::find_bar::{FindAction, LINE_KEYS};
 use crate::ui::switcher::row_style;
-use crate::ui::theme::{self, GLYPH_CLAUDE, GLYPH_MENU, Roles, icon_button, raised_box};
+use crate::ui::theme::{self, GLYPH_CLAUDE, GLYPH_MENU, GLYPH_PEN, Roles, icon_button, raised_box};
 
 pub const HEIGHT: f32 = 24.0;
 const TEXT_SIZE: f32 = 11.0;
@@ -60,6 +60,9 @@ pub fn view(app: &App) -> Element<'_, Message> {
         1 => left = left.push(small("1 suggestion")),
         waiting => left = left.push(small(format!("{waiting} suggestions"))),
     }
+    if app.original.is_some() {
+        left = left.push(small(keys("Rewrite: Ctrl+S saves it over the original")));
+    }
     // The path comes last, so in a narrow window a long one is what gets cut.
     left = left.push(small(doc_label(&app.doc)));
 
@@ -84,6 +87,9 @@ pub fn view(app: &App) -> Element<'_, Message> {
         )));
     }
     right = right.push(space().width(16));
+    if app.editable() {
+        right = right.push(rewrite_toggle(app.original.is_some()));
+    }
     right = right.push(assistant_toggle(app.assistant.open));
 
     // The left end takes what room is left and is cut off, so the right end always fits.
@@ -176,6 +182,18 @@ fn assistant_toggle<'a>(open: bool) -> Element<'a, Message> {
     let words = match open {
         true => "Close the assistant (Ctrl+L)",
         false => "Assistant: chat about this text (Ctrl+L)",
+    };
+    hint(toggle, keys(words))
+}
+
+/// The pen: starts a rewrite, highlighted while one is under way.
+fn rewrite_toggle<'a>(rewriting: bool) -> Element<'a, Message> {
+    let toggle = glyph_toggle(GLYPH_PEN, rewriting, Message::ToggleRewrite);
+    let words = match rewriting {
+        true => {
+            "End the rewrite, dropping what Ctrl+S hasn't saved; Ctrl+Z brings it back (Ctrl+R)"
+        }
+        false => "Rewrite: edit a copy beside the original (Ctrl+R)",
     };
     hint(toggle, keys(words))
 }
@@ -275,6 +293,13 @@ pub fn menu(app: &App) -> Element<'_, Message> {
         Doc::Scratch => items.push(menu_item("save to a file", "Ctrl+S", Message::SaveAs)),
         Doc::File { .. } => items.push(menu_item("save as", "Ctrl+Shift+S", Message::SaveAs)),
     };
+    if app.editable() {
+        let rewrite = match app.original {
+            Some(_) => "end rewrite",
+            None => "rewrite",
+        };
+        items = items.push(menu_item(rewrite, "Ctrl+R", Message::ToggleRewrite));
+    }
     let line_numbers = match app.settings.line_numbers {
         true => "hide line numbers",
         false => "show line numbers",

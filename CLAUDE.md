@@ -274,6 +274,8 @@ src/
                          Enter that indents a block and lines up the line that ends one
     review.rs            suggested edits waiting in a pane, and the display text that shows
                          them inside the document (review mode)
+    rewrite.rs           a rewrite's draft file in the data folder: where it lives, start,
+                         read back (a rewrite left open resumes), delete when it ends
   ui/                    everything iced: windows, widgets, styling
     app.rs               the App state, Message enum, update and view
     theme.rs             Gruvbox palette roles, the font and its icon glyphs, shared styles
@@ -293,6 +295,8 @@ src/
                          folder or opens a file here
     palette.rs           the Ctrl+Shift+P command palette: the open file's tools (Format JSON...)
     find_bar.rs          the Ctrl+F find bar: its matches, stepping through them, how they're lit
+    rewrite_actions.rs   App's handlers for a rewrite (Ctrl+R): the read-only original beside the
+                         draft, Ctrl+S writing the draft over it, ending and resuming
     file_actions.rs      App's handlers for opening a document in the window's place (Ctrl+O,
                          Ctrl+P, Ctrl+0), New file (Ctrl+N), Save (Ctrl+S) and Save as
     wayland_drop.rs      files dropped on the window under Wayland, which winit doesn't hear: they

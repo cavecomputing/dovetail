@@ -12,6 +12,7 @@ pub mod opened;
 pub mod paths;
 pub mod recent;
 pub mod review;
+pub mod rewrite;
 pub mod save;
 pub mod scratch;
 pub mod settings;

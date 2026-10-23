@@ -5,9 +5,9 @@ use std::fs::File;
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime};
 
-use iced::widget::{column, container, responsive, space, stack};
+use iced::widget::{column, container, responsive, row, space, stack};
 use iced::window::{self, Direction};
-use iced::{Element, Size, Subscription, Task, Theme, event, keyboard};
+use iced::{Element, Fill, Size, Subscription, Task, Theme, event, keyboard};
 
 use crate::core::config::yaml_indent;
 use crate::core::counts::Counts;
@@ -15,6 +15,7 @@ use crate::core::json::reformat;
 use crate::core::opened::{Doc, OpenedDoc, open_doc, write_doc};
 use crate::core::paths::Paths;
 use crate::core::recent::existing_recent_files;
+use crate::core::rewrite::draft_path;
 use crate::core::save::{Autosaver, SaveState};
 use crate::core::scratch::ScratchView;
 use crate::core::settings::{ReadingMode, ScratchSyntax, Settings, Theme as ThemeSetting};
@@ -23,7 +24,7 @@ use crate::core::syntax::Syntax;
 use crate::core::text_file::{DiskStamp, changed_on_disk, read_text};
 use crate::core::typing::is_code;
 use crate::ui::assistant_actions::{Assistant, AssistantAction, CardState};
-use crate::ui::editor::{Decision, Pane};
+use crate::ui::editor::{Decision, EDITOR_ID, ORIGINAL_ID, Pane};
 use crate::ui::find_bar::{self, Find, FindAction};
 use crate::ui::palette::{self, Palette};
 use crate::ui::picker::{self, Picker, PickerAction};
@@ -50,8 +51,12 @@ pub struct App {
     /// Counts the documents this window has shown (`show`), so an answer meant for an earlier
     /// one, such as a save dialog's, is dropped.
     pub document: u64,
-    /// The text being edited.
+    /// The text being edited. While rewriting, the draft.
     pub pane: Pane,
+    /// While rewriting (Ctrl+R): the original, read-only on the left of the draft.
+    pub original: Option<Pane>,
+    /// Ctrl+R to act on once the save running now ends (see `toggle_rewrite`).
+    pub toggling_rewrite: bool,
     /// The Ctrl+P switcher, while it is open.
     pub switcher: Option<Switcher>,
     /// The Ctrl+O picker, while it is open.
@@ -147,6 +152,10 @@ pub enum Message {
     ToggleTasks,
     Undo,
     Redo,
+    /// Ctrl+R and the pen button: start a rewrite, or end the one under way.
+    ToggleRewrite,
+    /// Scrolling, selecting and the like in the original, read-only beside a rewrite's draft.
+    Original(Action),
     /// Ctrl+X or Ctrl+C while reviewing: copy the selected text, without the suggestions, and
     /// delete it for Ctrl+X (`cut`).
     Clip {
@@ -305,7 +314,7 @@ impl App {
 
         let (main_window, open) = window::open(window_settings());
 
-        let app = App {
+        let mut app = App {
             settings_modified: modified_time(&paths),
             recent: existing_recent_files(&paths.data_dir),
             counts: Counts::of(&opened.text),
@@ -324,6 +333,8 @@ impl App {
             doc: opened.doc,
             document: 0,
             pane,
+            original: None,
+            toggling_rewrite: false,
             switcher: None,
             picker: None,
             palette: None,
@@ -347,6 +358,7 @@ impl App {
             key_field: KeyField::default(),
             connection: None,
         };
+        app.resume_rewrite();
         let tasks = Task::batch([
             app.check_syntax(),
             open.map(|_| Message::WindowOpened),
@@ -375,6 +387,8 @@ impl App {
         self.find = Find::default();
         self.assistant.new_chat();
         self.syntax_problem = None;
+        self.toggling_rewrite = false;
+        self.resume_rewrite();
         let focus = iced::widget::operation::focus(editor::EDITOR_ID);
         Task::batch([self.count(), self.check_syntax(), focus])
     }
@@ -484,6 +498,14 @@ impl App {
                 }
             }
             Message::Decide(decision) => self.decide(decision),
+            Message::ToggleRewrite => return self.toggle_rewrite(),
+            Message::Original(action) => {
+                if let Some(original) = &mut self.original
+                    && !action.is_edit()
+                {
+                    let _ = original.perform(action);
+                }
+            }
             Message::Tick(now) => {
                 self.now = now;
                 let mut tasks = Vec::new();
@@ -505,7 +527,11 @@ impl App {
             Message::Saved(document, ..) if document != self.document => {}
             Message::Saved(_, generation, result) => {
                 let failed = result.is_err();
-                if let Ok(Some(stamp)) = result {
+                // A rewrite's draft has a file of its own, not the document's.
+                let rewriting = self.original.is_some();
+                if let Ok(Some(stamp)) = result
+                    && !rewriting
+                {
                     self.disk_stamp = Some(stamp);
                 }
                 self.autosaver.finish(generation, result.map(|_| ()));
@@ -517,7 +543,9 @@ impl App {
                     self.remember_unsaved();
                 }
                 self.disk_conflict = match &self.doc {
-                    Doc::File { path, .. } if failed => changed_on_disk(path, self.disk_stamp),
+                    Doc::File { path, .. } if failed && !rewriting => {
+                        changed_on_disk(path, self.disk_stamp)
+                    }
                     _ => false,
                 };
                 if self.closing && failed {
@@ -530,6 +558,8 @@ impl App {
                     return self.open_here(doc);
                 } else if let Some(path) = self.saving_as.take() {
                     return self.save_as(path);
+                } else if std::mem::take(&mut self.toggling_rewrite) {
+                    return self.toggle_rewrite();
                 }
             }
             Message::Counted(document, counts) if document == self.document => self.counts = counts,
@@ -585,6 +615,7 @@ impl App {
                 // them back.
                 self.opening = None;
                 self.saving_as = None;
+                self.toggling_rewrite = false;
                 // A reply on its way is cancelled; it never holds the window open.
                 self.assistant.stop();
                 if matches!(self.doc, Doc::Scratch) && self.editable() {
@@ -779,7 +810,7 @@ impl App {
         }
     }
 
-    fn text_changed(&mut self) {
+    pub fn text_changed(&mut self) {
         let now = Instant::now();
         self.autosaver.edited(now);
         self.remember_unsaved();
@@ -860,8 +891,7 @@ impl App {
         let text = self.pane.model.text().to_string();
         let data_dir = self.paths.data_dir.clone();
         let view = self.scratch_view();
-        let doc = self.doc.clone();
-        let disk_stamp = self.disk_stamp;
+        let (doc, disk_stamp) = self.saved_to();
         let document = self.document;
         Task::perform(
             async move { write_doc(&doc, text, view, &data_dir, disk_stamp) },
@@ -875,7 +905,8 @@ impl App {
         let generation = self.autosaver.begin(Instant::now());
         let text = self.pane.model.text().to_string();
         let view = self.scratch_view();
-        let result = write_doc(&self.doc, text, view, &self.paths.data_dir, self.disk_stamp);
+        let (doc, disk_stamp) = self.saved_to();
+        let result = write_doc(&doc, text, view, &self.paths.data_dir, disk_stamp);
         let written = result.is_ok();
         let _ = self.update(Message::Saved(self.document, generation, result));
         written
@@ -913,16 +944,26 @@ impl App {
 
     /// Hands the text autosave hasn't written yet to `shutdown`, for logging out and the like.
     fn remember_unsaved(&self) {
+        let (doc, disk_stamp) = self.saved_to();
         shutdown::remember(Unsaved {
-            doc: self.doc.clone(),
+            doc,
             text: self.pane.model.text().to_string(),
             view: self.scratch_view(),
             data_dir: self.paths.data_dir.clone(),
-            disk_stamp: self.disk_stamp,
+            disk_stamp,
         });
     }
 
-    fn scratch_view(&self) -> ScratchView {
+    /// Where autosave writes the text, and the file on disk as last seen there: the document, or
+    /// while rewriting the draft's own file (which nothing else writes, so it has no stamp).
+    fn saved_to(&self) -> (Doc, Option<DiskStamp>) {
+        match self.original {
+            Some(_) => (Doc::file(draft_path(&self.paths.data_dir, &self.doc)), None),
+            None => (self.doc.clone(), self.disk_stamp),
+        }
+    }
+
+    pub fn scratch_view(&self) -> ScratchView {
         let position = self.pane.content.cursor().position;
         ScratchView {
             cursor_line: position.line,
@@ -1012,13 +1053,38 @@ impl App {
         let mut paint = self.pane.suggestion_runs(roles);
         paint.extend(self.find_runs());
         paint.extend(self.pane.other_runs(roles));
-        editor::view(
+        let syntax = self.syntax();
+        let editable = self.editable();
+        let draft = editor::view(
             &self.pane,
             &self.settings,
-            self.editable(),
-            self.syntax(),
+            editable,
+            syntax,
             paint,
+            EDITOR_ID,
+        );
+        let Some(original) = &self.original else {
+            return draft;
+        };
+        // The original only scrolls and selects, so its actions go to it, not the draft.
+        let original = editor::view(
+            original,
+            &self.settings,
+            false,
+            syntax,
+            Vec::new(),
+            ORIGINAL_ID,
         )
+        .map(|message| match message {
+            Message::Edit(action) => Message::Original(action),
+            other => other,
+        });
+        row![
+            container(original).width(Fill),
+            assistant_view::divider(),
+            container(draft).width(Fill),
+        ]
+        .into()
     }
 
     /// The kind of text the document is, by its file's extension (or a script's `#!` line):
@@ -1143,6 +1209,7 @@ fn shortcut(event: iced::Event, status: event::Status, _window: window::Id) -> O
         keyboard::Key::Character("s" | "S") if modifiers.shift() => Some(Message::SaveAs),
         keyboard::Key::Character("s" | "S") => Some(Message::Save),
         keyboard::Key::Character("o") => Some(Message::OpenDialog),
+        keyboard::Key::Character("r") => Some(Message::ToggleRewrite),
         keyboard::Key::Character("n") => Some(Message::NewFile),
         keyboard::Key::Character("f" | "F") if modifiers.shift() => {
             Some(Message::Find(FindAction::OpenReplace))
@@ -1188,6 +1255,7 @@ fn modified_time(paths: &Paths) -> Option<SystemTime> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::rewrite::read_draft;
     use crate::core::scratch::{ScratchState, scratch_open_elsewhere};
     use crate::core::text_file::LineEnding;
     use crate::ui::text_editor::Content;
@@ -1589,6 +1657,91 @@ mod tests {
         let _ = app.update(Message::OpenScratch);
         assert!(matches!(app.doc, Doc::Scratch));
         assert_eq!(std::fs::read_to_string(&notes).unwrap(), "!# notes\r\n");
+    }
+
+    /// A window on notes.md with a rewrite started, after `typed` was typed into the original.
+    fn rewriting_notes(typed: &str) -> (tempfile::TempDir, Paths, App, PathBuf) {
+        let (dir, paths, mut app, notes) = scratch_window("");
+        let _ = app.update(Message::OpenPath(notes.clone()));
+        for letter in typed.chars() {
+            let _ = app.update(Message::Edit(Action::Edit(Edit::Insert(letter))));
+        }
+        let _ = app.update(Message::ToggleRewrite);
+        (dir, paths, app, notes)
+    }
+
+    fn type_in(app: &mut App, typed: &str) {
+        for letter in typed.chars() {
+            let _ = app.update(Message::Edit(Action::Edit(Edit::Insert(letter))));
+        }
+    }
+
+    #[test]
+    fn a_rewrite_saves_to_its_draft_until_ctrl_s() {
+        // Typed before the rewrite, inside the autosave pause: that goes to the file first.
+        let (_dir, paths, mut app, notes) = rewriting_notes("1");
+        assert_eq!(std::fs::read_to_string(&notes).unwrap(), "1# notes\r\n");
+        type_in(&mut app, "2");
+        assert!(app.save_before_leaving());
+        assert_eq!(std::fs::read_to_string(&notes).unwrap(), "1# notes\r\n");
+        let draft = read_draft(&paths.data_dir, &app.doc);
+        assert_eq!(draft.as_deref(), Some("12# notes\n"));
+        // Ctrl+S writes it over the original, with the file's line endings, and the left shows it.
+        let _ = app.update(Message::Save);
+        assert_eq!(std::fs::read_to_string(&notes).unwrap(), "12# notes\r\n");
+        assert_eq!(app.original.as_ref().unwrap().model.text(), "12# notes\n");
+        // The original only scrolls and selects.
+        let _ = app.update(Message::Original(Action::Edit(Edit::Insert('x'))));
+        assert_eq!(app.original.as_ref().unwrap().model.text(), "12# notes\n");
+    }
+
+    #[test]
+    fn ending_a_rewrite_drops_what_ctrl_s_didnt_save_and_ctrl_z_brings_it_back() {
+        let (_dir, paths, mut app, notes) = rewriting_notes("");
+        type_in(&mut app, "new ");
+        let _ = app.update(Message::ToggleRewrite);
+        assert!(app.original.is_none());
+        assert_eq!(app.pane.model.text(), "# notes\n");
+        assert_eq!(read_draft(&paths.data_dir, &app.doc), None);
+        assert!(!app.autosaver.pending(), "the file already holds it");
+        let _ = app.update(Message::Undo);
+        assert_eq!(app.pane.model.text(), "new # notes\n");
+        assert_eq!(std::fs::read_to_string(&notes).unwrap(), "# notes\r\n");
+    }
+
+    #[test]
+    fn a_rewrite_left_open_comes_back_with_its_document() {
+        let (_dir, paths, mut app, notes) = rewriting_notes("");
+        type_in(&mut app, "draft ");
+        let _ = app.update(Message::OpenScratch);
+        assert!(app.original.is_none());
+        let _ = app.update(Message::OpenPath(notes.clone()));
+        assert_eq!(app.pane.model.text(), "draft # notes\n");
+        assert_eq!(app.original.as_ref().unwrap().model.text(), "# notes\n");
+        assert_eq!(std::fs::read_to_string(&notes).unwrap(), "# notes\r\n");
+        // Another window can't edit it, so it shows the file and leaves the draft alone.
+        let (other, _) = App::with_paths(file_doc(&notes), paths.clone());
+        assert!(other.original.is_none());
+        assert!(read_draft(&paths.data_dir, &app.doc).is_some());
+    }
+
+    #[test]
+    fn save_as_ends_a_rewrite_with_the_draft_in_the_new_file() {
+        let (dir, paths, mut app, notes) = rewriting_notes("");
+        type_in(&mut app, "draft ");
+        let old = app.doc.clone();
+        let copy = dir.path().join("copy.md");
+        let _ = app.update(Message::SaveAsPicked(app.document, copy.clone()));
+        assert!(app.original.is_none());
+        assert_eq!(std::fs::read_to_string(&copy).unwrap(), "draft # notes\r\n");
+        assert_eq!(std::fs::read_to_string(&notes).unwrap(), "# notes\r\n");
+        assert_eq!(read_draft(&paths.data_dir, &old), None);
+    }
+
+    #[test]
+    fn ctrl_r_toggles_a_rewrite() {
+        let press = shortcut_for("r", "r", keyboard::Modifiers::COMMAND);
+        assert!(matches!(press, Some(Message::ToggleRewrite)));
     }
 
     #[test]

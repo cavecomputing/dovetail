@@ -306,6 +306,11 @@ const SHORTCUTS: [(&str, &[Shortcut]); 5] = [
             ("Ctrl+S", "", "save now; in scratch, save to a file"),
             ("Ctrl+Shift+S", "", "save as"),
             (
+                "Ctrl+R",
+                "",
+                "rewrite: edit a copy beside the original; again to end it",
+            ),
+            (
                 "Ctrl+W",
                 "",
                 "close the window, once the latest save is written",

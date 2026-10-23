@@ -47,10 +47,15 @@ pub fn beside(app: &App, width: f32) -> Element<'_, Message> {
         let pane = container(opaque(pane)).align_right(Fill);
         return stack![document, pane].into();
     }
-    let divider = container(space().width(1).height(Fill))
-        .style(|theme: &Theme| fill(Roles::of(theme).border));
-    row![document, divider, container(pane(app)).width(PANE_WIDTH)]
+    row![document, divider(), container(pane(app)).width(PANE_WIDTH)]
         .height(Fill)
+        .into()
+}
+
+/// The 1px line between panes side by side.
+pub fn divider<'a>() -> Element<'a, Message> {
+    container(space().width(1).height(Fill))
+        .style(|theme: &Theme| fill(Roles::of(theme).border))
         .into()
 }
 
