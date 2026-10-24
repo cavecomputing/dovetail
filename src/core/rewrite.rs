@@ -304,13 +304,26 @@ fn light(
 }
 
 /// Adds `range` of `text` to `ranges`, joined to the last one when only spaces lie between them,
-/// so changed words side by side light up as one run rather than a row of patches.
+/// so changed words side by side light up as one run rather than a row of patches. Line breaks
+/// are left unlit: lit, one shows as a sliver at the start of the next row.
 fn extend(ranges: &mut Vec<Range<usize>>, range: Range<usize>, text: &str) {
-    match ranges.last_mut() {
-        Some(last) if text[last.end..range.start].bytes().all(|byte| byte == b' ') => {
-            last.end = range.end;
+    let mut start = range.start;
+    for piece in text[range].split('\n') {
+        let piece_range = start..start + piece.len();
+        start = piece_range.end + 1;
+        if piece_range.is_empty() {
+            continue;
         }
-        _ => ranges.push(range),
+        match ranges.last_mut() {
+            Some(last)
+                if text[last.end..piece_range.start]
+                    .bytes()
+                    .all(|byte| byte == b' ') =>
+            {
+                last.end = piece_range.end;
+            }
+            _ => ranges.push(piece_range),
+        }
     }
 }
 
@@ -358,7 +371,7 @@ mod tests {
             words(original, &found.removed),
             ["Always write in a friendly tone."]
         );
-        assert_eq!(words(draft, &found.added), ["W", "warm", "Thanks!\n"]);
+        assert_eq!(words(draft, &found.added), ["W", "warm", "Thanks!"]);
         // A word swapped for another lights whole, not around the `r` they share.
         let original = "Always write in a friendly tone, and keep every answer short.\n";
         let draft = "Always write in a warm tone, and keep every answer short.\n";
@@ -403,11 +416,19 @@ mod tests {
         // around the odd letters ("ed ", "as") they happen to share.
         assert_eq!(
             words(original, &found.removed),
-            [".\n- If you don't know, say so.\nStore credit is offered as an alternative."]
+            [
+                ".",
+                "- If you don't know, say so.",
+                "Store credit is offered as an alternative."
+            ],
+            "line breaks unlit"
         );
         assert_eq!(
             words(draft, &found.added),
-            ["; give the usual range.\nFaulty items are repaired or replaced free of charge."]
+            [
+                "; give the usual range.",
+                "Faulty items are repaired or replaced free of charge."
+            ]
         );
     }
 
