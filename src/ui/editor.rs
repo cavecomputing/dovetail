@@ -400,7 +400,7 @@ impl Pane {
     }
 
     /// Puts the caret at byte `offset` of the model's text, with nothing selected.
-    fn put_caret(&mut self, offset: usize) {
+    pub fn put_caret(&mut self, offset: usize) {
         self.others.clear();
         let position = self.position(offset, true);
         self.content.move_to(Cursor {

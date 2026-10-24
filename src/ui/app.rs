@@ -1749,9 +1749,11 @@ mod tests {
     fn reset_puts_the_draft_back_to_the_file_as_one_undo_step() {
         let (_dir, _paths, mut app, _notes) = rewriting_notes("");
         type_in(&mut app, "draft ");
+        let _ = app.update(Message::Edit(Action::Move(Motion::DocumentStart)));
         let _ = app.update(Message::ResetRewrite);
         assert_eq!(app.pane.model.text(), "# notes\n");
         assert!(app.original.is_some(), "the split stays");
+        assert_eq!(app.pane.caret(), 0, "the caret stays where it was");
         let _ = app.update(Message::Undo);
         assert_eq!(app.pane.model.text(), "draft # notes\n");
         let shift = keyboard::Modifiers::COMMAND | keyboard::Modifiers::SHIFT;

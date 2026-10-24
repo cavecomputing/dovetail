@@ -119,8 +119,14 @@ impl App {
         };
         let saved = original.model.text().to_string();
         if self.pane.model.text() != saved {
+            // Replacing the whole text leaves the caret at its end; keep it and the view where
+            // they were instead.
+            let caret = saved.floor_char_boundary(self.pane.caret());
+            let top = self.pane.content.scroll_line();
             let length = self.pane.model.text().len();
             self.pane.replace(0..length, &saved);
+            self.pane.put_caret(caret);
+            self.pane.content.scroll_to_line(top);
             self.text_changed();
         }
     }
