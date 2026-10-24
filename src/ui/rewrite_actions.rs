@@ -102,7 +102,12 @@ impl App {
                 .scroll_to_line(self.pane.content.scroll_line());
         }
         self.pane = draft;
-        self.show_original(&saved)
+        // A paused draft isn't the text counted and checked so far.
+        let checked = match text == saved {
+            true => Task::none(),
+            false => Task::batch([self.count(), self.check_syntax()]),
+        };
+        Task::batch([self.show_original(&saved), checked])
     }
 
     /// Goes back to the original as last saved, keeping the draft aside for the next Ctrl+R (a

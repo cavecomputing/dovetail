@@ -897,7 +897,7 @@ impl App {
 
     /// Counts the text's words and tokens in the background, as it takes a while on a long text;
     /// `Counted` brings the numbers back.
-    fn count(&self) -> Task<Message> {
+    pub fn count(&self) -> Task<Message> {
         let text = self.pane.model.text().to_string();
         let document = self.document;
         Task::perform(async move { Counts::of(&text) }, move |counts| {
@@ -907,7 +907,7 @@ impl App {
 
     /// In a JSON, YAML, TOML or INI file or a shell script, checks the text is valid in the
     /// background; `SyntaxChecked` brings any problem back.
-    fn check_syntax(&self) -> Task<Message> {
+    pub fn check_syntax(&self) -> Task<Message> {
         let syntax = self.syntax();
         if matches!(syntax, Syntax::Plain | Syntax::Markdown) {
             return Task::none();
