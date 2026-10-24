@@ -38,6 +38,11 @@ impl App {
     pub fn toggle_rewrite(&mut self) -> Task<Message> {
         self.menu_open = false;
         if !self.can_rewrite() {
+            // Scratch never offers a rewrite; a file another window holds does, elsewhere.
+            if self.doc.path().is_some() {
+                let words = "Rewrite needs a file this window can edit";
+                self.set_notice(Some(words.to_string()));
+            }
             return Task::none();
         }
         if self.disk_conflict {

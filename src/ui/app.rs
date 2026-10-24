@@ -1860,9 +1860,13 @@ mod tests {
         assert_eq!(app.pane.model.text(), "draft # notes\n");
         assert_eq!(app.original.as_ref().unwrap().model.text(), "# notes\n");
         assert_eq!(std::fs::read_to_string(&notes).unwrap(), "# notes\r\n");
-        // Another window can't edit it, so it shows the file and leaves the draft alone.
-        let (other, _) = App::with_paths(file_doc(&notes), paths.clone());
+        // Another window can't edit it, so it shows the file and leaves the draft alone; its
+        // Ctrl+R says why it does nothing.
+        let (mut other, _) = App::with_paths(file_doc(&notes), paths.clone());
         assert!(other.original.is_none());
+        let _ = other.update(Message::ToggleRewrite);
+        assert!(other.original.is_none());
+        assert!(other.notice.is_some());
         assert!(read_draft(&paths.data_dir, &notes).is_some());
     }
 
@@ -1912,6 +1916,7 @@ mod tests {
         let _ = app.update(Message::ToggleRewrite);
         assert!(app.original.is_none());
         assert!(!app.can_rewrite());
+        assert!(app.notice.is_none(), "scratch never offered one");
     }
 
     #[test]
