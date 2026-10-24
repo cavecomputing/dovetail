@@ -106,7 +106,9 @@ stays Save as), the pen in the status bar beside the assistant toggle, or "rewri
   never to the original. `Ctrl+S` writes it over the original and the left side shows the result;
   the split stays.
 - Ending the rewrite (`Ctrl+R` again, the pen, the menu) goes back to the original as last saved,
-  deletes the draft, and leaves the dropped changes one `Ctrl+Z` away (2026-10-23).
+  deletes the draft and drops its unsaved changes (2026-10-23). Undo never crosses the rewrite's
+  edges (2026-10-24): the draft starts its own history, and the original comes back with its own,
+  so `Ctrl+Z` can't put the draft's changes into the file.
 - A draft left by a closed window, or a crash, brings the split back the next time its document
   opens in a window that can edit it.
 

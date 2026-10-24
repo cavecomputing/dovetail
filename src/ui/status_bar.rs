@@ -190,9 +190,7 @@ fn assistant_toggle<'a>(open: bool) -> Element<'a, Message> {
 fn rewrite_toggle<'a>(rewriting: bool) -> Element<'a, Message> {
     let toggle = glyph_toggle(GLYPH_PEN, rewriting, Message::ToggleRewrite);
     let words = match rewriting {
-        true => {
-            "End the rewrite, dropping what Ctrl+S hasn't saved; Ctrl+Z brings it back (Ctrl+R)"
-        }
+        true => "End the rewrite, dropping what Ctrl+S hasn't saved (Ctrl+R)",
         false => "Rewrite: edit a copy beside the original (Ctrl+R)",
     };
     hint(toggle, keys(words))

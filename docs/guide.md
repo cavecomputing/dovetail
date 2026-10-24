@@ -278,8 +278,9 @@ previous match), ⌘M (minimise) and ⌘Q (closes the window, waiting for the sa
   file meanwhile, nothing is written: the left side shows the file as it is now, and a second
   Ctrl+S writes over it.
 - **Ending the rewrite** (Ctrl+R again, the pen, or "end rewrite") goes back to the file as last
-  saved, and the draft is deleted. Changes Ctrl+S didn't save are dropped, but one Ctrl+Z brings
-  them back, into the file's own editor (where they autosave to the file as usual).
+  saved, and the draft is deleted. Changes Ctrl+S didn't save are dropped for good.
+- **Ctrl+Z stays on its side of the rewrite.** In the copy it undoes only edits made in the copy,
+  and after the rewrite ends it can't bring the copy's changes into the file.
 - **Closing the window** mid-rewrite keeps the draft, and the original isn't touched. Opening the
   same document again brings the split back as it was left. Logging out or the app being killed
   writes the draft as the app goes; a crash loses at most the last half second of typing, and only

@@ -1696,17 +1696,21 @@ mod tests {
     }
 
     #[test]
-    fn ending_a_rewrite_drops_what_ctrl_s_didnt_save_and_ctrl_z_brings_it_back() {
-        let (_dir, paths, mut app, notes) = rewriting_notes("");
+    fn ctrl_z_never_crosses_into_or_out_of_a_rewrite() {
+        // An edit before the rewrite: Ctrl+Z in the draft doesn't take it back.
+        let (_dir, paths, mut app, notes) = rewriting_notes("1");
+        let _ = app.update(Message::Undo);
+        assert_eq!(app.pane.model.text(), "1# notes\n");
+        // Ending drops what Ctrl+S didn't save, and Ctrl+Z doesn't bring it into the file.
         type_in(&mut app, "new ");
         let _ = app.update(Message::ToggleRewrite);
         assert!(app.original.is_none());
-        assert_eq!(app.pane.model.text(), "# notes\n");
+        assert_eq!(app.pane.model.text(), "1# notes\n");
         assert_eq!(read_draft(&paths.data_dir, &app.doc), None);
         assert!(!app.autosaver.pending(), "the file already holds it");
         let _ = app.update(Message::Undo);
-        assert_eq!(app.pane.model.text(), "new # notes\n");
-        assert_eq!(std::fs::read_to_string(&notes).unwrap(), "# notes\r\n");
+        assert_eq!(app.pane.model.text(), "1# notes\n");
+        assert_eq!(std::fs::read_to_string(&notes).unwrap(), "1# notes\r\n");
     }
 
     #[test]

@@ -49,11 +49,19 @@ impl App {
             self.set_notice(Some(format!("Couldn't start a rewrite: {error}")));
             return;
         }
+        // The draft starts its own undo history, so Ctrl+Z stays inside the rewrite.
+        let mut draft = Pane::new(&text);
+        draft.content.move_to(self.pane.content.cursor());
+        draft
+            .content
+            .scroll_to_line(self.pane.content.scroll_line());
+        self.pane = draft;
         self.show_original(&text);
     }
 
-    /// Goes back to the original as last saved, dropping the draft's unsaved changes: one Ctrl+Z
-    /// brings them back.
+    /// Goes back to the original as last saved, dropping the draft's unsaved changes. The
+    /// original's pane comes back with an undo history of its own, so no Ctrl+Z brings the draft
+    /// into the document.
     fn end_rewrite(&mut self) {
         if let Err(error) = remove_draft(&self.paths.data_dir, &self.doc) {
             self.set_notice(Some(format!("Couldn't end the rewrite: {error}")));
@@ -62,10 +70,8 @@ impl App {
         let Some(original) = self.original.take() else {
             return;
         };
-        let saved = original.model.text();
-        if self.pane.model.text() != saved {
-            let length = self.pane.model.text().len();
-            self.pane.replace(0..length, saved);
+        if self.pane.model.text() != original.model.text() {
+            self.pane = original;
             self.text_changed();
         }
         // The document already holds that text.
