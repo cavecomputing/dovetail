@@ -675,9 +675,17 @@ fn draw_paint<R: renderer::Renderer>(
     scroll_x: f32,
     text_size: f32,
 ) {
-    // Fill a rectangle clipped to the text area.
+    // Fill a rectangle clipped to the text area, its sides on whole pixels: tiny-skia drew a
+    // partly covered pixel column brighter, a red sliver at the start of a removed line when line
+    // numbers moved the text off a whole pixel.
     let mut fill = |rect: Rectangle, radius: border::Radius, color: Color| {
         if let Some(bounds) = text_bounds.intersection(&rect) {
+            let (left, right) = (bounds.x.round(), (bounds.x + bounds.width).round());
+            let bounds = Rectangle {
+                x: left,
+                width: right - left,
+                ..bounds
+            };
             renderer.fill_quad(
                 renderer::Quad {
                     bounds,
