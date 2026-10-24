@@ -164,8 +164,9 @@ Versions follow semantic versioning (`1.2.3`). Only the owner decides when to re
 version, push a tag or create a release unless the owner asks. A release is: set `version` in
 `Cargo.toml`, commit, then `git tag v1.2.3 && git push origin v1.2.3` on that commit. The tag runs
 [release.yml](.github/workflows/release.yml), which refuses a tag that doesn't match `Cargo.toml`
-and posts the Linux and Windows builds on a GitHub Release (Macs install with
-`scripts/install-macos.sh`). A tag with a suffix (`v1.2.3-beta.1`) becomes a pre-release.
+and posts the Linux, macOS and Windows builds on a GitHub Release. The macOS one is the app bundle
+`scripts/install-macos.sh --bundle` makes from a universal (Apple silicon and Intel) binary,
+signed ad hoc, so Gatekeeper asks once before its first launch (docs/guide.md). A tag with a suffix (`v1.2.3-beta.1`) becomes a pre-release.
 
 ### How much verification a change needs
 
@@ -219,7 +220,7 @@ drawing and event wiring.
 ```
 .github/workflows/ci.yml build, test, clippy and fmt: Linux on every push, all three OSes by hand
 .github/workflows/release.yml  on a version tag the owner pushes: runs CI on all three OSes, builds
-                         Linux and Windows, posts a Release
+                         all three, posts a Release
 Cargo.toml, Cargo.lock   dependencies (see "Rust in plain terms")
 build.rs                 runs before the build: puts the icon inside the Windows .exe
 .cargo/config.toml       build flags: the Windows .exe carries its own C runtime (crt-static)

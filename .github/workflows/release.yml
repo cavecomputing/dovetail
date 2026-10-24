@@ -1,4 +1,4 @@
-# Builds the release binary on Linux and Windows when a semantic version tag (v1.2.3, or
+# Builds the release binary on Linux, macOS and Windows when a semantic version tag (v1.2.3, or
 # v1.2.3-beta.1 for a pre-release) is pushed, and posts them on a GitHub Release named for the tag.
 # Nothing else releases: no push to main, no schedule. To release, set `version` in Cargo.toml,
 # commit, then tag that commit to match (`git tag v0.2.0 && git push origin v0.2.0`). Every name
@@ -27,8 +27,10 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: linux-x86_64
-          # No macOS download: an unsigned binary is blocked by Gatekeeper, so Macs install with
-          # scripts/install-macos.sh, which builds an app bundle from source.
+          # The app bundle, signed ad hoc like scripts/install-macos.sh makes it, not by an Apple
+          # developer account, so Gatekeeper asks once before the first launch (docs/guide.md).
+          - os: macos-latest
+            platform: macos-universal
           - os: windows-latest
             platform: windows-x86_64
     runs-on: ${{ matrix.os }}
@@ -40,7 +42,21 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo build --release --locked
+      - name: Build
+        run: |
+          package=$(sed -n 's/^name = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
+          if [ "$RUNNER_OS" = macOS ]; then
+              # One binary for both Apple silicon and Intel Macs: build each, then lipo joins them
+              # where the other OSes' builds land.
+              rustup target add aarch64-apple-darwin x86_64-apple-darwin
+              cargo build --release --locked --target aarch64-apple-darwin
+              cargo build --release --locked --target x86_64-apple-darwin
+              mkdir -p target/release
+              lipo -create -output "target/release/$package" \
+                  "target/aarch64-apple-darwin/release/$package" "target/x86_64-apple-darwin/release/$package"
+          else
+              cargo build --release --locked
+          fi
       - name: Package
         run: |
           package=$(sed -n 's/^name = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
@@ -55,11 +71,17 @@ jobs:
           name="$BIN_NAME-$VERSION-${{ matrix.platform }}"
           # The font's licence travels with it, since the font is built into the binary.
           mkdir "$name"
-          cp "$binary" LICENSE README.md assets/fonts/OFL.txt "$name/"
+          cp LICENSE README.md assets/fonts/OFL.txt "$name/"
           mkdir dist
-          if [ "$RUNNER_OS" = Windows ]; then
+          if [ "$RUNNER_OS" = macOS ]; then
+              scripts/install-macos.sh --bundle "$name" "$binary"
+              # ditto is the zip that keeps the bundle's signature intact.
+              ditto -c -k --keepParent "$name" "dist/$name.zip"
+          elif [ "$RUNNER_OS" = Windows ]; then
+              cp "$binary" "$name/"
               7z a "dist/$name.zip" "$name" > /dev/null
           else
+              cp "$binary" "$name/"
               # tar keeps the binary's executable bit, which a zip from here would lose.
               tar -czf "dist/$name.tar.gz" "$name"
           fi

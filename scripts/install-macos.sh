@@ -6,6 +6,9 @@
 # The bundle registers no file types: macOS hands a file to an app in an Apple Event, which the
 # window library (winit) can't receive, so "Open With" would only ever open scratch. Files open
 # from the terminal command or from inside the app.
+#
+# `install-macos.sh --bundle DIR BINARY` only makes the app bundle in DIR from an already built
+# BINARY and installs nothing; release.yml packages the macOS download that way.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -14,15 +17,21 @@ if [ "$(uname -s)" != Darwin ]; then
     exit 1
 fi
 
-cargo build --release
-# The binary's file name is Cargo.toml's package name.
-binary="target/release/$(sed -n 's/^name = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)"
+if [ "${1:-}" = --bundle ]; then
+    apps_dir=$2
+    binary=$3
+else
+    apps_dir="$HOME/Applications"
+    cargo build --release
+    # The binary's file name is Cargo.toml's package name.
+    binary="target/release/$(sed -n 's/^name = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)"
+fi
 eval "$("$binary" --print-brand)"
 # The oldest macOS the build supports, e.g. MACOSX_DEPLOYMENT_TARGET=11.0 on Apple silicon.
 eval "$(rustc --print deployment-target)"
 
 # Inside the bundle the program is named for the app, so the menu bar reads "Quit <app>".
-app="$HOME/Applications/$APP_NAME.app"
+app="$apps_dir/$APP_NAME.app"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$binary" "$app/Contents/MacOS/$APP_NAME"
@@ -59,6 +68,10 @@ PLIST
 # the bundle, so macOS treats it as one app named by APP_ID. Each build signs differently, so after
 # a reinstall the Keychain asks once before handing over the saved API key: choose Always Allow.
 codesign --force --sign - "$app"
+
+if [ "${1:-}" = --bundle ]; then
+    exit 0
+fi
 
 # The terminal command runs the program inside the bundle (a symlink would lose the bundle).
 bin_dir="$HOME/.local/bin"

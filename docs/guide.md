@@ -55,6 +55,16 @@ macOS, `%LOCALAPPDATA%\Programs\Dovetail` on Windows. The scripts tell you if it
 and macOS, add `export PATH="$HOME/.local/bin:$PATH"` to the end of `~/.bashrc` (or `~/.zshrc`)
 and open a new terminal.
 
+### macOS: the download
+
+Each [release](https://github.com/cavecomputing/text/releases) also has a macOS zip with
+`Dovetail.app` in it, for Apple silicon and Intel Macs alike, so you don't need Rust. Unzip it and
+drag the app into Applications. It is signed ad hoc, not by an Apple developer account, so the
+first time you open it macOS says it can't check the app for malware: choose Done, then open
+System Settings, Privacy & Security, and click Open Anyway at the bottom. After that it opens
+normally. (Or, in a terminal, `xattr -dr com.apple.quarantine /Applications/Dovetail.app` once.)
+The download doesn't add the `dovetail` terminal command; `scripts/install-macos.sh` does.
+
 ### Arch and Omarchy: a pacman package
 
 Instead of `scripts/install.sh`, you can build a pacman package, so Dovetail is installed, updated
