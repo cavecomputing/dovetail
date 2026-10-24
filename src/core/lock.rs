@@ -13,6 +13,8 @@ use std::path::{Path, PathBuf};
 #[derive(Debug)]
 pub struct Lock {
     _file: File,
+    // Only unix reads it: Windows keeps its lock files (see the drop below).
+    #[cfg_attr(not(unix), allow(dead_code))]
     path: PathBuf,
 }
 
