@@ -28,7 +28,7 @@ use crate::core::text_model::{Change, TextModel, offset, position, positions, se
 use crate::core::typing::{enter, in_empty_pair, typed};
 use crate::ui::app::Message;
 use crate::ui::highlighter::{
-    Colouring, Highlight, MarkupHighlighter, dimmed_format, highlight_format,
+    Colouring, DIMMED, Highlight, MarkupHighlighter, dimmed_format, highlight_format,
 };
 use crate::ui::scroll_bar::scroll_bar;
 use crate::ui::text_editor::{
@@ -131,7 +131,11 @@ fn style(theme: &Theme, editable: bool) -> text_editor::Style {
         background: Background::Color(iced::Color::TRANSPARENT),
         border: Border::default(),
         placeholder: roles.fg_subtle,
-        value: if editable { roles.fg } else { roles.fg_muted },
+        value: if editable {
+            roles.fg
+        } else {
+            roles.fg.scale_alpha(DIMMED)
+        },
         selection: roles.accent_cool.scale_alpha(0.35),
     }
 }

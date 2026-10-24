@@ -102,7 +102,7 @@ stays Save as), the pen in the status bar beside the assistant toggle, or "rewri
 
 - The window splits: the original on the left, read-only, and an editable copy on the right.
   The original is set apart by look alone, no label (2026-10-24): it sits on `bg-page`, its text
-  in `fg-muted` and its syntax colours faded, not dropped (2026-10-24: without them it was hard to
+  in `fg` at 80% and its syntax colours faded to 80%, not dropped (2026-10-24: without them it was hard to
   match a place on the left to the same place on the right). A read-only file's colours fade the
   same way.
 - The copy autosaves to a draft file in the data folder (`drafts/`, named like the document's lock),
