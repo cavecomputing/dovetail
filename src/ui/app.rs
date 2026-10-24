@@ -1948,7 +1948,7 @@ mod tests {
         let _ = app.update(Message::ToggleRewrite);
         assert!(app.original.is_none());
         assert!(!app.can_rewrite());
-        assert!(app.notice.is_none(), "scratch never offered one");
+        assert!(app.notice.is_some(), "the status bar says why");
     }
 
     #[test]
