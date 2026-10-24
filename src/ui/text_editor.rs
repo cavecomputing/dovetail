@@ -1356,7 +1356,8 @@ where
         // headings). tiny-skia clips a text only to its layer, and only when the text's own clip
         // pokes out of it, hence the layer and each number's own box as its clip. It also
         // repaints a right-aligned text's box as if it started where it ends, so each number is
-        // placed by its width in the mono font.
+        // placed by its width in the mono font. The box runs on to the text's edge: one just the
+        // number's width lost its last digit in the rewrite's right pane.
         if self.line_numbers {
             let size = self.text_size.unwrap_or_else(|| renderer.default_size());
             let gutter = Rectangle {
@@ -1377,7 +1378,7 @@ where
                     let left = right - number.len() as f32 * char_width;
                     let number_box = Rectangle::new(
                         Point::new(left, text_bounds.y + row.line_top),
-                        Size::new(right - left, row.line_height),
+                        Size::new(text_bounds.x - left, row.line_height),
                     );
                     renderer.fill_text(
                         Text {
