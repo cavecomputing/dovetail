@@ -101,7 +101,8 @@ The first step is a split review, in any file (not scratch, 2026-10-24): `Ctrl+R
 stays Save as), the pen in the status bar beside the assistant toggle, or "rewrite" in the menu.
 
 - The window splits: the original on the left, read-only, and an editable copy on the right.
-  The original is set apart by look alone, no label (2026-10-24): it sits on `bg-page`, its text
+  The original is set apart by look alone, no label (2026-10-24): it sits on `bg-page` in dark
+  and `bg-raised` in light (where `bg-page` is paler than the window; 2026-10-24), its text
   in `fg` at 80% and its syntax colours faded to 80%, not dropped (2026-10-24: without them it was hard to
   match a place on the left to the same place on the right). A read-only file's colours fade the
   same way. Neither shows a caret, nor lights the caret's line number, so nothing suggests typing

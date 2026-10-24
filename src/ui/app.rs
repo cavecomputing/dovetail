@@ -1114,7 +1114,7 @@ impl App {
             return draft;
         };
         // The original only scrolls and selects, so its actions go to it, not the draft. It is
-        // drawn set aside: on the darker page colour, its text and colours dimmed.
+        // drawn set aside: on the recessed colour, its text and colours dimmed.
         let original = editor::view(
             original,
             &self.settings,
@@ -1130,7 +1130,7 @@ impl App {
         row![
             container(original)
                 .width(Fill)
-                .style(|theme: &Theme| theme::fill(Roles::of(theme).bg_page)),
+                .style(|theme: &Theme| theme::fill(Roles::of(theme).bg_recessed)),
             assistant_view::divider(),
             container(draft).width(Fill),
         ]
