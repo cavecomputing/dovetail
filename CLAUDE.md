@@ -276,7 +276,7 @@ src/
                          them inside the document (review mode)
     rewrite.rs           a rewrite's draft file in the data folder: where it lives, start,
                          read back (a rewrite left open resumes), pause, delete; and what the
-                         draft changes from the original, word by word
+                         draft changes from the original, letter by letter
   ui/                    everything iced: windows, widgets, styling
     app.rs               the App state, Message enum, update and view
     theme.rs             Gruvbox palette roles, the font and its icon glyphs, shared styles

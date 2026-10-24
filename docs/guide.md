@@ -275,7 +275,7 @@ previous match), ⌘M (minimise) and ⌘Q (closes the window, waiting for the sa
   darker background with its text and colours faded (you can still scroll, select and copy),
   and a copy on the right that you edit.
 - The copy autosaves as usual, but to a draft of its own in the data folder, never to your file.
-- **What you've changed is lit faintly as you type**, word by word: what you put in, green on the
+- **What you've changed is lit faintly as you type**, down to the letter: what you put in, green on the
   right; what you took out, red on the left. The save dot stays yellow while the copy holds
   anything the file doesn't.
 - **Ctrl+S** writes the copy over the original, keeping the file's line endings, and the left side

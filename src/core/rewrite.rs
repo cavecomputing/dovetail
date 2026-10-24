@@ -60,7 +60,7 @@ pub fn remove_draft(data_dir: &Path, path: &Path) -> io::Result<()> {
     remove_file(&paused_path(data_dir, path))
 }
 
-/// What a draft changes from its original, word by word: the byte ranges of the original it takes
+/// What a draft changes from its original, letter by letter: the byte ranges of the original it takes
 /// out, and of the draft it puts in.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Changes {
@@ -68,13 +68,14 @@ pub struct Changes {
     pub added: Vec<Range<usize>>,
 }
 
-/// How long comparing one block of changed lines word by word may take, as it runs on every
-/// edit; past it, more of that block is lit than changed.
+/// How long each comparison past the lines (a block of changed lines word by word, a changed
+/// word letter by letter) may take, as they run on every edit; past it, more is lit than changed.
 const DIFF_TIME: Duration = Duration::from_millis(20);
 
-/// What `draft` changes from `original`, word by word. Lines are compared first, then only the
-/// lines that differ word by word: one word by word pass over a long text could run out of time
-/// and light everything between two small changes.
+/// What `draft` changes from `original`, letter by letter. Lines are compared first, then only
+/// the lines that differ word by word, then only the words that differ letter by letter: one
+/// finer pass over a long text could run out of time and light everything between two small
+/// changes.
 pub fn changes(original: &str, draft: &str) -> Changes {
     let lines = TextDiff::from_lines(original, draft);
     let old_starts = starts(lines.iter_old_slices());
@@ -99,13 +100,7 @@ pub fn changes(original: &str, draft: &str) -> Changes {
                 ..old.start + old_words[op.old_range().end];
             let added = new.start + new_words[op.new_range().start]
                 ..new.start + new_words[op.new_range().end];
-            let (removed, added) = untouched_marks(original, removed, draft, added);
-            if !removed.is_empty() {
-                extend(&mut changes.removed, removed, original);
-            }
-            if !added.is_empty() {
-                extend(&mut changes.added, added, draft);
-            }
+            letters(original, removed, draft, added, &mut changes);
         }
     }
     changes
@@ -120,35 +115,61 @@ fn starts<'a>(pieces: impl Iterator<Item = &'a str>) -> Vec<usize> {
     starts
 }
 
-/// Narrows a word taken out and the word put in its place past the punctuation both share at
-/// their ends: words are split at spaces only, so `{{user}}.` becoming `{name}.` would otherwise
-/// light the full stop that stayed.
-fn untouched_marks(
+/// How few letters left alike between changed ones are lit with them, so a word swapped for
+/// another doesn't light up around the odd letter they share.
+const SHARED_LETTERS: usize = 3;
+
+/// Adds the words `removed` from `original` and `added` in their place in `draft` to `changes`,
+/// letter by letter: the letters both keep at their ends stay unlit, and so do runs of at least
+/// `SHARED_LETTERS` between changed letters.
+fn letters(
     original: &str,
-    mut removed: Range<usize>,
+    removed: Range<usize>,
     draft: &str,
-    mut added: Range<usize>,
-) -> (Range<usize>, Range<usize>) {
-    let mark = |c: char| !c.is_alphanumeric() && !c.is_whitespace();
-    while let (Some(a), Some(b)) = (
-        original[removed.clone()].chars().next(),
-        draft[added.clone()].chars().next(),
-    ) && a == b
-        && mark(a)
-    {
-        removed.start += a.len_utf8();
-        added.start += a.len_utf8();
+    added: Range<usize>,
+    changes: &mut Changes,
+) {
+    let diff = TextDiff::configure()
+        .timeout(DIFF_TIME)
+        .diff_chars(&original[removed.clone()], &draft[added.clone()]);
+    let old_letters = starts(diff.iter_old_slices());
+    let new_letters = starts(diff.iter_new_slices());
+    let ops = diff.ops();
+    let mut lit: Option<(Range<usize>, Range<usize>)> = None;
+    for (index, op) in ops.iter().enumerate() {
+        let old = removed.start + old_letters[op.old_range().start]
+            ..removed.start + old_letters[op.old_range().end];
+        let new = added.start + new_letters[op.new_range().start]
+            ..added.start + new_letters[op.new_range().end];
+        let between = index > 0 && index + 1 < ops.len();
+        if op.tag() == DiffTag::Equal && !(between && op.old_range().len() < SHARED_LETTERS) {
+            light(lit.take(), original, draft, changes);
+            continue;
+        }
+        lit = match lit {
+            Some((lit_old, lit_new)) => Some((lit_old.start..old.end, lit_new.start..new.end)),
+            None => Some((old, new)),
+        };
     }
-    while let (Some(a), Some(b)) = (
-        original[removed.clone()].chars().next_back(),
-        draft[added.clone()].chars().next_back(),
-    ) && a == b
-        && mark(a)
-    {
-        removed.end -= a.len_utf8();
-        added.end -= a.len_utf8();
+    light(lit, original, draft, changes);
+}
+
+/// Adds a run of letters taken out of `original` and put into `draft` to `changes`.
+fn light(
+    run: Option<(Range<usize>, Range<usize>)>,
+    original: &str,
+    draft: &str,
+    changes: &mut Changes,
+) {
+    let Some((removed, added)) = run else {
+        return;
+    };
+    if !removed.is_empty() {
+        extend(&mut changes.removed, removed, original);
     }
-    (removed, added)
+    if !added.is_empty() {
+        extend(&mut changes.added, added, draft);
+    }
 }
 
 /// Adds `range` of `text` to `ranges`, joined to the last one when only spaces lie between them,
@@ -190,7 +211,7 @@ mod tests {
     }
 
     #[test]
-    fn changes_are_found_word_by_word() {
+    fn changes_are_found_letter_by_letter() {
         let original = "Always write in a friendly tone.\nKeep it short.\n";
         let draft = "Write in a warm tone.\nKeep it short.\nThanks!\n";
         let found = changes(original, draft);
@@ -200,26 +221,29 @@ mod tests {
                 .map(|range| text[range.clone()].to_string())
                 .collect()
         };
-        assert_eq!(
-            words(original, &found.removed),
-            ["Always write", "friendly"]
-        );
-        assert_eq!(words(draft, &found.added), ["Write", "warm", "Thanks!\n"]);
-        // Changed words with only a space between them are one run.
+        // A word swapped for another lights whole, not around the `r` they share.
+        assert_eq!(words(original, &found.removed), ["Always w", "friendly"]);
+        assert_eq!(words(draft, &found.added), ["W", "warm", "Thanks!\n"]);
+        // Changed words with only a space between them are one run (`each` keeps the `e` of
+        // `every`).
         let draft = "make each line short";
         let found = changes("keep every entry short", draft);
-        assert_eq!(words(draft, &found.added), ["make each line"]);
+        assert_eq!(words(draft, &found.added), ["make", "ach line"]);
         assert_eq!(changes(draft, draft), Changes::default());
-        // Punctuation kept at a changed word's ends stays unlit.
-        let original = "narrating for {{user}}. Then";
-        let draft = "narrating for {testing}. Then";
+        // Inside a word, only the letters that changed.
+        let original = "narrating for {{user}}. Then a colour";
+        let draft = "narrating for {{usr}}. Then a color";
+        let found = changes(original, draft);
+        assert_eq!(words(original, &found.removed), ["e", "u"]);
+        assert!(found.added.is_empty());
+        let draft = "narrating for {testing}. Then a colour";
         let found = changes(original, draft);
         assert_eq!(words(original, &found.removed), ["{user}"]);
         assert_eq!(words(draft, &found.added), ["testing"]);
     }
 
     #[test]
-    fn a_few_letters_changed_in_a_long_text_light_only_their_words() {
+    fn a_few_letters_changed_in_a_long_text_light_only_themselves() {
         // Long enough that a word by word diff of it all runs out of time, which lit everything
         // between the two changes.
         let original: String = (0..50_000)
@@ -237,8 +261,8 @@ mod tests {
                 .map(|range| text[range.clone()].to_string())
                 .collect()
         };
-        assert_eq!(words(&original, &found.removed), ["says", "same"]);
-        assert_eq!(words(&draft, &found.added), ["sayz", "sane"]);
+        assert_eq!(words(&original, &found.removed), ["s", "m"]);
+        assert_eq!(words(&draft, &found.added), ["z", "n"]);
     }
 
     #[test]

@@ -1719,7 +1719,7 @@ mod tests {
         let words: Vec<&str> = (app.changes.added.iter())
             .map(|range| &app.pane.model.text()[range.clone()])
             .collect();
-        assert_eq!(words, ["12"], "word by word, past the shared #");
+        assert_eq!(words, ["2"], "letter by letter");
         assert!(app.rewrite_unsaved());
         let _ = app.update(Message::Save);
         assert_eq!(app.changes, Changes::default());
