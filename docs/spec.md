@@ -107,6 +107,9 @@ stays Save as), the pen in the status bar beside the assistant toggle, or "rewri
   match a place on the left to the same place on the right). A read-only file's colours fade the
   same way. Neither shows a caret, nor lights the caret's line number, so nothing suggests typing
   there; selecting and copying stay (2026-10-24).
+- The status bar's counts show the original's, then the draft's: `108 → 120 words · ~158 →
+  ~170 tokens` (2026-10-24). The original is counted off the UI thread when the split opens and
+  after each `Ctrl+S`.
 - The copy autosaves to a draft file in the data folder (`drafts/`, named like the document's lock),
   never to the original. `Ctrl+S` writes it over the original and the left side shows the result;
   the split stays.

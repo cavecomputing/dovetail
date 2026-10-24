@@ -239,7 +239,7 @@ impl App {
             self.original = Some(original);
             self.counts = Counts::of(&draft);
         }
-        self.find_changes()
+        Task::batch([self.find_changes(), self.count_original()])
     }
 
     /// Works out what the draft changes from the original, for lighting both sides. The
@@ -295,6 +295,20 @@ impl App {
             .content
             .scroll_to_line(self.pane.content.scroll_line());
         self.original = Some(original);
-        self.find_changes()
+        Task::batch([self.find_changes(), self.count_original()])
+    }
+
+    /// Counts the original off the UI thread, for the status bar's "original → draft"; it only
+    /// changes when the rewrite starts or Ctrl+S writes it.
+    fn count_original(&mut self) -> Task<Message> {
+        self.original_counts = None;
+        let Some(original) = &self.original else {
+            return Task::none();
+        };
+        let text = original.model.text().to_string();
+        let document = self.document;
+        Task::perform(async move { Counts::of(&text) }, move |counts| {
+            Message::OriginalCounted(document, counts)
+        })
     }
 }

@@ -64,9 +64,19 @@ pub fn view(app: &App) -> Element<'_, Message> {
     // The path comes last, so in a narrow window a long one is what gets cut.
     left = left.push(small(doc_label(&app.doc)));
 
-    let tokens = format!("~{} tokens", app.counts.tokens);
+    // While rewriting, the original's counts come first: "108 → 120 words".
+    let (words, tokens) = match (&app.original, &app.original_counts) {
+        (Some(_), Some(original)) => (
+            format!("{} → {} words · ", original.words, app.counts.words),
+            format!("~{} → ~{} tokens", original.tokens, app.counts.tokens),
+        ),
+        _ => (
+            format!("{} words · ", app.counts.words),
+            format!("~{} tokens", app.counts.tokens),
+        ),
+    };
     let mut right = row![
-        small(format!("{} words · ", app.counts.words)),
+        small(words),
         hint(small(tokens), "about 4 bytes a token · UTF-8"),
     ]
     .align_y(iced::Center);

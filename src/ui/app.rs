@@ -104,6 +104,8 @@ pub struct App {
 
     /// The text's word and token counts. They lag behind typing (see `COUNT_PAUSE`).
     pub counts: Counts,
+    /// While rewriting: the original's counts, shown before the draft's.
+    pub original_counts: Option<Counts>,
     /// When the latest edit the counts don't include yet was made.
     uncounted_edit: Option<Instant>,
     /// The recent files, for the menu.
@@ -185,6 +187,8 @@ pub enum Message {
     Saved(u64, u64, Result<Option<DiskStamp>, String>),
     /// The counts of the document with this number (`App::document`).
     Counted(u64, Counts),
+    /// A rewrite's original counted, for the document the number names.
+    OriginalCounted(u64, Counts),
     /// The syntax check of the document with this number (`App::document`) ended.
     SyntaxChecked(u64, Option<String>),
     /// Format (`minify` off) or Minify a .json file's text.
@@ -338,6 +342,7 @@ impl App {
             settings_modified: modified_time(&paths),
             recent: existing_recent_files(&paths.data_dir),
             counts: Counts::of(&opened.text),
+            original_counts: None,
             uncounted_edit: None,
             last_comfort_chars: match settings.reading_mode {
                 ReadingMode::Comfort { chars } => chars,
@@ -597,6 +602,10 @@ impl App {
             }
             Message::Counted(document, counts) if document == self.document => self.counts = counts,
             Message::Counted(..) => {}
+            Message::OriginalCounted(document, counts) if document == self.document => {
+                self.original_counts = Some(counts);
+            }
+            Message::OriginalCounted(..) => {}
             Message::SyntaxChecked(document, problem) if document == self.document => {
                 self.syntax_problem = problem;
             }
@@ -1906,6 +1915,27 @@ mod tests {
         let _ = app.update(Message::ToggleRewrite);
         let _ = app.update(Message::ToggleRewrite);
         assert!(app.stale_draft.is_none());
+    }
+
+    #[test]
+    fn a_rewrite_counts_its_original_for_the_status_bar() {
+        let (_dir, _paths, mut app, _notes) = rewriting_notes("");
+        assert_eq!(app.original_counts, None, "counted off the UI thread");
+        let counts = Counts::of("# notes\n");
+        let _ = app.update(Message::OriginalCounted(
+            app.document - 1,
+            Counts::of("old"),
+        ));
+        assert_eq!(
+            app.original_counts, None,
+            "an answer for another document is dropped"
+        );
+        let _ = app.update(Message::OriginalCounted(app.document, counts));
+        assert_eq!(app.original_counts, Some(counts));
+        // Ctrl+S changes the original, so it is counted again.
+        type_in(&mut app, "more ");
+        let _ = app.update(Message::Save);
+        assert_eq!(app.original_counts, None);
     }
 
     #[test]

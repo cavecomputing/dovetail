@@ -276,6 +276,8 @@ previous match), ⌘M (minimise) and ⌘Q (closes the window, waiting for the sa
   darker background with its text and colours faded and no caret (you can still scroll, select
   and copy), and a copy on the right that you edit.
 - The copy autosaves as usual, but to a draft of its own in the data folder, never to your file.
+- The word and token counts show both sides, original first: `108 → 120 words · ~158 → ~170
+  tokens`.
 - **What you've changed is lit faintly as you type**, down to the letter: what you put in, green on the
   right; what you took out, red on the left. A line mostly rewritten lights whole. The save dot
   stays yellow while the copy holds anything the file doesn't.
