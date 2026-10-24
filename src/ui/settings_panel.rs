@@ -5,7 +5,6 @@ use iced::widget::TextInput;
 use iced::widget::{button, column, container, row, scrollable, space, text, text_input};
 use iced::{Background, Border, Color, Element, Fill, Padding, Theme};
 
-use crate::ai::key::KeyStore;
 use crate::core::paths::display_path;
 use crate::core::settings::{
     DEFAULT_BASE_URL, ReadingMode, RequestFormat, ScratchSyntax, Settings, Theme as ThemeSetting,
@@ -24,8 +23,6 @@ use crate::ui::theme::{self, GLYPH_CLOSE, GLYPH_MENU, Roles, bold, icon_button};
 #[derive(Debug, Default)]
 pub struct KeyField {
     pub text: String,
-    /// Where keys are kept on this machine; `None` until checked, when Settings opens.
-    pub store: Option<KeyStore>,
     pub saving: bool,
     pub error: Option<String>,
 }
@@ -581,31 +578,12 @@ fn text_box<'a>(placeholder: &str, value: &str) -> TextInput<'a, Message> {
         .style(field_style)
 }
 
-/// The keyring by the name people know it by on this OS.
-const KEYRING: &str = if cfg!(target_os = "macos") {
-    "the Keychain"
-} else if cfg!(windows) {
-    "Credential Manager"
-} else {
-    "the system keyring"
-};
-
-/// Where the key is kept, in words: the keyring, or settings.toml on macOS or when there is none.
+/// Why the key couldn't be read or saved, if it couldn't; a saved key shows as dots in the field.
 fn key_status<'a>(field: &KeyField) -> Element<'a, Message> {
-    if let Some(error) = &field.error {
-        return warning(error.clone());
+    match &field.error {
+        Some(error) => warning(error.clone()),
+        None => space().into(),
     }
-    let words = match (field.store, field.saving, field.text.trim().is_empty()) {
-        (None, _, _) => "checking for a keyring…".to_string(),
-        (_, true, _) => "saving…".to_string(),
-        (Some(KeyStore::Keyring), _, false) => format!("stored in {KEYRING}"),
-        (Some(KeyStore::Keyring), _, true) => format!("none saved · a key goes in {KEYRING}"),
-        (Some(KeyStore::SettingsFile), _, false) => "stored in settings.toml".to_string(),
-        (Some(KeyStore::SettingsFile), _, true) => {
-            "none saved · a key goes in settings.toml".to_string()
-        }
-    };
-    comment(words)
 }
 
 /// The test's outcome after the button: what the model replied, or why it failed.

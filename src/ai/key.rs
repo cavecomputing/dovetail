@@ -21,7 +21,7 @@ const KEY_USER: &str = "api-key";
 
 /// Where the key is kept.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum KeyStore {
+enum KeyStore {
     Keyring,
     /// settings.toml, readable by its owner only: on macOS always, elsewhere because no keyring
     /// is running.
@@ -31,7 +31,7 @@ pub enum KeyStore {
 /// Where a key is kept on this machine. Connects to the keyring the first time. On macOS it is
 /// always the settings file (see the top of this file); the other OSes use their keyring when one
 /// is running.
-pub fn key_store() -> KeyStore {
+fn key_store() -> KeyStore {
     if cfg!(target_os = "macos") {
         return KeyStore::SettingsFile;
     }
@@ -48,10 +48,8 @@ pub fn api_key(settings: &Settings) -> Result<Option<String>, String> {
 
 /// Saves `key` (an empty one deletes it). With a keyring, any copy in `settings` is removed; with
 /// none, the key goes in `settings`. Either way, save the settings afterwards.
-pub fn set_api_key(key: &str, settings: &mut Settings) -> Result<KeyStore, String> {
-    let store = key_store();
-    write_key(key, settings, store)?;
-    Ok(store)
+pub fn set_api_key(key: &str, settings: &mut Settings) -> Result<(), String> {
+    write_key(key, settings, key_store())
 }
 
 fn read_key(settings: &Settings, store: KeyStore) -> Result<Option<String>, String> {

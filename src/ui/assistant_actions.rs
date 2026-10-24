@@ -9,7 +9,7 @@ use iced::widget::{scrollable, text_editor};
 use crate::ai::agent::{Conversation, Next, test_connection};
 use crate::ai::client::{Item, Reply, StreamEvent};
 use crate::ai::context::{self, DocKind, Snapshot};
-use crate::ai::key::{KeyStore, api_key, key_store, set_api_key};
+use crate::ai::key::{api_key, set_api_key};
 use crate::ai::tools::Suggestion;
 use crate::core::opened::Doc;
 use crate::core::syntax::Syntax;
@@ -39,10 +39,10 @@ pub enum AssistantAction {
     /// The next piece of a reply to the question with this number.
     Reply(u64, StreamEvent),
     /// Settings: the saved key, and where keys are kept on this machine.
-    KeyLoaded(KeyStore, Result<Option<String>, String>),
+    KeyLoaded(Result<Option<String>, String>),
     KeyTyped(String),
     /// Settings: the key that was saved, where, and what settings.toml now holds of it.
-    KeySaved(Result<(String, KeyStore, Option<String>), String>),
+    KeySaved(Result<(String, Option<String>), String>),
     TestConnection,
     Tested(Result<String, String>),
 }
@@ -193,13 +193,10 @@ impl App {
             }
             AssistantAction::KeyRead(..) | AssistantAction::Reply(..) => {}
 
-            AssistantAction::KeyLoaded(store, key) => {
-                self.key_field.store = Some(store);
-                match key {
-                    Ok(key) => self.key_field.text = key.unwrap_or_default(),
-                    Err(reason) => self.key_field.error = Some(reason),
-                }
-            }
+            AssistantAction::KeyLoaded(key) => match key {
+                Ok(key) => self.key_field.text = key.unwrap_or_default(),
+                Err(reason) => self.key_field.error = Some(reason),
+            },
             AssistantAction::KeyTyped(text) => {
                 self.key_field.text = text;
                 self.connection = None;
@@ -211,8 +208,7 @@ impl App {
             AssistantAction::KeySaved(result) => {
                 self.key_field.saving = false;
                 match result {
-                    Ok((saved, store, in_settings)) => {
-                        self.key_field.store = Some(store);
+                    Ok((saved, in_settings)) => {
                         self.key_field.error = None;
                         self.settings.api_key_fallback = in_settings;
                         self.save_settings();
@@ -372,13 +368,12 @@ impl App {
         }
     }
 
-    /// Reads the saved key and where keys are kept, off the UI thread, for the Settings panel.
+    /// Reads the saved key off the UI thread, for the Settings panel.
     pub fn load_key(&self) -> Task<Message> {
         let settings = self.settings.clone();
-        Task::perform(
-            async move { (key_store(), api_key(&settings)) },
-            |(store, key)| Message::Assistant(AssistantAction::KeyLoaded(store, key)),
-        )
+        Task::perform(async move { api_key(&settings) }, |key| {
+            Message::Assistant(AssistantAction::KeyLoaded(key))
+        })
     }
 
     /// Saves the key field off the UI thread: to the keyring, or settings.toml without one.
@@ -387,10 +382,7 @@ impl App {
         let key = self.key_field.text.clone();
         let mut settings = self.settings.clone();
         Task::perform(
-            async move {
-                set_api_key(&key, &mut settings)
-                    .map(|store| (key, store, settings.api_key_fallback))
-            },
+            async move { set_api_key(&key, &mut settings).map(|()| (key, settings.api_key_fallback)) },
             |saved| Message::Assistant(AssistantAction::KeySaved(saved)),
         )
     }
