@@ -1,11 +1,11 @@
 //! What launching on a document means: which text to show, where the cursor goes, and whether
 //! the window may edit it (and if not, why not).
 
-use std::fs::{File, TryLockError};
+use std::fs::TryLockError;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
-use crate::core::lock::{claim_lock, file_lock_path, locked_elsewhere};
+use crate::core::lock::{Lock, claim_lock, file_lock_path, locked_elsewhere};
 use crate::core::paths::Paths;
 use crate::core::recent::{remember, same_file};
 use crate::core::save::{atomic_write, check_writable, failure_reason};
@@ -51,7 +51,7 @@ pub struct OpenedDoc {
     /// Why the text can't be edited; `None` means it can.
     pub read_only_reason: Option<String>,
     /// The lock that keeps other windows off this document. Hold it while the window is open.
-    pub lock: Option<File>,
+    pub lock: Option<Lock>,
     /// The file on disk as it was read, so a save can tell if someone else changed it.
     pub disk_stamp: Option<DiskStamp>,
     /// What scratch held before Save to a file emptied it, for the window to offer as its first
@@ -181,7 +181,7 @@ pub fn save_as(
     text: &str,
     line_ending: LineEnding,
     bom: bool,
-) -> Result<(Option<File>, Option<DiskStamp>), String> {
+) -> Result<(Option<Lock>, Option<DiskStamp>), String> {
     if is_own_file(data_dir, own, path) {
         return Err(OPEN_HERE.to_string());
     }

@@ -8,13 +8,13 @@
 //! the next scratch window opens, which takes it back as its first undo step: scratch opens empty,
 //! and Ctrl+Z brings the text back.
 
-use std::fs::{self, File, TryLockError};
+use std::fs::{self, TryLockError};
 use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::core::lock::{claim_lock, locked_elsewhere};
+use crate::core::lock::{Lock, claim_lock, locked_elsewhere};
 use crate::core::save::atomic_write;
 use crate::core::text_file::read_text;
 
@@ -125,7 +125,7 @@ pub fn scratch_text_path(data_dir: &Path) -> PathBuf {
 /// Claims the scratch space for this process, so a second window can't write over it. Keep the
 /// returned `File` open while the window lives; the claim ends with the process.
 /// `Err(TryLockError::WouldBlock)` means another window already has it.
-pub fn claim_scratch(data_dir: &Path) -> Result<File, TryLockError> {
+pub fn claim_scratch(data_dir: &Path) -> Result<Lock, TryLockError> {
     claim_lock(&scratch_lock_path(data_dir))
 }
 

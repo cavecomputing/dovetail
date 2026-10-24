@@ -1,7 +1,6 @@
 //! The App: its state, the Message enum, `update` (the only place state changes) and `view`.
 //! One process shows one document in one window; Settings opens over it.
 
-use std::fs::File;
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime};
 
@@ -12,6 +11,7 @@ use iced::{Element, Size, Subscription, Task, Theme, event, keyboard};
 use crate::core::config::yaml_indent;
 use crate::core::counts::Counts;
 use crate::core::json::reformat;
+use crate::core::lock::Lock;
 use crate::core::opened::{Doc, OpenedDoc, open_doc, write_doc};
 use crate::core::paths::Paths;
 use crate::core::recent::existing_recent_files;
@@ -69,7 +69,7 @@ pub struct App {
     /// typing).
     pub syntax_problem: Option<String>,
     /// Keeps other windows off this document until the process ends.
-    pub _doc_lock: Option<File>,
+    pub _doc_lock: Option<Lock>,
     /// The file on disk as this window last read or wrote it.
     pub disk_stamp: Option<DiskStamp>,
     /// A save was refused because the file changed on disk; the status bar offers a way out.
@@ -885,6 +885,8 @@ impl App {
     /// window stays open and the status bar shows why.
     fn continue_closing(&mut self) -> Task<Message> {
         if !self.editable() || self.autosaver.close_allowed() {
+            // Let go of the document now: the app may end without dropping it (Lock's drop).
+            self._doc_lock = None;
             return window::close(self.main_window);
         }
         if self.autosaver.is_saving() {

@@ -1,27 +1,75 @@
 //! Locks that stop two windows from editing the same document.
 //!
 //! The lock is the operating system's own file lock, so it is released the moment the process
-//! ends, even after a crash or a power cut, and it can never be left behind stale.
+//! ends, even after a crash or a power cut, and it can never be left behind stale. A window
+//! letting go of a document deletes its lock file too (Linux and macOS), so `locks/` holds only
+//! the documents open now, give or take one left by a crash.
 
 use std::fs::{self, File, OpenOptions, TryLockError};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 
+/// A claim on a document: the lock on its lock file, held until this is dropped.
+#[derive(Debug)]
+pub struct Lock {
+    _file: File,
+    path: PathBuf,
+}
+
+impl Drop for Lock {
+    /// Deletes the lock file while still holding it, so no other window can claim it in between;
+    /// one that opened it just before sees it gone once it gets the lock, and starts again
+    /// (`claim_lock`). Windows keeps the file: there a file another window has open can't be made
+    /// again until that window closes it, which would leave the next window unguarded.
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        let _ = fs::remove_file(&self.path);
+    }
+}
+
 /// Takes the lock at `lock_path`, creating the file and its folder if needed. Keep the returned
-/// `File` for as long as the lock should be held; dropping it lets the lock go.
+/// `Lock` for as long as the lock should be held; dropping it lets the lock go.
 /// `Err(TryLockError::WouldBlock)` means another running process holds it.
-pub fn claim_lock(lock_path: &Path) -> Result<File, TryLockError> {
+pub fn claim_lock(lock_path: &Path) -> Result<Lock, TryLockError> {
     if let Some(dir) = lock_path.parent() {
         fs::create_dir_all(dir).map_err(TryLockError::Error)?;
     }
-    let file = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(lock_path)
-        .map_err(TryLockError::Error)?;
-    file.try_lock()?;
-    Ok(file)
+    // A lock file deleted between opening and locking it (see `Lock`'s drop) guards nothing, so
+    // start again on the new one. Three tries; a file system that loses files any faster than
+    // that gets the lock it has.
+    let mut tries = 0;
+    loop {
+        let file = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(lock_path)
+            .map_err(TryLockError::Error)?;
+        file.try_lock()?;
+        tries += 1;
+        if tries == 3 || still_there(&file, lock_path) {
+            return Ok(Lock {
+                _file: file,
+                path: lock_path.to_path_buf(),
+            });
+        }
+    }
+}
+
+/// True when `path` is still the file `file` opened, not deleted or made again since.
+#[cfg(unix)]
+fn still_there(file: &File, path: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    match (file.metadata(), fs::metadata(path)) {
+        (Ok(held), Ok(now)) => held.dev() == now.dev() && held.ino() == now.ino(),
+        _ => false,
+    }
+}
+
+/// Windows never deletes a lock file (see `Lock`), so the one opened is always still there.
+#[cfg(not(unix))]
+fn still_there(_file: &File, _path: &Path) -> bool {
+    true
 }
 
 /// True when another running process holds the lock at `lock_path`.
@@ -62,6 +110,33 @@ mod tests {
         drop(first);
         assert!(!locked_elsewhere(&path));
         assert!(claim_lock(&path).is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn letting_go_deletes_the_lock_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("doc.lock");
+        let lock = claim_lock(&path).unwrap();
+        assert!(path.exists());
+        drop(lock);
+        assert!(!path.exists());
+        // A check that finds nobody holding it leaves none behind either.
+        assert!(!locked_elsewhere(&path));
+        assert!(!path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_lock_file_deleted_before_it_was_locked_is_claimed_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("doc.lock");
+        // Opened before another window deleted it, as a claim in between would have.
+        let stale = File::create(&path).unwrap();
+        fs::remove_file(&path).unwrap();
+        assert!(!still_there(&stale, &path));
+        let lock = claim_lock(&path).unwrap();
+        assert!(still_there(&lock._file, &path));
     }
 
     #[test]
