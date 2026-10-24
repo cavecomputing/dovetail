@@ -10,7 +10,7 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use similar::{ChangeTag, TextDiff};
+use similar::{ChangeTag, DiffTag, TextDiff};
 
 use crate::core::lock::file_lock_path;
 use crate::core::save::atomic_write;
@@ -68,35 +68,56 @@ pub struct Changes {
     pub added: Vec<Range<usize>>,
 }
 
-/// How long working out `changes` may take, as it runs on every edit; past it, the diff is
-/// rougher but still right.
+/// How long comparing one block of changed lines word by word may take, as it runs on every
+/// edit; past it, more of that block is lit than changed.
 const DIFF_TIME: Duration = Duration::from_millis(20);
 
-/// What `draft` changes from `original`, word by word.
+/// What `draft` changes from `original`, word by word. Lines are compared first, then only the
+/// lines that differ word by word: one word by word pass over a long text could run out of time
+/// and light everything between two small changes.
 pub fn changes(original: &str, draft: &str) -> Changes {
-    let diff = TextDiff::configure()
-        .timeout(DIFF_TIME)
-        .diff_words(original, draft);
+    let lines = TextDiff::from_lines(original, draft);
+    let old_starts = line_starts(lines.iter_old_slices());
+    let new_starts = line_starts(lines.iter_new_slices());
     let mut changes = Changes::default();
-    let (mut old, mut new) = (0, 0);
-    for change in diff.iter_all_changes() {
-        let length = change.value().len();
-        match change.tag() {
-            ChangeTag::Equal => {
-                old += length;
-                new += length;
-            }
-            ChangeTag::Delete => {
-                extend(&mut changes.removed, old..old + length, original);
-                old += length;
-            }
-            ChangeTag::Insert => {
-                extend(&mut changes.added, new..new + length, draft);
-                new += length;
+    for op in lines.ops() {
+        if op.tag() == DiffTag::Equal {
+            continue;
+        }
+        let old = old_starts[op.old_range().start]..old_starts[op.old_range().end];
+        let new = new_starts[op.new_range().start]..new_starts[op.new_range().end];
+        let words = TextDiff::configure()
+            .timeout(DIFF_TIME)
+            .diff_words(&original[old.clone()], &draft[new.clone()]);
+        let (mut old, mut new) = (old.start, new.start);
+        for change in words.iter_all_changes() {
+            let length = change.value().len();
+            match change.tag() {
+                ChangeTag::Equal => {
+                    old += length;
+                    new += length;
+                }
+                ChangeTag::Delete => {
+                    extend(&mut changes.removed, old..old + length, original);
+                    old += length;
+                }
+                ChangeTag::Insert => {
+                    extend(&mut changes.added, new..new + length, draft);
+                    new += length;
+                }
             }
         }
     }
     changes
+}
+
+/// The byte offset each of `lines` starts at, and the end of the last.
+fn line_starts<'a>(lines: impl Iterator<Item = &'a str>) -> Vec<usize> {
+    let mut starts = vec![0];
+    for line in lines {
+        starts.push(starts[starts.len() - 1] + line.len());
+    }
+    starts
 }
 
 /// Adds `range` of `text` to `ranges`, joined to the last one when only spaces lie between them,
@@ -158,6 +179,29 @@ mod tests {
         let found = changes("keep every entry short", draft);
         assert_eq!(words(draft, &found.added), ["make each line"]);
         assert_eq!(changes(draft, draft), Changes::default());
+    }
+
+    #[test]
+    fn a_few_letters_changed_in_a_long_text_light_only_their_words() {
+        // Long enough that a word by word diff of it all runs out of time, which lit everything
+        // between the two changes.
+        let original: String = (0..50_000)
+            .map(|line| format!("line {line} says the same few words again\n"))
+            .collect();
+        let draft = (original.replacen("line 2500 says", "line 2500 sayz", 1)).replacen(
+            "40000 says the same",
+            "40000 says the sane",
+            1,
+        );
+        let found = changes(&original, &draft);
+        let words = |text: &str, ranges: &[Range<usize>]| -> Vec<String> {
+            ranges
+                .iter()
+                .map(|range| text[range.clone()].to_string())
+                .collect()
+        };
+        assert_eq!(words(&original, &found.removed), ["says", "same"]);
+        assert_eq!(words(&draft, &found.added), ["sayz", "sane"]);
     }
 
     #[test]
