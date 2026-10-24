@@ -272,8 +272,8 @@ previous match), ⌘M (minimise) and ⌘Q (closes the window, waiting for the sa
 
 - **Ctrl+R**, the pen at the right of the status bar, or "rewrite" in the menu starts a rewrite of
   the open file (scratch has none). The window splits: the original on the left, read-only on a
-  darker background with its text and colours faded (you can still scroll, select and copy),
-  and a copy on the right that you edit.
+  darker background with its text and colours faded and no caret (you can still scroll, select
+  and copy), and a copy on the right that you edit.
 - The copy autosaves as usual, but to a draft of its own in the data folder, never to your file.
 - **What you've changed is lit faintly as you type**, down to the letter: what you put in, green on the
   right; what you took out, red on the left. The save dot stays yellow while the copy holds

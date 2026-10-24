@@ -93,6 +93,7 @@ pub fn view<'a>(
         .line_height(LINE_HEIGHT)
         .padding(padding)
         .line_numbers(settings.line_numbers)
+        .caret(editable)
         .height(Fill)
         .style(move |theme, _status| style(theme, editable))
         .on_action(Message::Edit)
