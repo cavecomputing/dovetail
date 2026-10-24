@@ -233,7 +233,8 @@ pub fn view(app: &App) -> Element<'_, Message> {
         .padding(0)
         .style(icon_button)
         .on_press(Message::CloseMenu);
-    let header = row![space().width(Fill), close].align_y(iced::Center);
+    let version = comment(concat!("version ", env!("CARGO_PKG_VERSION")));
+    let header = row![version, close].align_y(iced::Center);
 
     // A blank line between sections, as in a file.
     let mut page = column![header, appearance, editor, saving, assistant].spacing(LINE);
