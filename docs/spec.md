@@ -119,7 +119,8 @@ stays Save as), the pen in the status bar beside the assistant toggle, or "rewri
   so `Ctrl+Z` can't put the draft's changes into the file.
 - What the draft changes from the original is lit as it's typed (2026-10-24), letter by letter
   within a word (a word swapped for another lights whole, not around a letter or two they
-  share) and faintly (`added` behind text put in on the right, `removed` behind text taken out on the left;
+  share, and a line with more than half its letters changed lights whole, each side judged on
+  its own, 2026-10-24) and faintly (`added` behind text put in on the right, `removed` behind text taken out on the left;
   no strike-through), so it doesn't pull the eye from the text. The save dot stays steady yellow
   while the draft differs from the file; `Ctrl+S` clears the lit changes and the dot goes aqua.
 - A draft left by a closed window, or a crash, brings the split back the next time its document

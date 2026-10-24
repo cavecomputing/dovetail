@@ -144,6 +144,7 @@ pub fn changes(original: &str, draft: &str) -> Changes {
             .diff_words(&original[old.clone()], &draft[new.clone()]);
         let old_words = starts(words.iter_old_slices());
         let new_words = starts(words.iter_new_slices());
+        let mut block = Changes::default();
         for op in words.ops() {
             if op.tag() == DiffTag::Equal {
                 continue;
@@ -153,13 +154,55 @@ pub fn changes(original: &str, draft: &str) -> Changes {
             let added = new.start + new_words[op.new_range().start]
                 ..new.start + new_words[op.new_range().end];
             if removed.len() + added.len() > LETTER_PASS_BYTES || Instant::now() >= deadline {
-                light(Some((removed, added)), original, draft, &mut changes);
+                light(Some((removed, added)), original, draft, &mut block);
                 continue;
             }
-            letters(original, removed, draft, added, deadline, &mut changes);
+            letters(original, removed, draft, added, deadline, &mut block);
+        }
+        for range in whole_lines(original, old, block.removed) {
+            extend(&mut changes.removed, range, original);
+        }
+        for range in whole_lines(draft, new, block.added) {
+            extend(&mut changes.added, range, draft);
         }
     }
     changes
+}
+
+/// `lit`, the changed ranges of `text` within `block` (whole lines), with each line that has
+/// more than half its letters lit lit whole instead. Matched letter by letter against unrelated
+/// text, a line mostly rewritten would light in patches, as if parts of it survived.
+fn whole_lines(text: &str, block: Range<usize>, mut lit: Vec<Range<usize>>) -> Vec<Range<usize>> {
+    let letters = |range: Range<usize>| {
+        let range = range.start.max(block.start)..range.end.min(block.end);
+        (text.get(range).unwrap_or(""))
+            .chars()
+            .filter(|letter| !letter.is_whitespace())
+            .count()
+    };
+    let mut start = block.start;
+    for line in text[block.clone()].split_inclusive('\n') {
+        let end = start + line.trim_end_matches('\n').len();
+        let indent = text[start..end].len() - text[start..end].trim_start().len();
+        let content = start + indent..end;
+        let changed: usize = (lit.iter())
+            .map(|range| letters(range.start.max(content.start)..range.end.min(content.end)))
+            .sum();
+        if changed * 2 > letters(content.clone()) {
+            lit = (lit.into_iter())
+                .flat_map(|range| {
+                    let before = range.start..range.end.min(content.start);
+                    let after = range.start.max(content.end)..range.end;
+                    [before, after]
+                })
+                .filter(|range| !range.is_empty())
+                .collect();
+            lit.push(content);
+        }
+        start += line.len();
+    }
+    lit.sort_by_key(|range| range.start);
+    lit
 }
 
 impl Changes {
@@ -309,13 +352,26 @@ mod tests {
                 .map(|range| text[range.clone()].to_string())
                 .collect()
         };
-        // A word swapped for another lights whole, not around the `r` they share.
-        assert_eq!(words(original, &found.removed), ["Always w", "friendly"]);
+        // A line with more than half its letters changed lights whole, not in patches; each side
+        // is judged on its own, and most of the new line's letters were there before.
+        assert_eq!(
+            words(original, &found.removed),
+            ["Always write in a friendly tone."]
+        );
         assert_eq!(words(draft, &found.added), ["W", "warm", "Thanks!\n"]);
+        // A word swapped for another lights whole, not around the `r` they share.
+        let original = "Always write in a friendly tone, and keep every answer short.\n";
+        let draft = "Always write in a warm tone, and keep every answer short.\n";
+        let found = changes(original, draft);
+        assert_eq!(words(original, &found.removed), ["friendly"]);
+        assert_eq!(words(draft, &found.added), ["warm"]);
         // Changed words with only a space between them are one run (`each` keeps the `e` of
         // `every`).
-        let draft = "make each line short";
-        let found = changes("keep every entry short", draft);
+        let draft = "Please make each line short and clear for whoever reads it";
+        let found = changes(
+            "Please keep every entry short and clear for whoever reads it",
+            draft,
+        );
         assert_eq!(words(draft, &found.added), ["make", "ach line"]);
         assert_eq!(changes(draft, draft), Changes::default());
         // Inside a word, only the letters that changed.
@@ -328,6 +384,31 @@ mod tests {
         let found = changes(original, draft);
         assert_eq!(words(original, &found.removed), ["{user}"]);
         assert_eq!(words(draft, &found.added), ["testing"]);
+    }
+
+    #[test]
+    fn a_line_swapped_for_an_unrelated_one_lights_whole() {
+        let original = "- Never promise a delivery date.\n- If you don't know, say so.\n\
+                        Store credit is offered as an alternative.\n";
+        let draft = "- Never promise a delivery date; give the usual range.\n\
+                     Faulty items are repaired or replaced free of charge.\n";
+        let found = changes(original, draft);
+        let words = |text: &str, ranges: &[Range<usize>]| -> Vec<String> {
+            ranges
+                .iter()
+                .map(|range| text[range.clone()].to_string())
+                .collect()
+        };
+        // The line that mostly survives keeps its fine lighting; the others light whole, not
+        // around the odd letters ("ed ", "as") they happen to share.
+        assert_eq!(
+            words(original, &found.removed),
+            [".\n- If you don't know, say so.\nStore credit is offered as an alternative."]
+        );
+        assert_eq!(
+            words(draft, &found.added),
+            ["; give the usual range.\nFaulty items are repaired or replaced free of charge."]
+        );
     }
 
     #[test]

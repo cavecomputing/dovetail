@@ -277,8 +277,8 @@ previous match), ⌘M (minimise) and ⌘Q (closes the window, waiting for the sa
   and copy), and a copy on the right that you edit.
 - The copy autosaves as usual, but to a draft of its own in the data folder, never to your file.
 - **What you've changed is lit faintly as you type**, down to the letter: what you put in, green on the
-  right; what you took out, red on the left. The save dot stays yellow while the copy holds
-  anything the file doesn't.
+  right; what you took out, red on the left. A line mostly rewritten lights whole. The save dot
+  stays yellow while the copy holds anything the file doesn't.
 - **Ctrl+S** writes the copy over the original, keeping the file's line endings, and the left side
   then shows what was saved: the lit changes clear and the save dot turns aqua. You stay in the
   split to carry on. If another program changed the file meanwhile, nothing is written: the left
