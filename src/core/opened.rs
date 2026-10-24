@@ -37,6 +37,14 @@ impl Doc {
             bom: false,
         }
     }
+
+    /// The file's path; `None` for scratch.
+    pub fn path(&self) -> Option<&Path> {
+        match self {
+            Doc::Scratch => None,
+            Doc::File { path, .. } => Some(path),
+        }
+    }
 }
 
 /// A document ready for the window.

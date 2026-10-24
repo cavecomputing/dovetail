@@ -84,7 +84,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
         )));
     }
     right = right.push(space().width(16));
-    if app.editable() {
+    if app.can_rewrite() {
         right = right.push(rewrite_toggle(app.original.is_some()));
     }
     right = right.push(assistant_toggle(app.assistant.open));
@@ -288,7 +288,7 @@ pub fn menu(app: &App) -> Element<'_, Message> {
         Doc::Scratch => items.push(menu_item("save to a file", "Ctrl+S", Message::SaveAs)),
         Doc::File { .. } => items.push(menu_item("save as", "Ctrl+Shift+S", Message::SaveAs)),
     };
-    if app.editable() {
+    if app.can_rewrite() {
         let rewrite = match app.original {
             Some(_) => "end rewrite",
             None => "rewrite",

@@ -957,9 +957,9 @@ impl App {
     /// Where autosave writes the text, and the file on disk as last seen there: the document, or
     /// while rewriting the draft's own file (which nothing else writes, so it has no stamp).
     fn saved_to(&self) -> (Doc, Option<DiskStamp>) {
-        match self.original {
-            Some(_) => (Doc::file(draft_path(&self.paths.data_dir, &self.doc)), None),
-            None => (self.doc.clone(), self.disk_stamp),
+        match (&self.original, self.doc.path()) {
+            (Some(_), Some(path)) => (Doc::file(draft_path(&self.paths.data_dir, path)), None),
+            _ => (self.doc.clone(), self.disk_stamp),
         }
     }
 
@@ -1687,7 +1687,7 @@ mod tests {
         type_in(&mut app, "2");
         assert!(app.save_before_leaving());
         assert_eq!(std::fs::read_to_string(&notes).unwrap(), "1# notes\r\n");
-        let draft = read_draft(&paths.data_dir, &app.doc);
+        let draft = read_draft(&paths.data_dir, &notes);
         assert_eq!(draft.as_deref(), Some("12# notes\n"));
         // Ctrl+S writes it over the original, with the file's line endings, and the left shows it.
         let _ = app.update(Message::Save);
@@ -1709,7 +1709,7 @@ mod tests {
         let _ = app.update(Message::ToggleRewrite);
         assert!(app.original.is_none());
         assert_eq!(app.pane.model.text(), "1# notes\n");
-        assert_eq!(read_draft(&paths.data_dir, &app.doc), None);
+        assert_eq!(read_draft(&paths.data_dir, &notes), None);
         assert!(!app.autosaver.pending(), "the file already holds it");
         let _ = app.update(Message::Undo);
         assert_eq!(app.pane.model.text(), "1# notes\n");
@@ -1729,26 +1729,29 @@ mod tests {
         // Another window can't edit it, so it shows the file and leaves the draft alone.
         let (other, _) = App::with_paths(file_doc(&notes), paths.clone());
         assert!(other.original.is_none());
-        assert!(read_draft(&paths.data_dir, &app.doc).is_some());
+        assert!(read_draft(&paths.data_dir, &notes).is_some());
     }
 
     #[test]
     fn save_as_ends_a_rewrite_with_the_draft_in_the_new_file() {
         let (dir, paths, mut app, notes) = rewriting_notes("");
         type_in(&mut app, "draft ");
-        let old = app.doc.clone();
         let copy = dir.path().join("copy.md");
         let _ = app.update(Message::SaveAsPicked(app.document, copy.clone()));
         assert!(app.original.is_none());
         assert_eq!(std::fs::read_to_string(&copy).unwrap(), "draft # notes\r\n");
         assert_eq!(std::fs::read_to_string(&notes).unwrap(), "# notes\r\n");
-        assert_eq!(read_draft(&paths.data_dir, &old), None);
+        assert_eq!(read_draft(&paths.data_dir, &notes), None);
     }
 
     #[test]
-    fn ctrl_r_toggles_a_rewrite() {
+    fn ctrl_r_toggles_a_rewrite_but_not_in_scratch() {
         let press = shortcut_for("r", "r", keyboard::Modifiers::COMMAND);
         assert!(matches!(press, Some(Message::ToggleRewrite)));
+        let (_dir, _paths, mut app, _notes) = scratch_window("jotted");
+        let _ = app.update(Message::ToggleRewrite);
+        assert!(app.original.is_none());
+        assert!(!app.can_rewrite());
     }
 
     #[test]

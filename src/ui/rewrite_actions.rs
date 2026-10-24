@@ -14,13 +14,19 @@ use crate::ui::app::{App, Message};
 use crate::ui::editor::{self, Pane};
 
 impl App {
-    /// Ctrl+R and the pen button: starts a rewrite of the document, or ends the one under way.
+    /// Whether the document can be rewritten: a file this window can edit (scratch has no
+    /// rewrite).
+    pub fn can_rewrite(&self) -> bool {
+        self.editable() && self.doc.path().is_some()
+    }
+
+    /// Ctrl+R and the pen button: starts a rewrite of the file, or ends the one under way.
     /// An autosave running now is waited for, as its `Saved` comes back here: the original's
     /// would land after the rewrite started, and a draft's after its rewrite ended, bringing the
     /// draft back.
     pub fn toggle_rewrite(&mut self) -> Task<Message> {
         self.menu_open = false;
-        if !self.editable() {
+        if !self.can_rewrite() {
             return Task::none();
         }
         if self.disk_conflict {
@@ -45,7 +51,10 @@ impl App {
             return;
         }
         let text = self.pane.model.text().to_string();
-        if let Err(error) = write_draft(&self.paths.data_dir, &self.doc, &text) {
+        let Some(path) = self.doc.path() else {
+            return;
+        };
+        if let Err(error) = write_draft(&self.paths.data_dir, path, &text) {
             self.set_notice(Some(format!("Couldn't start a rewrite: {error}")));
             return;
         }
@@ -63,7 +72,9 @@ impl App {
     /// original's pane comes back with an undo history of its own, so no Ctrl+Z brings the draft
     /// into the document.
     fn end_rewrite(&mut self) {
-        if let Err(error) = remove_draft(&self.paths.data_dir, &self.doc) {
+        if let Some(path) = self.doc.path()
+            && let Err(error) = remove_draft(&self.paths.data_dir, path)
+        {
             self.set_notice(Some(format!("Couldn't end the rewrite: {error}")));
             return;
         }
@@ -124,7 +135,9 @@ impl App {
         if !self.editable() {
             return;
         }
-        if let Some(draft) = read_draft(&self.paths.data_dir, &self.doc) {
+        if let Some(path) = self.doc.path()
+            && let Some(draft) = read_draft(&self.paths.data_dir, path)
+        {
             let original = std::mem::replace(&mut self.pane, Pane::new(&draft));
             self.original = Some(original);
             self.counts = Counts::of(&draft);

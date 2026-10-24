@@ -168,16 +168,16 @@ impl App {
             Err(reason) => self.set_notice(Some(reason)),
             Ok((lock, stamp)) => {
                 self.set_notice(match self.doc {
-                    Doc::Scratch if self.editable() && self.original.is_none() => {
-                        clear_scratch(data_dir, text)
-                            .err()
-                            .map(|error| failure_reason(&error))
-                    }
+                    Doc::Scratch if self.editable() => clear_scratch(data_dir, text)
+                        .err()
+                        .map(|error| failure_reason(&error)),
                     _ => None,
                 });
                 // A rewrite saved as a new file is done: the original keeps its last save.
-                if self.original.take().is_some() {
-                    let _ = remove_draft(&self.paths.data_dir, &self.doc);
+                if self.original.take().is_some()
+                    && let Some(current) = self.doc.path()
+                {
+                    let _ = remove_draft(&self.paths.data_dir, current);
                 }
                 self._doc_lock = lock;
                 self.doc = Doc::File {

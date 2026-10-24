@@ -97,7 +97,7 @@ Rules:
 ## 7. Split review: the first step of rewriting
 
 The `rewrite` branch below is set aside; its features come back one step at a time (2026-10-23).
-The first step is a split review, in any file or scratch: `Ctrl+R` (2026-10-23, so `Ctrl+Shift+S`
+The first step is a split review, in any file (not scratch, 2026-10-24): `Ctrl+R` (2026-10-23, so `Ctrl+Shift+S`
 stays Save as), the pen in the status bar beside the assistant toggle, or "rewrite" in the menu.
 
 - The window splits: the original on the left, read-only, and an editable copy on the right.
