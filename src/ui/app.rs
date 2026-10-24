@@ -1777,6 +1777,11 @@ mod tests {
         type_in(&mut app, "draft ");
         let _ = app.update(Message::ToggleRewrite);
         assert_eq!(
+            app.pane.caret(),
+            6,
+            "the caret stays where it was in the draft"
+        );
+        assert_eq!(
             read_draft(&paths.data_dir, &notes),
             None,
             "not reopened with the file"

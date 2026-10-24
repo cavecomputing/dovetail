@@ -87,13 +87,16 @@ impl App {
 
     /// Goes back to the original as last saved, keeping the draft aside for the next Ctrl+R (a
     /// draft no different from the original is just deleted). The original's pane comes back
-    /// with an undo history of its own, so no Ctrl+Z brings the draft into the document.
+    /// with an undo history of its own, so no Ctrl+Z brings the draft into the document. The
+    /// caret and the view stay where they were in the draft.
     fn pause_rewrite(&mut self) {
         let Some(original) = self.original.take() else {
             return;
         };
         let draft = self.pane.model.text();
         let changed = draft != original.model.text();
+        let caret = self.pane.caret();
+        let top = self.pane.content.scroll_line();
         if let Some(path) = self.doc.path() {
             let data_dir = &self.paths.data_dir;
             let kept = match changed {
@@ -107,6 +110,9 @@ impl App {
             }
         }
         self.pane = original;
+        let caret = self.pane.model.text().floor_char_boundary(caret);
+        self.pane.put_caret(caret);
+        self.pane.content.scroll_to_line(top);
         // A comparison still running is of the draft; its answer is dropped.
         self.changes = Changes::default();
         self.diff_generation += 1;
