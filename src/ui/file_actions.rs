@@ -8,6 +8,7 @@ use iced::Task;
 
 use crate::core::opened::{Doc, empty_file, open_in_place, save_as};
 use crate::core::recent::same_file;
+use crate::core::rewrite::remove_draft;
 use crate::core::save::failure_reason;
 use crate::core::scratch::clear_scratch;
 use crate::core::text_file::{LineEnding, save_text, suggested_file_name};
@@ -85,8 +86,15 @@ impl App {
     }
 
     /// Ctrl+S. Everything autosaves, so in a file this writes now instead of after the pause.
-    /// Scratch has no file, so it asks where to save one (Save as).
+    /// Scratch has no file, so it asks where to save one (Save as). While rewriting, it writes
+    /// the draft over the original.
     pub fn save_now(&mut self) -> Task<Message> {
+        if self.original.is_some() {
+            return match self.editable() {
+                true => self.save_rewrite(),
+                false => Task::none(),
+            };
+        }
         if matches!(self.doc, Doc::Scratch) {
             return self.pick_save_path();
         }
@@ -117,7 +125,7 @@ impl App {
 
     /// Makes `path` this window's file: the text is written there and the window carries on
     /// editing it, undo history and all. Scratch is emptied, keeping its text for the next scratch
-    /// window's Ctrl+Z; a file keeps its last save.
+    /// window's Ctrl+Z; a file keeps its last save. A rewrite ends, its draft going to `path`.
     pub fn save_as(&mut self, path: PathBuf) -> Task<Message> {
         // An autosave still running would land after the writes below: over scratch just
         // emptied, or over the old file with older text. So wait for it: its `Saved` comes back
@@ -147,10 +155,12 @@ impl App {
         };
         let data_dir = &self.paths.data_dir;
         let text = self.pane.model.text();
-        // Typing not autosaved yet still goes to the file it was typed in.
+        // Typing not autosaved yet still goes to the file it was typed in (a rewrite's draft
+        // goes to the new file instead).
         if let Doc::File { path: current, .. } = &self.doc
             && self.editable()
             && self.autosaver.pending()
+            && self.original.is_none()
         {
             let _ = save_text(current, text, line_ending, bom, self.disk_stamp);
         }
@@ -163,6 +173,12 @@ impl App {
                         .map(|error| failure_reason(&error)),
                     _ => None,
                 });
+                // A rewrite saved as a new file is done: the original keeps its last save.
+                if self.original.take().is_some()
+                    && let Some(current) = self.doc.path()
+                {
+                    let _ = remove_draft(&self.paths.data_dir, current);
+                }
                 self._doc_lock = lock;
                 self.doc = Doc::File {
                     path,

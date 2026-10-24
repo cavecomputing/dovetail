@@ -196,6 +196,8 @@ Shortcuts are written with Ctrl; on macOS use ⌘ (the app's menu and hints show
 | Ctrl+0 | Back to scratch in this window (if another window has it, the status bar says so instead) |
 | Ctrl+S | Save now; in scratch, save to a file |
 | Ctrl+Shift+S | Save as |
+| Ctrl+R | Rewrite: edit a copy beside the original (see [Rewriting](#rewriting)); again to pause it |
+| Ctrl+Shift+R | Reset the rewrite's copy to the file as last saved |
 | Ctrl+W | Close the window, once the latest save is written |
 | Ctrl+F | Find (text selected on one line becomes the search). Case is ignored unless you switch on Match case (the Aa button); the button next to it finds whole words only. In the find box, Enter and Shift+Enter step through the matches; Esc closes, leaving the match selected |
 | Ctrl+Shift+F | Find and replace: the find bar with a Replace box under it (Tab moves between the two). In the Replace box, Enter replaces the selected match and goes to the next one, and Ctrl+Enter replaces them all, as one Ctrl+Z |
@@ -275,6 +277,35 @@ previous match), ⌘M (minimise) and ⌘Q (closes the window, waiting for the sa
 - **A file you can't write** opens read-only: the text is dimmed, the status bar says why, and you
   can still scroll, select and copy. Save as writes it to a file you can write and carries on
   editing there.
+
+## Rewriting
+
+- **Ctrl+R**, the pen at the right of the status bar, or "rewrite" in the menu starts a rewrite of
+  the open file (scratch has none). The window splits: the original on the left, read-only on a
+  darker background with its text and colours faded (you can still scroll, select and copy),
+  and a copy on the right that you edit.
+- The copy autosaves as usual, but to a draft of its own in the data folder, never to your file.
+- **What you've changed is lit faintly as you type**, down to the letter: what you put in, green on the
+  right; what you took out, red on the left. The save dot stays yellow while the copy holds
+  anything the file doesn't.
+- **Ctrl+S** writes the copy over the original, keeping the file's line endings, and the left side
+  then shows what was saved: the lit changes clear and the save dot turns aqua. You stay in the
+  split to carry on. If another program changed the file meanwhile, nothing is written: the left
+  side shows the file as it is now, and a second Ctrl+S writes over it.
+- **Pausing the rewrite** (Ctrl+R again, the pen, or "pause rewrite") goes back to the file as
+  last saved. The copy is kept, and the next Ctrl+R picks it up again (the file opening later
+  doesn't bring it back by itself).
+- **Reset rewrite** (Ctrl+Shift+R, or the menu) puts the copy back to the file as last saved and
+  keeps the split; Ctrl+Z takes a reset back. To be done with a rewrite, reset it and pause: a copy
+  no different from the file isn't kept.
+- **Ctrl+Z stays on its side of the rewrite.** In the copy it undoes only edits made in the copy,
+  and after the rewrite ends it can't bring the copy's changes into the file.
+- **Closing the window** mid-rewrite keeps the draft, and the original isn't touched. Opening the
+  same document again brings the split back as it was left. Logging out or the app being killed
+  writes the draft as the app goes; a crash loses at most the last half second of typing, and only
+  from the draft.
+- Save as mid-rewrite puts the copy in the new file and ends the rewrite; the original keeps its
+  last save.
 
 ## The assistant
 

@@ -15,7 +15,7 @@ use crate::ui::assistant_actions::AssistantAction;
 use crate::ui::assistant_view::{LINE, SIZE, line, subtle};
 use crate::ui::find_bar::{FindAction, LINE_KEYS};
 use crate::ui::switcher::row_style;
-use crate::ui::theme::{self, GLYPH_CLAUDE, GLYPH_MENU, Roles, icon_button, raised_box};
+use crate::ui::theme::{self, GLYPH_CLAUDE, GLYPH_MENU, GLYPH_PEN, Roles, icon_button, raised_box};
 
 pub const HEIGHT: f32 = 24.0;
 const TEXT_SIZE: f32 = 11.0;
@@ -84,6 +84,9 @@ pub fn view(app: &App) -> Element<'_, Message> {
         )));
     }
     right = right.push(space().width(16));
+    if app.can_rewrite() {
+        right = right.push(rewrite_toggle(app.original.is_some()));
+    }
     right = right.push(assistant_toggle(app.assistant.open));
 
     // The left end takes what room is left and is cut off, so the right end always fits.
@@ -118,9 +121,15 @@ fn doc_label(doc: &Doc) -> String {
 }
 
 /// The save dot: aqua when saved (the word on hover), pulsing yellow while saving, orange with
-/// the reason when a save failed.
+/// the reason when a save failed. While rewriting it is about the file: steady yellow until
+/// Ctrl+S writes the draft there.
 fn save_status<'a>(app: &App, roles: &Roles) -> Element<'a, Message> {
-    match app.autosaver.state() {
+    let state = app.autosaver.state();
+    if !matches!(state, SaveState::Failed(_)) && app.rewrite_unsaved() {
+        let words = keys("Not in the file yet: Ctrl+S saves it there");
+        return hint(dot(roles.accent_text), words);
+    }
+    match state {
         SaveState::Saved => hint(dot(roles.accent_aqua), "Saved"),
         SaveState::Saving => {
             let seconds = match app.saving_since {
@@ -176,6 +185,16 @@ fn assistant_toggle<'a>(open: bool) -> Element<'a, Message> {
     let words = match open {
         true => "Close the assistant (Ctrl+L)",
         false => "Assistant: chat about this text (Ctrl+L)",
+    };
+    hint(toggle, keys(words))
+}
+
+/// The pen: starts a rewrite, highlighted while one is under way.
+fn rewrite_toggle<'a>(rewriting: bool) -> Element<'a, Message> {
+    let toggle = glyph_toggle(GLYPH_PEN, rewriting, Message::ToggleRewrite);
+    let words = match rewriting {
+        true => "Pause the rewrite: back to the file, the draft kept for the next Ctrl+R (Ctrl+R)",
+        false => "Rewrite: edit a copy beside the original (Ctrl+R)",
     };
     hint(toggle, keys(words))
 }
@@ -275,6 +294,17 @@ pub fn menu(app: &App) -> Element<'_, Message> {
         Doc::Scratch => items.push(menu_item("save to a file", "Ctrl+S", Message::SaveAs)),
         Doc::File { .. } => items.push(menu_item("save as", "Ctrl+Shift+S", Message::SaveAs)),
     };
+    if app.can_rewrite() {
+        let rewrite = match app.original {
+            Some(_) => "pause rewrite",
+            None => "rewrite",
+        };
+        items = items.push(menu_item(rewrite, "Ctrl+R", Message::ToggleRewrite));
+        if app.original.is_some() {
+            let reset = Message::ResetRewrite;
+            items = items.push(menu_item("reset rewrite", "Ctrl+Shift+R", reset));
+        }
+    }
     let line_numbers = match app.settings.line_numbers {
         true => "hide line numbers",
         false => "show line numbers",

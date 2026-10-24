@@ -94,7 +94,35 @@ Rules:
 - What the token count is (an estimate, four bytes a token) and the encoding show on hover over it, not in the bar. Line and column are off by default and can be turned on.
 - The menu holds new file, open, open recent, save as (save to a file in scratch), find, replace, go to line, show or hide line numbers, settings and scratch, then the six most recent files last, so the commands stay put (2026-10-18; six, 2026-10-19). It is drawn like the `Ctrl+P` switcher (2026-10-19): lowercase words in the 13px mono size, shortcuts dimmed on the right, `# recent` over the files, no rounded rows. File-type tools (Format and Minify JSON) are in the `Ctrl+Shift+P` palette instead (2026-10-18). On the `rewrite` branch a project's menu adds version history and idea weights.
 
-## 7. Projects: the rewrite flow (`rewrite` branch)
+## 7. Split review: the first step of rewriting
+
+The `rewrite` branch below is set aside; its features come back one step at a time (2026-10-23).
+The first step is a split review, in any file (not scratch, 2026-10-24): `Ctrl+R` (2026-10-23, so `Ctrl+Shift+S`
+stays Save as), the pen in the status bar beside the assistant toggle, or "rewrite" in the menu.
+
+- The window splits: the original on the left, read-only, and an editable copy on the right.
+  The original is set apart by look alone, no label (2026-10-24): it sits on `bg-page`, its text
+  in `fg` at 80% and its syntax colours faded to 80%, not dropped (2026-10-24: without them it was hard to
+  match a place on the left to the same place on the right). A read-only file's colours fade the
+  same way.
+- The copy autosaves to a draft file in the data folder (`drafts/`, named like the document's lock),
+  never to the original. `Ctrl+S` writes it over the original and the left side shows the result;
+  the split stays.
+- `Ctrl+R` again (the pen, the menu) pauses the rewrite (2026-10-24): back to the original as
+  last saved, the draft moved aside (`.paused`) for the next `Ctrl+R`, and not reopened with the
+  file. A draft no different from the original isn't kept. Reset rewrite (`Ctrl+Shift+R`, the
+  menu) puts the draft back to the original's text as one undo step, the split staying. Undo never crosses the rewrite's
+  edges (2026-10-24): the draft starts its own history, and the original comes back with its own,
+  so `Ctrl+Z` can't put the draft's changes into the file.
+- What the draft changes from the original is lit as it's typed (2026-10-24), letter by letter
+  within a word (a word swapped for another lights whole, not around a letter or two they
+  share) and faintly (`added` behind text put in on the right, `removed` behind text taken out on the left;
+  no strike-through), so it doesn't pull the eye from the text. The save dot stays steady yellow
+  while the draft differs from the file; `Ctrl+S` clears the lit changes and the dot goes aqua.
+- A draft left by a closed window, or a crash, brings the split back the next time its document
+  opens in a window that can edit it.
+
+## 7a. Projects: the rewrite flow (`rewrite` branch)
 
 1. In scratch or a `.txt`, paste or write the text, then click the **pen (Rewrite)**.
 2. The text **slides left and becomes v1**, read-only. A copy lands on the right as the **draft**.

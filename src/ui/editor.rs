@@ -27,7 +27,9 @@ use crate::core::text_file::newlines_only;
 use crate::core::text_model::{Change, TextModel, offset, position, positions, selected_lines};
 use crate::core::typing::{enter, in_empty_pair, typed};
 use crate::ui::app::Message;
-use crate::ui::highlighter::{Colouring, Highlight, MarkupHighlighter, highlight_format};
+use crate::ui::highlighter::{
+    Colouring, DIMMED, Highlight, MarkupHighlighter, dimmed_format, highlight_format,
+};
 use crate::ui::scroll_bar::scroll_bar;
 use crate::ui::text_editor::{
     self, Action, Binding, Content, Cursor, Edit, KeyPress, PaintLook, PaintRun, Position, Status,
@@ -36,6 +38,8 @@ use crate::ui::text_editor::{
 use crate::ui::theme::{CHAR_WIDTH_RATIO, Roles};
 
 pub const EDITOR_ID: &str = "doc";
+/// The original beside a rewrite's draft.
+pub const ORIGINAL_ID: &str = "original";
 /// Why an edit to the text a suggestion changes was refused.
 const IN_A_SUGGESTION: &str = "Accept or reject the suggestion there first";
 /// Why Ctrl+D was refused.
@@ -60,6 +64,7 @@ pub fn view<'a>(
     editable: bool,
     syntax: Syntax,
     paint: Vec<PaintRun>,
+    id: &'static str,
 ) -> Element<'a, Message> {
     let reviewing = pane.reviewing();
     let colouring = Colouring {
@@ -77,7 +82,7 @@ pub fn view<'a>(
         ..PADDING
     };
     let editor = TextEditor::new(&pane.content)
-        .id(EDITOR_ID)
+        .id(id)
         .key_binding(move |press| key_binding(press, editable, reviewing))
         .wrapping(if settings.word_wrap {
             Wrapping::WordOrGlyph
@@ -92,7 +97,14 @@ pub fn view<'a>(
         .style(move |theme, _status| style(theme, editable))
         .on_action(Message::Edit)
         .paint(paint)
-        .highlight_with::<MarkupHighlighter>(colouring, highlight_format);
+        .highlight_with::<MarkupHighlighter>(
+            colouring,
+            if editable {
+                highlight_format
+            } else {
+                dimmed_format
+            },
+        );
 
     let column = match settings.reading_mode {
         ReadingMode::Comfort { chars } => {
@@ -119,7 +131,11 @@ fn style(theme: &Theme, editable: bool) -> text_editor::Style {
         background: Background::Color(iced::Color::TRANSPARENT),
         border: Border::default(),
         placeholder: roles.fg_subtle,
-        value: if editable { roles.fg } else { roles.fg_muted },
+        value: if editable {
+            roles.fg
+        } else {
+            roles.fg.scale_alpha(DIMMED)
+        },
         selection: roles.accent_cool.scale_alpha(0.35),
     }
 }
@@ -384,7 +400,7 @@ impl Pane {
     }
 
     /// Puts the caret at byte `offset` of the model's text, with nothing selected.
-    fn put_caret(&mut self, offset: usize) {
+    pub fn put_caret(&mut self, offset: usize) {
         self.others.clear();
         let position = self.position(offset, true);
         self.content.move_to(Cursor {
