@@ -10,7 +10,7 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use similar::{ChangeTag, DiffTag, TextDiff};
+use similar::{DiffTag, TextDiff};
 
 use crate::core::lock::file_lock_path;
 use crate::core::save::atomic_write;
@@ -77,8 +77,8 @@ const DIFF_TIME: Duration = Duration::from_millis(20);
 /// and light everything between two small changes.
 pub fn changes(original: &str, draft: &str) -> Changes {
     let lines = TextDiff::from_lines(original, draft);
-    let old_starts = line_starts(lines.iter_old_slices());
-    let new_starts = line_starts(lines.iter_new_slices());
+    let old_starts = starts(lines.iter_old_slices());
+    let new_starts = starts(lines.iter_new_slices());
     let mut changes = Changes::default();
     for op in lines.ops() {
         if op.tag() == DiffTag::Equal {
@@ -89,35 +89,66 @@ pub fn changes(original: &str, draft: &str) -> Changes {
         let words = TextDiff::configure()
             .timeout(DIFF_TIME)
             .diff_words(&original[old.clone()], &draft[new.clone()]);
-        let (mut old, mut new) = (old.start, new.start);
-        for change in words.iter_all_changes() {
-            let length = change.value().len();
-            match change.tag() {
-                ChangeTag::Equal => {
-                    old += length;
-                    new += length;
-                }
-                ChangeTag::Delete => {
-                    extend(&mut changes.removed, old..old + length, original);
-                    old += length;
-                }
-                ChangeTag::Insert => {
-                    extend(&mut changes.added, new..new + length, draft);
-                    new += length;
-                }
+        let old_words = starts(words.iter_old_slices());
+        let new_words = starts(words.iter_new_slices());
+        for op in words.ops() {
+            if op.tag() == DiffTag::Equal {
+                continue;
+            }
+            let removed = old.start + old_words[op.old_range().start]
+                ..old.start + old_words[op.old_range().end];
+            let added = new.start + new_words[op.new_range().start]
+                ..new.start + new_words[op.new_range().end];
+            let (removed, added) = untouched_marks(original, removed, draft, added);
+            if !removed.is_empty() {
+                extend(&mut changes.removed, removed, original);
+            }
+            if !added.is_empty() {
+                extend(&mut changes.added, added, draft);
             }
         }
     }
     changes
 }
 
-/// The byte offset each of `lines` starts at, and the end of the last.
-fn line_starts<'a>(lines: impl Iterator<Item = &'a str>) -> Vec<usize> {
+/// The byte offset each of `pieces` starts at, and the end of the last.
+fn starts<'a>(pieces: impl Iterator<Item = &'a str>) -> Vec<usize> {
     let mut starts = vec![0];
-    for line in lines {
-        starts.push(starts[starts.len() - 1] + line.len());
+    for piece in pieces {
+        starts.push(starts[starts.len() - 1] + piece.len());
     }
     starts
+}
+
+/// Narrows a word taken out and the word put in its place past the punctuation both share at
+/// their ends: words are split at spaces only, so `{{user}}.` becoming `{name}.` would otherwise
+/// light the full stop that stayed.
+fn untouched_marks(
+    original: &str,
+    mut removed: Range<usize>,
+    draft: &str,
+    mut added: Range<usize>,
+) -> (Range<usize>, Range<usize>) {
+    let mark = |c: char| !c.is_alphanumeric() && !c.is_whitespace();
+    while let (Some(a), Some(b)) = (
+        original[removed.clone()].chars().next(),
+        draft[added.clone()].chars().next(),
+    ) && a == b
+        && mark(a)
+    {
+        removed.start += a.len_utf8();
+        added.start += a.len_utf8();
+    }
+    while let (Some(a), Some(b)) = (
+        original[removed.clone()].chars().next_back(),
+        draft[added.clone()].chars().next_back(),
+    ) && a == b
+        && mark(a)
+    {
+        removed.end -= a.len_utf8();
+        added.end -= a.len_utf8();
+    }
+    (removed, added)
 }
 
 /// Adds `range` of `text` to `ranges`, joined to the last one when only spaces lie between them,
@@ -179,6 +210,12 @@ mod tests {
         let found = changes("keep every entry short", draft);
         assert_eq!(words(draft, &found.added), ["make each line"]);
         assert_eq!(changes(draft, draft), Changes::default());
+        // Punctuation kept at a changed word's ends stays unlit.
+        let original = "narrating for {{user}}. Then";
+        let draft = "narrating for {testing}. Then";
+        let found = changes(original, draft);
+        assert_eq!(words(original, &found.removed), ["{user}"]);
+        assert_eq!(words(draft, &found.added), ["testing"]);
     }
 
     #[test]
