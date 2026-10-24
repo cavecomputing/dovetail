@@ -7,7 +7,9 @@ use iced::widget::operation::focus;
 
 use crate::core::counts::Counts;
 use crate::core::opened::{Doc, write_doc};
-use crate::core::rewrite::{pause_draft, read_draft, remove_draft, take_paused, write_draft};
+use crate::core::rewrite::{
+    Changes, changes, pause_draft, read_draft, remove_draft, take_paused, write_draft,
+};
 use crate::core::shutdown;
 use crate::core::text_file::{DiskStamp, changed_on_disk, read_text};
 use crate::ui::app::{App, Message};
@@ -101,6 +103,7 @@ impl App {
             }
         }
         self.pane = original;
+        self.find_changes();
         if changed {
             self.text_changed();
         }
@@ -182,6 +185,22 @@ impl App {
             self.original = Some(original);
             self.counts = Counts::of(&draft);
         }
+        self.find_changes();
+    }
+
+    /// Works out what the draft changes from the original, for lighting both sides; nothing
+    /// outside a rewrite.
+    pub fn find_changes(&mut self) {
+        self.changes = match &self.original {
+            Some(original) => changes(original.model.text(), self.pane.model.text()),
+            None => Changes::default(),
+        };
+    }
+
+    /// Whether the draft holds anything Ctrl+S hasn't written to the file yet.
+    pub fn rewrite_unsaved(&self) -> bool {
+        (self.original.as_ref())
+            .is_some_and(|original| original.model.text() != self.pane.model.text())
     }
 
     /// Shows `text` as the original on the left, scrolled to where the draft is.
@@ -191,5 +210,6 @@ impl App {
             .content
             .scroll_to_line(self.pane.content.scroll_line());
         self.original = Some(original);
+        self.find_changes();
     }
 }

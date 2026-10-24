@@ -15,7 +15,7 @@ use crate::core::json::reformat;
 use crate::core::opened::{Doc, OpenedDoc, open_doc, write_doc};
 use crate::core::paths::Paths;
 use crate::core::recent::existing_recent_files;
-use crate::core::rewrite::draft_path;
+use crate::core::rewrite::{Changes, draft_path};
 use crate::core::save::{Autosaver, SaveState};
 use crate::core::scratch::ScratchView;
 use crate::core::settings::{ReadingMode, ScratchSyntax, Settings, Theme as ThemeSetting};
@@ -30,7 +30,7 @@ use crate::ui::palette::{self, Palette};
 use crate::ui::picker::{self, Picker, PickerAction};
 use crate::ui::settings_panel::{self, Connection, KeyField};
 use crate::ui::switcher::{self, Switcher};
-use crate::ui::text_editor::{Action, Cursor, Edit, Motion, Position};
+use crate::ui::text_editor::{Action, Cursor, Edit, Motion, PaintLook, PaintRun, Position};
 use crate::ui::theme::{self, Roles};
 #[cfg(all(unix, not(target_os = "macos")))]
 use crate::ui::wayland_drop;
@@ -55,6 +55,8 @@ pub struct App {
     pub pane: Pane,
     /// While rewriting (Ctrl+R): the original, read-only on the left of the draft.
     pub original: Option<Pane>,
+    /// While rewriting: what the draft changes from the original, lit on both sides.
+    pub changes: Changes,
     /// Ctrl+R to act on once the save running now ends (see `toggle_rewrite`).
     pub toggling_rewrite: bool,
     /// The Ctrl+P switcher, while it is open.
@@ -297,6 +299,10 @@ fn window_settings() -> window::Settings {
 /// (about 2 ms for 1 MB), too long to do on every key.
 const COUNT_PAUSE: Duration = Duration::from_millis(300);
 
+/// How strongly a rewrite's changes are lit, on top of a suggestion's tint: faintly, so they
+/// don't pull the eye from the text.
+const CHANGE_ALPHA: f32 = 0.4;
+
 /// How long a notice stays in the status bar: long enough to read, gone before it goes stale.
 const NOTICE_TIME: Duration = Duration::from_secs(6);
 
@@ -336,6 +342,7 @@ impl App {
             document: 0,
             pane,
             original: None,
+            changes: Changes::default(),
             toggling_rewrite: false,
             switcher: None,
             picker: None,
@@ -822,6 +829,7 @@ impl App {
         if self.find.open {
             self.find_again(self.pane.caret());
         }
+        self.find_changes();
         // Undo, redo and a reload can drop a suggestion the change touched.
         self.settle_cards(CardState::Gone(
             "an edit to the text under it dropped it".to_string(),
@@ -1056,6 +1064,19 @@ impl App {
         let mut paint = self.pane.suggestion_runs(roles);
         paint.extend(self.find_runs());
         paint.extend(self.pane.other_runs(roles));
+        // What the rewrite has changed, lit faintly: put in on the right, taken out on the left.
+        let lit = |pane: &Pane, ranges: &[std::ops::Range<usize>], color: iced::Color| {
+            let color = color.scale_alpha(CHANGE_ALPHA);
+            let runs = pane.widget_ranges(ranges).into_iter();
+            runs.map(|(start, end)| PaintRun {
+                start,
+                end,
+                color,
+                look: PaintLook::Added,
+            })
+            .collect::<Vec<_>>()
+        };
+        paint.extend(lit(&self.pane, &self.changes.added, roles.added));
         let syntax = self.syntax();
         let editable = self.editable();
         let draft = editor::view(
@@ -1076,7 +1097,7 @@ impl App {
             &self.settings,
             false,
             syntax,
-            Vec::new(),
+            lit(original, &self.changes.removed, roles.removed),
             ORIGINAL_ID,
         )
         .map(|message| match message {
@@ -1693,8 +1714,16 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&notes).unwrap(), "1# notes\r\n");
         let draft = read_draft(&paths.data_dir, &notes);
         assert_eq!(draft.as_deref(), Some("12# notes\n"));
-        // Ctrl+S writes it over the original, with the file's line endings, and the left shows it.
+        // What the draft changes is lit, until Ctrl+S writes it over the original (with the file's
+        // line endings) and the left shows it.
+        let words: Vec<&str> = (app.changes.added.iter())
+            .map(|range| &app.pane.model.text()[range.clone()])
+            .collect();
+        assert_eq!(words, ["12#"], "word by word");
+        assert!(app.rewrite_unsaved());
         let _ = app.update(Message::Save);
+        assert_eq!(app.changes, Changes::default());
+        assert!(!app.rewrite_unsaved());
         assert_eq!(std::fs::read_to_string(&notes).unwrap(), "12# notes\r\n");
         assert_eq!(app.original.as_ref().unwrap().model.text(), "12# notes\n");
         // The original only scrolls and selects.

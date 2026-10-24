@@ -275,7 +275,8 @@ src/
     review.rs            suggested edits waiting in a pane, and the display text that shows
                          them inside the document (review mode)
     rewrite.rs           a rewrite's draft file in the data folder: where it lives, start,
-                         read back (a rewrite left open resumes), delete when it ends
+                         read back (a rewrite left open resumes), pause, delete; and what the
+                         draft changes from the original, word by word
   ui/                    everything iced: windows, widgets, styling
     app.rs               the App state, Message enum, update and view
     theme.rs             Gruvbox palette roles, the font and its icon glyphs, shared styles

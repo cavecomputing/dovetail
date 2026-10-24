@@ -114,6 +114,10 @@ stays Save as), the pen in the status bar beside the assistant toggle, or "rewri
   menu) puts the draft back to the original's text as one undo step, the split staying. Undo never crosses the rewrite's
   edges (2026-10-24): the draft starts its own history, and the original comes back with its own,
   so `Ctrl+Z` can't put the draft's changes into the file.
+- What the draft changes from the original is lit as it's typed (2026-10-24), word by word and
+  faintly (`added` behind text put in on the right, `removed` behind text taken out on the left;
+  no strike-through), so it doesn't pull the eye from the text. The save dot stays steady yellow
+  while the draft differs from the file; `Ctrl+S` clears the lit changes and the dot goes aqua.
 - A draft left by a closed window, or a crash, brings the split back the next time its document
   opens in a window that can edit it.
 

@@ -6,7 +6,11 @@
 
 use std::fs;
 use std::io::{self, ErrorKind};
+use std::ops::Range;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+use similar::{ChangeTag, TextDiff};
 
 use crate::core::lock::file_lock_path;
 use crate::core::save::atomic_write;
@@ -56,6 +60,56 @@ pub fn remove_draft(data_dir: &Path, path: &Path) -> io::Result<()> {
     remove_file(&paused_path(data_dir, path))
 }
 
+/// What a draft changes from its original, word by word: the byte ranges of the original it takes
+/// out, and of the draft it puts in.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct Changes {
+    pub removed: Vec<Range<usize>>,
+    pub added: Vec<Range<usize>>,
+}
+
+/// How long working out `changes` may take, as it runs on every edit; past it, the diff is
+/// rougher but still right.
+const DIFF_TIME: Duration = Duration::from_millis(20);
+
+/// What `draft` changes from `original`, word by word.
+pub fn changes(original: &str, draft: &str) -> Changes {
+    let diff = TextDiff::configure()
+        .timeout(DIFF_TIME)
+        .diff_words(original, draft);
+    let mut changes = Changes::default();
+    let (mut old, mut new) = (0, 0);
+    for change in diff.iter_all_changes() {
+        let length = change.value().len();
+        match change.tag() {
+            ChangeTag::Equal => {
+                old += length;
+                new += length;
+            }
+            ChangeTag::Delete => {
+                extend(&mut changes.removed, old..old + length, original);
+                old += length;
+            }
+            ChangeTag::Insert => {
+                extend(&mut changes.added, new..new + length, draft);
+                new += length;
+            }
+        }
+    }
+    changes
+}
+
+/// Adds `range` of `text` to `ranges`, joined to the last one when only spaces lie between them,
+/// so changed words side by side light up as one run rather than a row of patches.
+fn extend(ranges: &mut Vec<Range<usize>>, range: Range<usize>, text: &str) {
+    match ranges.last_mut() {
+        Some(last) if text[last.end..range.start].bytes().all(|byte| byte == b' ') => {
+            last.end = range.end;
+        }
+        _ => ranges.push(range),
+    }
+}
+
 /// Deletes the file at `path`, if there is one.
 fn remove_file(path: &Path) -> io::Result<()> {
     match fs::remove_file(path) {
@@ -81,6 +135,29 @@ mod tests {
         assert_eq!(read_draft(dir.path(), &notes), None);
         // Ending a rewrite with no draft left is fine too.
         remove_draft(dir.path(), &notes).unwrap();
+    }
+
+    #[test]
+    fn changes_are_found_word_by_word() {
+        let original = "Always write in a friendly tone.\nKeep it short.\n";
+        let draft = "Write in a warm tone.\nKeep it short.\nThanks!\n";
+        let found = changes(original, draft);
+        let words = |text: &str, ranges: &[Range<usize>]| -> Vec<String> {
+            ranges
+                .iter()
+                .map(|range| text[range.clone()].to_string())
+                .collect()
+        };
+        assert_eq!(
+            words(original, &found.removed),
+            ["Always write", "friendly"]
+        );
+        assert_eq!(words(draft, &found.added), ["Write", "warm", "Thanks!\n"]);
+        // Changed words with only a space between them are one run.
+        let draft = "make each line short";
+        let found = changes("keep every entry short", draft);
+        assert_eq!(words(draft, &found.added), ["make each line"]);
+        assert_eq!(changes(draft, draft), Changes::default());
     }
 
     #[test]

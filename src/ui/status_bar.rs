@@ -121,9 +121,15 @@ fn doc_label(doc: &Doc) -> String {
 }
 
 /// The save dot: aqua when saved (the word on hover), pulsing yellow while saving, orange with
-/// the reason when a save failed.
+/// the reason when a save failed. While rewriting it is about the file: steady yellow until
+/// Ctrl+S writes the draft there.
 fn save_status<'a>(app: &App, roles: &Roles) -> Element<'a, Message> {
-    match app.autosaver.state() {
+    let state = app.autosaver.state();
+    if !matches!(state, SaveState::Failed(_)) && app.rewrite_unsaved() {
+        let words = keys("Not in the file yet: Ctrl+S saves it there");
+        return hint(dot(roles.accent_text), words);
+    }
+    match state {
         SaveState::Saved => hint(dot(roles.accent_aqua), "Saved"),
         SaveState::Saving => {
             let seconds = match app.saving_since {
