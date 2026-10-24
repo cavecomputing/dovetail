@@ -8,13 +8,20 @@ use iced::widget::operation::focus;
 use crate::core::counts::Counts;
 use crate::core::opened::{Doc, write_doc};
 use crate::core::rewrite::{
-    Changes, changes, pause_draft, read_draft, remove_draft, take_paused, write_draft,
+    Changes, base_changed, changes, has_paused, pause_draft, read_draft, remove_draft, take_paused,
+    write_base, write_draft,
 };
 use crate::core::shutdown;
 use crate::core::text_file::{DiskStamp, changed_on_disk, read_text};
 use crate::core::text_model::TextModel;
 use crate::ui::app::{App, Message};
 use crate::ui::editor::{self, Pane};
+
+/// Why Ctrl+S waits in a rewrite whose file another program changed while the draft was closed
+/// or paused, and the same once the first Ctrl+S was refused.
+const STALE_DRAFT: &str = "The file changed since this rewrite started: the left shows it now";
+const STALE_DRAFT_AGAIN: &str =
+    "The file changed since this rewrite started: Ctrl+S again writes over it";
 
 impl App {
     /// Whether the document can be rewritten: a file this window can edit (scratch has no
@@ -31,6 +38,11 @@ impl App {
     pub fn toggle_rewrite(&mut self) -> Task<Message> {
         self.menu_open = false;
         if !self.can_rewrite() {
+            // Scratch never offers a rewrite; a file another window holds does, elsewhere.
+            if self.doc.path().is_some() {
+                let words = "Rewrite needs a file this window can edit";
+                self.set_notice(Some(words.to_string()));
+            }
             return Task::none();
         }
         if self.disk_conflict {
@@ -62,9 +74,17 @@ impl App {
         };
         let saved = self.pane.model.text().to_string();
         let data_dir = &self.paths.data_dir;
-        let text = match take_paused(data_dir, path) {
+        let paused = take_paused(data_dir, path);
+        self.paused_draft = false;
+        self.stale_draft = None;
+        if paused.is_some() && base_changed(data_dir, path, &saved) {
+            self.stale_draft = Some(STALE_DRAFT);
+        }
+        let text = match paused {
             Some(paused) => paused,
-            None => match write_draft(data_dir, path, &saved) {
+            None => match write_draft(data_dir, path, &saved)
+                .and_then(|()| write_base(data_dir, path, &saved))
+            {
                 Ok(()) => saved.clone(),
                 Err(error) => {
                     self.set_notice(Some(format!("Couldn't start a rewrite: {error}")));
@@ -82,7 +102,12 @@ impl App {
                 .scroll_to_line(self.pane.content.scroll_line());
         }
         self.pane = draft;
-        self.show_original(&saved)
+        // A paused draft isn't the text counted and checked so far.
+        let checked = match text == saved {
+            true => Task::none(),
+            false => Task::batch([self.count(), self.check_syntax()]),
+        };
+        Task::batch([self.show_original(&saved), checked])
     }
 
     /// Goes back to the original as last saved, keeping the draft aside for the next Ctrl+R (a
@@ -110,6 +135,8 @@ impl App {
             }
         }
         self.pane = original;
+        self.stale_draft = None;
+        self.paused_draft = changed;
         let caret = self.pane.model.text().floor_char_boundary(caret);
         self.pane.put_caret(caret);
         self.pane.content.scroll_to_line(top);
@@ -149,7 +176,12 @@ impl App {
     /// Ctrl+S while rewriting: writes the draft over the original, which the left side then
     /// shows. A file changed by another program since is left alone, and the left side shows it
     /// as it is now, so a second Ctrl+S writes over what can be seen.
+    /// A draft picked up again after its file changed elsewhere waits for a second Ctrl+S too.
     pub fn save_rewrite(&mut self) -> Task<Message> {
+        if self.stale_draft == Some(STALE_DRAFT) {
+            self.stale_draft = Some(STALE_DRAFT_AGAIN);
+            return Task::none();
+        }
         let text = self.pane.model.text().to_string();
         let data_dir = &self.paths.data_dir;
         let view = self.scratch_view();
@@ -158,6 +190,10 @@ impl App {
                 if stamp.is_some() {
                     self.disk_stamp = stamp;
                 }
+                if let Some(path) = self.doc.path() {
+                    let _ = write_base(data_dir, path, &text);
+                }
+                self.stale_draft = None;
                 self.show_original(&text)
             }
             Err(reason) => {
@@ -186,17 +222,24 @@ impl App {
 
     /// Brings back a rewrite of the document left open (its draft is still there), once the
     /// document is shown. A window that can't edit the document leaves the draft for one that can.
+    /// A file changed elsewhere since the draft started from it is said so (`STALE_DRAFT`).
     pub fn resume_rewrite(&mut self) -> Task<Message> {
         self.original = None;
+        self.stale_draft = None;
+        self.paused_draft =
+            (self.doc.path()).is_some_and(|path| has_paused(&self.paths.data_dir, path));
         if self.editable()
             && let Some(path) = self.doc.path()
             && let Some(draft) = read_draft(&self.paths.data_dir, path)
         {
+            if base_changed(&self.paths.data_dir, path, self.pane.model.text()) {
+                self.stale_draft = Some(STALE_DRAFT);
+            }
             let original = std::mem::replace(&mut self.pane, Pane::new(&draft));
             self.original = Some(original);
             self.counts = Counts::of(&draft);
         }
-        self.find_changes()
+        Task::batch([self.find_changes(), self.count_original()])
     }
 
     /// Works out what the draft changes from the original, for lighting both sides. The
@@ -252,6 +295,20 @@ impl App {
             .content
             .scroll_to_line(self.pane.content.scroll_line());
         self.original = Some(original);
-        self.find_changes()
+        Task::batch([self.find_changes(), self.count_original()])
+    }
+
+    /// Counts the original off the UI thread, for the status bar's "original → draft"; it only
+    /// changes when the rewrite starts or Ctrl+S writes it.
+    fn count_original(&mut self) -> Task<Message> {
+        self.original_counts = None;
+        let Some(original) = &self.original else {
+            return Task::none();
+        };
+        let text = original.model.text().to_string();
+        let document = self.document;
+        Task::perform(async move { Counts::of(&text) }, move |counts| {
+            Message::OriginalCounted(document, counts)
+        })
     }
 }

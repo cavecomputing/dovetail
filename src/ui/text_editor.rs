@@ -18,6 +18,8 @@
 //!   text suggested edits take out and put in.
 //! - Line numbers: with `TextEditor::line_numbers` on, each line's number is drawn in the left
 //!   padding, which the caller widens by `gutter_width`, on its first row (wrapped rows get none).
+//! - `TextEditor::caret(false)` draws no caret and doesn't light its line's number, for text that
+//!   can't be edited (it can still be selected).
 use iced::advanced::clipboard::{self, Clipboard};
 use iced::advanced::graphics;
 use iced::advanced::graphics::text::cosmic_text;
@@ -86,6 +88,8 @@ where
     paint: Vec<PaintRun>,
     // ours: draw each line's number left of the text.
     line_numbers: bool,
+    // ours: draw the caret (off for text that can't be edited).
+    caret: bool,
 }
 
 /// ours: one painted range, in the editor's own positions (the column is a byte index).
@@ -139,6 +143,7 @@ where
             last_status: None,
             paint: Vec::new(),
             line_numbers: false,
+            caret: true,
         }
     }
 
@@ -255,6 +260,7 @@ where
             last_status: self.last_status,
             paint: self.paint,
             line_numbers: self.line_numbers,
+            caret: self.caret,
         }
     }
 
@@ -268,6 +274,13 @@ where
     /// left padding must leave room for them: add `gutter_width` to it.
     pub fn line_numbers(mut self, on: bool) -> Self {
         self.line_numbers = on;
+        self
+    }
+
+    /// ours: whether to draw the caret and light its line's number; off for text that can't be
+    /// edited, so nothing suggests typing there.
+    pub fn caret(mut self, shown: bool) -> Self {
+        self.caret = shown;
         self
     }
 
@@ -1330,12 +1343,12 @@ where
 
         // ours: each visible line's number, on its first row only (a wrapped line's later rows
         // start part way through it), right-aligned against the text in the left padding. The
-        // caret's line is in `fg`, the rest in `fg_subtle`, and the gap alone sets them apart
-        // from the text, as in vim (no divider, and no yellow to vie with headings). tiny-skia
-        // clips a text only to its layer, and only when the text's own clip pokes out of it,
-        // hence the layer and each number's own box as its clip. It also repaints a
-        // right-aligned text's box as if it started where it ends, so each number is placed by
-        // its width in the mono font.
+        // caret's line (when the caret is drawn) is in `fg`, the rest in `fg_subtle`, and the gap
+        // alone sets them apart from the text, as in vim (no divider, and no yellow to vie with
+        // headings). tiny-skia clips a text only to its layer, and only when the text's own clip
+        // pokes out of it, hence the layer and each number's own box as its clip. It also
+        // repaints a right-aligned text's box as if it started where it ends, so each number is
+        // placed by its width in the mono font.
         if self.line_numbers {
             let size = self.text_size.unwrap_or_else(|| renderer.default_size());
             let gutter = Rectangle {
@@ -1371,7 +1384,7 @@ where
                             wrapping: Wrapping::None,
                         },
                         number_box.position(),
-                        match row.line_i == caret_line {
+                        match self.caret && row.line_i == caret_line {
                             true => roles.fg,
                             false => roles.fg_subtle,
                         },
@@ -1385,7 +1398,7 @@ where
 
         if let Some(focus) = state.focus.as_ref() {
             match selection(&internal.editor) {
-                Selection::Caret(position) if focus.is_cursor_visible() => {
+                Selection::Caret(position) if self.caret && focus.is_cursor_visible() => {
                     let cursor = Rectangle::new(
                         position + translation,
                         Size::new(

@@ -174,6 +174,8 @@ impl App {
                     _ => None,
                 });
                 // A rewrite saved as a new file is done: the original keeps its last save.
+                self.stale_draft = None;
+                self.paused_draft = false;
                 if self.original.take().is_some()
                     && let Some(current) = self.doc.path()
                 {

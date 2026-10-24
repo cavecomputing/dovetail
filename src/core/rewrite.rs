@@ -54,10 +54,47 @@ pub fn take_paused(data_dir: &Path, path: &Path) -> Option<String> {
     Some(text)
 }
 
+/// Whether the file at `path` has a paused rewrite waiting for the next Ctrl+R.
+pub fn has_paused(data_dir: &Path, path: &Path) -> bool {
+    paused_path(data_dir, path).exists()
+}
+
 /// Deletes the rewrite of the file at `path`, open or paused.
 pub fn remove_draft(data_dir: &Path, path: &Path) -> io::Result<()> {
     remove_file(&draft_path(data_dir, path))?;
-    remove_file(&paused_path(data_dir, path))
+    remove_file(&paused_path(data_dir, path))?;
+    remove_file(&base_path(data_dir, path))
+}
+
+/// Where the rewrite of the file at `path` notes the original it started from: a fingerprint of
+/// its text, then the file's path (so a later sweep can tell which file a draft belongs to).
+fn base_path(data_dir: &Path, path: &Path) -> PathBuf {
+    draft_path(data_dir, path).with_extension("base")
+}
+
+/// Notes `original`, the file's text as the rewrite of the file at `path` starts from it (when
+/// it starts, and after each Ctrl+S).
+pub fn write_base(data_dir: &Path, path: &Path, original: &str) -> io::Result<()> {
+    let note = format!("{:016x}\n{}\n", fingerprint(original), path.display());
+    atomic_write(&base_path(data_dir, path), note.as_bytes())
+}
+
+/// Whether the file at `path`, now holding `original`, changed since its rewrite started from
+/// it: another program wrote it while the draft was closed or paused. A rewrite with no note
+/// (from before notes were kept) counts as unchanged.
+pub fn base_changed(data_dir: &Path, path: &Path, original: &str) -> bool {
+    match fs::read_to_string(base_path(data_dir, path)) {
+        Ok(note) => note.lines().next() != Some(&format!("{:016x}", fingerprint(original))),
+        Err(_) => false,
+    }
+}
+
+/// A fingerprint of `text` (64-bit FNV-1a), the same from one build of the app to the next,
+/// which std's hasher doesn't promise.
+fn fingerprint(text: &str) -> u64 {
+    text.bytes().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+    })
 }
 
 /// What a draft changes from its original, letter by letter: the byte ranges of the original it takes
@@ -107,6 +144,7 @@ pub fn changes(original: &str, draft: &str) -> Changes {
             .diff_words(&original[old.clone()], &draft[new.clone()]);
         let old_words = starts(words.iter_old_slices());
         let new_words = starts(words.iter_new_slices());
+        let mut block = Changes::default();
         for op in words.ops() {
             if op.tag() == DiffTag::Equal {
                 continue;
@@ -116,13 +154,55 @@ pub fn changes(original: &str, draft: &str) -> Changes {
             let added = new.start + new_words[op.new_range().start]
                 ..new.start + new_words[op.new_range().end];
             if removed.len() + added.len() > LETTER_PASS_BYTES || Instant::now() >= deadline {
-                light(Some((removed, added)), original, draft, &mut changes);
+                light(Some((removed, added)), original, draft, &mut block);
                 continue;
             }
-            letters(original, removed, draft, added, deadline, &mut changes);
+            letters(original, removed, draft, added, deadline, &mut block);
+        }
+        for range in whole_lines(original, old, block.removed) {
+            extend(&mut changes.removed, range, original);
+        }
+        for range in whole_lines(draft, new, block.added) {
+            extend(&mut changes.added, range, draft);
         }
     }
     changes
+}
+
+/// `lit`, the changed ranges of `text` within `block` (whole lines), with each line that has
+/// more than half its letters lit lit whole instead. Matched letter by letter against unrelated
+/// text, a line mostly rewritten would light in patches, as if parts of it survived.
+fn whole_lines(text: &str, block: Range<usize>, mut lit: Vec<Range<usize>>) -> Vec<Range<usize>> {
+    let letters = |range: Range<usize>| {
+        let range = range.start.max(block.start)..range.end.min(block.end);
+        (text.get(range).unwrap_or(""))
+            .chars()
+            .filter(|letter| !letter.is_whitespace())
+            .count()
+    };
+    let mut start = block.start;
+    for line in text[block.clone()].split_inclusive('\n') {
+        let end = start + line.trim_end_matches('\n').len();
+        let indent = text[start..end].len() - text[start..end].trim_start().len();
+        let content = start + indent..end;
+        let changed: usize = (lit.iter())
+            .map(|range| letters(range.start.max(content.start)..range.end.min(content.end)))
+            .sum();
+        if changed * 2 > letters(content.clone()) {
+            lit = (lit.into_iter())
+                .flat_map(|range| {
+                    let before = range.start..range.end.min(content.start);
+                    let after = range.start.max(content.end)..range.end;
+                    [before, after]
+                })
+                .filter(|range| !range.is_empty())
+                .collect();
+            lit.push(content);
+        }
+        start += line.len();
+    }
+    lit.sort_by_key(|range| range.start);
+    lit
 }
 
 impl Changes {
@@ -224,13 +304,26 @@ fn light(
 }
 
 /// Adds `range` of `text` to `ranges`, joined to the last one when only spaces lie between them,
-/// so changed words side by side light up as one run rather than a row of patches.
+/// so changed words side by side light up as one run rather than a row of patches. Line breaks
+/// are left unlit: lit, one shows as a sliver at the start of the next row.
 fn extend(ranges: &mut Vec<Range<usize>>, range: Range<usize>, text: &str) {
-    match ranges.last_mut() {
-        Some(last) if text[last.end..range.start].bytes().all(|byte| byte == b' ') => {
-            last.end = range.end;
+    let mut start = range.start;
+    for piece in text[range].split('\n') {
+        let piece_range = start..start + piece.len();
+        start = piece_range.end + 1;
+        if piece_range.is_empty() {
+            continue;
         }
-        _ => ranges.push(range),
+        match ranges.last_mut() {
+            Some(last)
+                if text[last.end..piece_range.start]
+                    .bytes()
+                    .all(|byte| byte == b' ') =>
+            {
+                last.end = piece_range.end;
+            }
+            _ => ranges.push(piece_range),
+        }
     }
 }
 
@@ -272,13 +365,26 @@ mod tests {
                 .map(|range| text[range.clone()].to_string())
                 .collect()
         };
+        // A line with more than half its letters changed lights whole, not in patches; each side
+        // is judged on its own, and most of the new line's letters were there before.
+        assert_eq!(
+            words(original, &found.removed),
+            ["Always write in a friendly tone."]
+        );
+        assert_eq!(words(draft, &found.added), ["W", "warm", "Thanks!"]);
         // A word swapped for another lights whole, not around the `r` they share.
-        assert_eq!(words(original, &found.removed), ["Always w", "friendly"]);
-        assert_eq!(words(draft, &found.added), ["W", "warm", "Thanks!\n"]);
+        let original = "Always write in a friendly tone, and keep every answer short.\n";
+        let draft = "Always write in a warm tone, and keep every answer short.\n";
+        let found = changes(original, draft);
+        assert_eq!(words(original, &found.removed), ["friendly"]);
+        assert_eq!(words(draft, &found.added), ["warm"]);
         // Changed words with only a space between them are one run (`each` keeps the `e` of
         // `every`).
-        let draft = "make each line short";
-        let found = changes("keep every entry short", draft);
+        let draft = "Please make each line short and clear for whoever reads it";
+        let found = changes(
+            "Please keep every entry short and clear for whoever reads it",
+            draft,
+        );
         assert_eq!(words(draft, &found.added), ["make", "ach line"]);
         assert_eq!(changes(draft, draft), Changes::default());
         // Inside a word, only the letters that changed.
@@ -291,6 +397,39 @@ mod tests {
         let found = changes(original, draft);
         assert_eq!(words(original, &found.removed), ["{user}"]);
         assert_eq!(words(draft, &found.added), ["testing"]);
+    }
+
+    #[test]
+    fn a_line_swapped_for_an_unrelated_one_lights_whole() {
+        let original = "- Never promise a delivery date.\n- If you don't know, say so.\n\
+                        Store credit is offered as an alternative.\n";
+        let draft = "- Never promise a delivery date; give the usual range.\n\
+                     Faulty items are repaired or replaced free of charge.\n";
+        let found = changes(original, draft);
+        let words = |text: &str, ranges: &[Range<usize>]| -> Vec<String> {
+            ranges
+                .iter()
+                .map(|range| text[range.clone()].to_string())
+                .collect()
+        };
+        // The line that mostly survives keeps its fine lighting; the others light whole, not
+        // around the odd letters ("ed ", "as") they happen to share.
+        assert_eq!(
+            words(original, &found.removed),
+            [
+                ".",
+                "- If you don't know, say so.",
+                "Store credit is offered as an alternative."
+            ],
+            "line breaks unlit"
+        );
+        assert_eq!(
+            words(draft, &found.added),
+            [
+                "; give the usual range.",
+                "Faulty items are repaired or replaced free of charge."
+            ]
+        );
     }
 
     #[test]
@@ -352,12 +491,35 @@ mod tests {
             None,
             "not reopened with the file"
         );
+        assert!(has_paused(dir.path(), &notes));
         assert_eq!(take_paused(dir.path(), &notes).as_deref(), Some("edited"));
+        assert!(!has_paused(dir.path(), &notes));
         assert_eq!(read_draft(dir.path(), &notes).as_deref(), Some("edited"));
         assert_eq!(take_paused(dir.path(), &notes), None);
         // Removing a rewrite takes a paused draft too.
         pause_draft(dir.path(), &notes, "edited").unwrap();
         remove_draft(dir.path(), &notes).unwrap();
         assert_eq!(take_paused(dir.path(), &notes), None);
+    }
+
+    #[test]
+    fn a_rewrite_notices_its_file_changed_since_it_started() {
+        let dir = tempfile::tempdir().unwrap();
+        let notes = dir.path().join("notes.md");
+        assert!(
+            !base_changed(dir.path(), &notes, "# notes\n"),
+            "no note yet"
+        );
+        write_base(dir.path(), &notes, "# notes\n").unwrap();
+        assert!(!base_changed(dir.path(), &notes, "# notes\n"));
+        assert!(base_changed(
+            dir.path(),
+            &notes,
+            "# notes, edited elsewhere\n"
+        ));
+        let note = fs::read_to_string(base_path(dir.path(), &notes)).unwrap();
+        assert!(note.ends_with(&format!("{}\n", notes.display())), "{note}");
+        remove_draft(dir.path(), &notes).unwrap();
+        assert!(!base_path(dir.path(), &notes).exists());
     }
 }

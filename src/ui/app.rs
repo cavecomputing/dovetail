@@ -63,6 +63,11 @@ pub struct App {
     pub diff_generation: u64,
     /// Ctrl+R to act on once the save running now ends (see `toggle_rewrite`).
     pub toggling_rewrite: bool,
+    /// While rewriting: why Ctrl+S waits, when the file changed elsewhere since the draft started
+    /// from it (`STALE_DRAFT`, then `STALE_DRAFT_AGAIN` once Ctrl+S was refused).
+    pub stale_draft: Option<&'static str>,
+    /// Whether the file has a paused rewrite waiting for the next Ctrl+R (the pen shows it).
+    pub paused_draft: bool,
     /// The Ctrl+P switcher, while it is open.
     pub switcher: Option<Switcher>,
     /// The Ctrl+O picker, while it is open.
@@ -99,6 +104,8 @@ pub struct App {
 
     /// The text's word and token counts. They lag behind typing (see `COUNT_PAUSE`).
     pub counts: Counts,
+    /// While rewriting: the original's counts, shown before the draft's.
+    pub original_counts: Option<Counts>,
     /// When the latest edit the counts don't include yet was made.
     uncounted_edit: Option<Instant>,
     /// The recent files, for the menu.
@@ -180,6 +187,8 @@ pub enum Message {
     Saved(u64, u64, Result<Option<DiskStamp>, String>),
     /// The counts of the document with this number (`App::document`).
     Counted(u64, Counts),
+    /// A rewrite's original counted, for the document the number names.
+    OriginalCounted(u64, Counts),
     /// The syntax check of the document with this number (`App::document`) ended.
     SyntaxChecked(u64, Option<String>),
     /// Format (`minify` off) or Minify a .json file's text.
@@ -333,6 +342,7 @@ impl App {
             settings_modified: modified_time(&paths),
             recent: existing_recent_files(&paths.data_dir),
             counts: Counts::of(&opened.text),
+            original_counts: None,
             uncounted_edit: None,
             last_comfort_chars: match settings.reading_mode {
                 ReadingMode::Comfort { chars } => chars,
@@ -353,6 +363,8 @@ impl App {
             changes_text: String::new(),
             diff_generation: 0,
             toggling_rewrite: false,
+            stale_draft: None,
+            paused_draft: false,
             switcher: None,
             picker: None,
             palette: None,
@@ -590,6 +602,10 @@ impl App {
             }
             Message::Counted(document, counts) if document == self.document => self.counts = counts,
             Message::Counted(..) => {}
+            Message::OriginalCounted(document, counts) if document == self.document => {
+                self.original_counts = Some(counts);
+            }
+            Message::OriginalCounted(..) => {}
             Message::SyntaxChecked(document, problem) if document == self.document => {
                 self.syntax_problem = problem;
             }
@@ -890,7 +906,7 @@ impl App {
 
     /// Counts the text's words and tokens in the background, as it takes a while on a long text;
     /// `Counted` brings the numbers back.
-    fn count(&self) -> Task<Message> {
+    pub fn count(&self) -> Task<Message> {
         let text = self.pane.model.text().to_string();
         let document = self.document;
         Task::perform(async move { Counts::of(&text) }, move |counts| {
@@ -900,7 +916,7 @@ impl App {
 
     /// In a JSON, YAML, TOML or INI file or a shell script, checks the text is valid in the
     /// background; `SyntaxChecked` brings any problem back.
-    fn check_syntax(&self) -> Task<Message> {
+    pub fn check_syntax(&self) -> Task<Message> {
         let syntax = self.syntax();
         if matches!(syntax, Syntax::Plain | Syntax::Markdown) {
             return Task::none();
@@ -1109,7 +1125,7 @@ impl App {
             return draft;
         };
         // The original only scrolls and selects, so its actions go to it, not the draft. It is
-        // drawn set aside: on the darker page colour, its text and colours dimmed.
+        // drawn set aside: on the recessed colour, its text and colours dimmed.
         let original = editor::view(
             original,
             &self.settings,
@@ -1125,7 +1141,7 @@ impl App {
         row![
             container(original)
                 .width(Fill)
-                .style(|theme: &Theme| theme::fill(Roles::of(theme).bg_page)),
+                .style(|theme: &Theme| theme::fill(Roles::of(theme).bg_recessed)),
             assistant_view::divider(),
             container(draft).width(Fill),
         ]
@@ -1788,11 +1804,15 @@ mod tests {
             None,
             "not reopened with the file"
         );
+        assert!(app.paused_draft, "the pen shows one waits");
         // Not even after the window moves on and comes back.
         let _ = app.update(Message::OpenPath(dir.path().join("other.txt")));
+        assert!(!app.paused_draft, "other.txt has none");
         let _ = app.update(Message::OpenPath(notes.clone()));
         assert!(app.original.is_none());
+        assert!(app.paused_draft);
         let _ = app.update(Message::ToggleRewrite);
+        assert!(!app.paused_draft);
         assert_eq!(app.pane.model.text(), "draft # notes\n");
         assert_eq!(app.original.as_ref().unwrap().model.text(), "# notes\n");
     }
@@ -1851,9 +1871,13 @@ mod tests {
         assert_eq!(app.pane.model.text(), "draft # notes\n");
         assert_eq!(app.original.as_ref().unwrap().model.text(), "# notes\n");
         assert_eq!(std::fs::read_to_string(&notes).unwrap(), "# notes\r\n");
-        // Another window can't edit it, so it shows the file and leaves the draft alone.
-        let (other, _) = App::with_paths(file_doc(&notes), paths.clone());
+        // Another window can't edit it, so it shows the file and leaves the draft alone; its
+        // Ctrl+R says why it does nothing.
+        let (mut other, _) = App::with_paths(file_doc(&notes), paths.clone());
         assert!(other.original.is_none());
+        let _ = other.update(Message::ToggleRewrite);
+        assert!(other.original.is_none());
+        assert!(other.notice.is_some());
         assert!(read_draft(&paths.data_dir, &notes).is_some());
     }
 
@@ -1870,6 +1894,53 @@ mod tests {
     }
 
     #[test]
+    fn a_draft_whose_file_changed_elsewhere_waits_for_a_second_ctrl_s() {
+        let (_dir, _paths, mut app, notes) = rewriting_notes("");
+        type_in(&mut app, "draft ");
+        let _ = app.update(Message::OpenScratch);
+        // Another program writes the file while the draft is closed.
+        std::fs::write(&notes, "# notes, edited elsewhere\n").unwrap();
+        let _ = app.update(Message::OpenPath(notes.clone()));
+        assert!(app.original.is_some());
+        assert!(app.stale_draft.is_some(), "said so in the status bar");
+        let _ = app.update(Message::Save);
+        assert_eq!(
+            std::fs::read_to_string(&notes).unwrap(),
+            "# notes, edited elsewhere\n",
+            "the first Ctrl+S is refused"
+        );
+        let _ = app.update(Message::Save);
+        assert_eq!(std::fs::read_to_string(&notes).unwrap(), "draft # notes\n");
+        assert!(app.stale_draft.is_none());
+        // Paused and picked up again with the file unchanged since: nothing to say.
+        type_in(&mut app, "more ");
+        let _ = app.update(Message::ToggleRewrite);
+        let _ = app.update(Message::ToggleRewrite);
+        assert!(app.stale_draft.is_none());
+    }
+
+    #[test]
+    fn a_rewrite_counts_its_original_for_the_status_bar() {
+        let (_dir, _paths, mut app, _notes) = rewriting_notes("");
+        assert_eq!(app.original_counts, None, "counted off the UI thread");
+        let counts = Counts::of("# notes\n");
+        let _ = app.update(Message::OriginalCounted(
+            app.document - 1,
+            Counts::of("old"),
+        ));
+        assert_eq!(
+            app.original_counts, None,
+            "an answer for another document is dropped"
+        );
+        let _ = app.update(Message::OriginalCounted(app.document, counts));
+        assert_eq!(app.original_counts, Some(counts));
+        // Ctrl+S changes the original, so it is counted again.
+        type_in(&mut app, "more ");
+        let _ = app.update(Message::Save);
+        assert_eq!(app.original_counts, None);
+    }
+
+    #[test]
     fn ctrl_r_toggles_a_rewrite_but_not_in_scratch() {
         let press = shortcut_for("r", "r", keyboard::Modifiers::COMMAND);
         assert!(matches!(press, Some(Message::ToggleRewrite)));
@@ -1877,6 +1948,7 @@ mod tests {
         let _ = app.update(Message::ToggleRewrite);
         assert!(app.original.is_none());
         assert!(!app.can_rewrite());
+        assert!(app.notice.is_none(), "scratch never offered one");
     }
 
     #[test]

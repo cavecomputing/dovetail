@@ -101,26 +101,37 @@ The first step is a split review, in any file (not scratch, 2026-10-24): `Ctrl+R
 stays Save as), the pen in the status bar beside the assistant toggle, or "rewrite" in the menu.
 
 - The window splits: the original on the left, read-only, and an editable copy on the right.
-  The original is set apart by look alone, no label (2026-10-24): it sits on `bg-page`, its text
+  The original is set apart by look alone, no label (2026-10-24): it sits on `bg-page` in dark
+  and `bg-raised` in light (where `bg-page` is paler than the window; 2026-10-24), its text
   in `fg` at 80% and its syntax colours faded to 80%, not dropped (2026-10-24: without them it was hard to
   match a place on the left to the same place on the right). A read-only file's colours fade the
-  same way.
+  same way. Neither shows a caret, nor lights the caret's line number, so nothing suggests typing
+  there; selecting and copying stay (2026-10-24).
+- The status bar's counts show the original's, then the draft's: `108 → 120 words · ~158 →
+  ~170 tokens` (2026-10-24). The original is counted off the UI thread when the split opens and
+  after each `Ctrl+S`.
 - The copy autosaves to a draft file in the data folder (`drafts/`, named like the document's lock),
   never to the original. `Ctrl+S` writes it over the original and the left side shows the result;
   the split stays.
 - `Ctrl+R` again (the pen, the menu) pauses the rewrite (2026-10-24): back to the original as
   last saved, the draft moved aside (`.paused`) for the next `Ctrl+R`, and not reopened with the
-  file. A draft no different from the original isn't kept. Reset rewrite (`Ctrl+Shift+R`, the
+  file. A draft no different from the original isn't kept. While a paused draft waits, the pen
+  is lit at half strength and it and the menu say "resume rewrite" (2026-10-24). Reset rewrite (`Ctrl+Shift+R`, the
   menu) puts the draft back to the original's text as one undo step, the split staying. Undo never crosses the rewrite's
   edges (2026-10-24): the draft starts its own history, and the original comes back with its own,
   so `Ctrl+Z` can't put the draft's changes into the file.
 - What the draft changes from the original is lit as it's typed (2026-10-24), letter by letter
   within a word (a word swapped for another lights whole, not around a letter or two they
-  share) and faintly (`added` behind text put in on the right, `removed` behind text taken out on the left;
+  share, and a line with more than half its letters changed lights whole, each side judged on
+  its own, 2026-10-24) and faintly (`added` behind text put in on the right, `removed` behind text taken out on the left;
   no strike-through), so it doesn't pull the eye from the text. The save dot stays steady yellow
   while the draft differs from the file; `Ctrl+S` clears the lit changes and the dot goes aqua.
 - A draft left by a closed window, or a crash, brings the split back the next time its document
   opens in a window that can edit it.
+- A fingerprint of the original the draft started from, and the file's path, sit beside the
+  draft (`.base`, written at the start and on each `Ctrl+S`). If the file changed elsewhere while
+  the draft was closed or paused, a lasting orange warning sits where syntax problems show, and
+  the first `Ctrl+S` is refused; a second writes (2026-10-24).
 
 ## 7a. Projects: the rewrite flow (`rewrite` branch)
 
