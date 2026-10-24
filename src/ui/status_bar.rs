@@ -86,7 +86,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
     }
     right = right.push(space().width(16));
     if app.can_rewrite() {
-        right = right.push(rewrite_toggle(app.original.is_some()));
+        right = right.push(rewrite_toggle(app.original.is_some(), app.paused_draft));
     }
     right = right.push(assistant_toggle(app.assistant.open));
 
@@ -190,31 +190,43 @@ fn assistant_toggle<'a>(open: bool) -> Element<'a, Message> {
     hint(toggle, keys(words))
 }
 
-/// The pen: starts a rewrite, highlighted while one is under way.
-fn rewrite_toggle<'a>(rewriting: bool) -> Element<'a, Message> {
-    let toggle = glyph_toggle(GLYPH_PEN, rewriting, Message::ToggleRewrite);
-    let words = match rewriting {
-        true => "Pause the rewrite: back to the file, the draft kept for the next Ctrl+R (Ctrl+R)",
-        false => "Rewrite: edit a copy beside the original (Ctrl+R)",
+/// The pen: starts a rewrite, highlighted while one is under way and faintly while a paused one
+/// waits for Ctrl+R.
+fn rewrite_toggle<'a>(rewriting: bool, paused: bool) -> Element<'a, Message> {
+    let (strength, words) = match (rewriting, paused) {
+        (true, _) => (Some(1.0), "pause rewrite (Ctrl+R)"),
+        (false, true) => (Some(PAUSED), "resume rewrite (Ctrl+R)"),
+        (false, false) => (None, "Rewrite: edit a copy beside the original (Ctrl+R)"),
     };
-    hint(toggle, keys(words))
+    hint(
+        lit_glyph(GLYPH_PEN, strength, Message::ToggleRewrite),
+        keys(words),
+    )
 }
+
+/// How strongly the pen is lit while a paused rewrite waits.
+const PAUSED: f32 = 0.5;
 
 /// A small glyph button for something that is on or off, highlighted while `on`.
 pub fn glyph_toggle<'a>(glyph: &'a str, on: bool, on_press: Message) -> Element<'a, Message> {
+    lit_glyph(glyph, on.then_some(1.0), on_press)
+}
+
+/// A small glyph button, highlighted at `strength` (0 to 1), or plain with none.
+fn lit_glyph<'a>(glyph: &'a str, strength: Option<f32>, on_press: Message) -> Element<'a, Message> {
     button(text(glyph).size(14).center())
         .width(22)
         .height(20)
         .padding(0)
         .style(move |theme: &Theme, status| {
             let roles = Roles::of(theme);
-            match on {
-                true => button::Style {
-                    background: Some(Background::Color(roles.border)),
-                    text_color: roles.accent_text,
+            match strength {
+                Some(strength) => button::Style {
+                    background: Some(Background::Color(roles.border.scale_alpha(strength))),
+                    text_color: roles.accent_text.scale_alpha(strength.max(0.7)),
                     ..icon_button(theme, status)
                 },
-                false => icon_button(theme, status),
+                None => icon_button(theme, status),
             }
         })
         .on_press(on_press)
@@ -296,9 +308,10 @@ pub fn menu(app: &App) -> Element<'_, Message> {
         Doc::File { .. } => items.push(menu_item("save as", "Ctrl+Shift+S", Message::SaveAs)),
     };
     if app.can_rewrite() {
-        let rewrite = match app.original {
-            Some(_) => "pause rewrite",
-            None => "rewrite",
+        let rewrite = match (&app.original, app.paused_draft) {
+            (Some(_), _) => "pause rewrite",
+            (None, true) => "resume rewrite",
+            (None, false) => "rewrite",
         };
         items = items.push(menu_item(rewrite, "Ctrl+R", Message::ToggleRewrite));
         if app.original.is_some() {

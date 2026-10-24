@@ -66,6 +66,8 @@ pub struct App {
     /// While rewriting: why Ctrl+S waits, when the file changed elsewhere since the draft started
     /// from it (`STALE_DRAFT`, then `STALE_DRAFT_AGAIN` once Ctrl+S was refused).
     pub stale_draft: Option<&'static str>,
+    /// Whether the file has a paused rewrite waiting for the next Ctrl+R (the pen shows it).
+    pub paused_draft: bool,
     /// The Ctrl+P switcher, while it is open.
     pub switcher: Option<Switcher>,
     /// The Ctrl+O picker, while it is open.
@@ -357,6 +359,7 @@ impl App {
             diff_generation: 0,
             toggling_rewrite: false,
             stale_draft: None,
+            paused_draft: false,
             switcher: None,
             picker: None,
             palette: None,
@@ -1790,11 +1793,15 @@ mod tests {
             None,
             "not reopened with the file"
         );
+        assert!(app.paused_draft, "the pen shows one waits");
         // Not even after the window moves on and comes back.
         let _ = app.update(Message::OpenPath(dir.path().join("other.txt")));
+        assert!(!app.paused_draft, "other.txt has none");
         let _ = app.update(Message::OpenPath(notes.clone()));
         assert!(app.original.is_none());
+        assert!(app.paused_draft);
         let _ = app.update(Message::ToggleRewrite);
+        assert!(!app.paused_draft);
         assert_eq!(app.pane.model.text(), "draft # notes\n");
         assert_eq!(app.original.as_ref().unwrap().model.text(), "# notes\n");
     }

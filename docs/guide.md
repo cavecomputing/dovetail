@@ -284,7 +284,8 @@ previous match), ⌘M (minimise) and ⌘Q (closes the window, waiting for the sa
   side shows the file as it is now, and a second Ctrl+S writes over it.
 - **Pausing the rewrite** (Ctrl+R again, the pen, or "pause rewrite") goes back to the file as
   last saved. The copy is kept, and the next Ctrl+R picks it up again (the file opening later
-  doesn't bring it back by itself).
+  doesn't bring it back by itself). While one waits, the pen stays faintly lit and the menu says
+  "resume rewrite".
 - **Reset rewrite** (Ctrl+Shift+R, or the menu) puts the copy back to the file as last saved and
   keeps the split; Ctrl+Z takes a reset back. To be done with a rewrite, reset it and pause: a copy
   no different from the file isn't kept.

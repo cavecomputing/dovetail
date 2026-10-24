@@ -8,8 +8,8 @@ use iced::widget::operation::focus;
 use crate::core::counts::Counts;
 use crate::core::opened::{Doc, write_doc};
 use crate::core::rewrite::{
-    Changes, base_changed, changes, pause_draft, read_draft, remove_draft, take_paused, write_base,
-    write_draft,
+    Changes, base_changed, changes, has_paused, pause_draft, read_draft, remove_draft, take_paused,
+    write_base, write_draft,
 };
 use crate::core::shutdown;
 use crate::core::text_file::{DiskStamp, changed_on_disk, read_text};
@@ -70,6 +70,7 @@ impl App {
         let saved = self.pane.model.text().to_string();
         let data_dir = &self.paths.data_dir;
         let paused = take_paused(data_dir, path);
+        self.paused_draft = false;
         self.stale_draft = None;
         if paused.is_some() && base_changed(data_dir, path, &saved) {
             self.stale_draft = Some(STALE_DRAFT);
@@ -125,6 +126,7 @@ impl App {
         }
         self.pane = original;
         self.stale_draft = None;
+        self.paused_draft = changed;
         let caret = self.pane.model.text().floor_char_boundary(caret);
         self.pane.put_caret(caret);
         self.pane.content.scroll_to_line(top);
@@ -214,6 +216,8 @@ impl App {
     pub fn resume_rewrite(&mut self) -> Task<Message> {
         self.original = None;
         self.stale_draft = None;
+        self.paused_draft =
+            (self.doc.path()).is_some_and(|path| has_paused(&self.paths.data_dir, path));
         if self.editable()
             && let Some(path) = self.doc.path()
             && let Some(draft) = read_draft(&self.paths.data_dir, path)

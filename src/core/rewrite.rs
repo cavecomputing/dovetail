@@ -54,6 +54,11 @@ pub fn take_paused(data_dir: &Path, path: &Path) -> Option<String> {
     Some(text)
 }
 
+/// Whether the file at `path` has a paused rewrite waiting for the next Ctrl+R.
+pub fn has_paused(data_dir: &Path, path: &Path) -> bool {
+    paused_path(data_dir, path).exists()
+}
+
 /// Deletes the rewrite of the file at `path`, open or paused.
 pub fn remove_draft(data_dir: &Path, path: &Path) -> io::Result<()> {
     remove_file(&draft_path(data_dir, path))?;
@@ -384,7 +389,9 @@ mod tests {
             None,
             "not reopened with the file"
         );
+        assert!(has_paused(dir.path(), &notes));
         assert_eq!(take_paused(dir.path(), &notes).as_deref(), Some("edited"));
+        assert!(!has_paused(dir.path(), &notes));
         assert_eq!(read_draft(dir.path(), &notes).as_deref(), Some("edited"));
         assert_eq!(take_paused(dir.path(), &notes), None);
         // Removing a rewrite takes a paused draft too.

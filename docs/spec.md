@@ -110,7 +110,8 @@ stays Save as), the pen in the status bar beside the assistant toggle, or "rewri
   the split stays.
 - `Ctrl+R` again (the pen, the menu) pauses the rewrite (2026-10-24): back to the original as
   last saved, the draft moved aside (`.paused`) for the next `Ctrl+R`, and not reopened with the
-  file. A draft no different from the original isn't kept. Reset rewrite (`Ctrl+Shift+R`, the
+  file. A draft no different from the original isn't kept. While a paused draft waits, the pen
+  is lit at half strength and it and the menu say "resume rewrite" (2026-10-24). Reset rewrite (`Ctrl+Shift+R`, the
   menu) puts the draft back to the original's text as one undo step, the split staying. Undo never crosses the rewrite's
   edges (2026-10-24): the draft starts its own history, and the original comes back with its own,
   so `Ctrl+Z` can't put the draft's changes into the file.
