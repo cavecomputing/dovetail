@@ -27,7 +27,9 @@ use crate::core::text_file::newlines_only;
 use crate::core::text_model::{Change, TextModel, offset, position, positions, selected_lines};
 use crate::core::typing::{enter, in_empty_pair, typed};
 use crate::ui::app::Message;
-use crate::ui::highlighter::{Colouring, Highlight, MarkupHighlighter, highlight_format};
+use crate::ui::highlighter::{
+    Colouring, Highlight, MarkupHighlighter, dimmed_format, highlight_format,
+};
 use crate::ui::scroll_bar::scroll_bar;
 use crate::ui::text_editor::{
     self, Action, Binding, Content, Cursor, Edit, KeyPress, PaintLook, PaintRun, Position, Status,
@@ -95,7 +97,14 @@ pub fn view<'a>(
         .style(move |theme, _status| style(theme, editable))
         .on_action(Message::Edit)
         .paint(paint)
-        .highlight_with::<MarkupHighlighter>(colouring, highlight_format);
+        .highlight_with::<MarkupHighlighter>(
+            colouring,
+            if editable {
+                highlight_format
+            } else {
+                dimmed_format
+            },
+        );
 
     let column = match settings.reading_mode {
         ReadingMode::Comfort { chars } => {

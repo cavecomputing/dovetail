@@ -271,7 +271,7 @@ previous match), ⌘M (minimise) and ⌘Q (closes the window, waiting for the sa
 
 - **Ctrl+R**, the pen at the right of the status bar, or "rewrite" in the menu starts a rewrite of
   the open file or scratch. The window splits: the original on the left, read-only on a darker background with its text
-  dimmed and uncoloured (you
+  and colours faded (you
   can still scroll, select and copy), and a copy on the right that you edit.
 - The copy autosaves as usual, but to a draft of its own in the data folder, never to your file.
 - **Ctrl+S** writes the copy over the original, keeping the file's line endings, and the left side

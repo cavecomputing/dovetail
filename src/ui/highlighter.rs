@@ -74,6 +74,16 @@ pub fn highlight_format(highlight: &Highlight, theme: &Theme) -> highlighter::Fo
     highlighter::Format { color, font }
 }
 
+/// `highlight_format` faded, for text that can't be edited (a rewrite's original, a read-only
+/// file): the colours stay, so it still reads like the text being edited, only quieter.
+pub fn dimmed_format(highlight: &Highlight, theme: &Theme) -> highlighter::Format<Font> {
+    let format = highlight_format(highlight, theme);
+    highlighter::Format {
+        color: format.color.map(|color| color.scale_alpha(0.6)),
+        ..format
+    }
+}
+
 /// iced asks for colours one line at a time, from `current_line` down to the last line in view,
 /// and says which line an edit changed first; `line` tracks how far it has got.
 pub struct MarkupHighlighter {

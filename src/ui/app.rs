@@ -1067,16 +1067,12 @@ impl App {
             return draft;
         };
         // The original only scrolls and selects, so its actions go to it, not the draft. It is
-        // drawn set aside: on the darker page colour, its text all dimmed, with no colouring.
-        let quiet = Settings {
-            colour_markup: false,
-            ..self.settings.clone()
-        };
+        // drawn set aside: on the darker page colour, its text and colours dimmed.
         let original = editor::view(
             original,
-            &quiet,
+            &self.settings,
             false,
-            Syntax::Plain,
+            syntax,
             Vec::new(),
             ORIGINAL_ID,
         )
