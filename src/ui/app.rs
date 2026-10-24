@@ -57,6 +57,10 @@ pub struct App {
     pub original: Option<Pane>,
     /// While rewriting: what the draft changes from the original, lit on both sides.
     pub changes: Changes,
+    /// The draft's text as `changes` describes it (see `shift_changes`).
+    pub changes_text: String,
+    /// Counts the comparisons started, so the answer to an older text is dropped (`Changed`).
+    pub diff_generation: u64,
     /// Ctrl+R to act on once the save running now ends (see `toggle_rewrite`).
     pub toggling_rewrite: bool,
     /// The Ctrl+P switcher, while it is open.
@@ -160,6 +164,9 @@ pub enum Message {
     ResetRewrite,
     /// Scrolling, selecting and the like in the original, read-only beside a rewrite's draft.
     Original(Action),
+    /// What the draft changes from the original, compared off the UI thread; the number says
+    /// which comparison it answers.
+    Changed(u64, Changes),
     /// Ctrl+X or Ctrl+C while reviewing: copy the selected text, without the suggestions, and
     /// delete it for Ctrl+X (`cut`).
     Clip {
@@ -343,6 +350,8 @@ impl App {
             pane,
             original: None,
             changes: Changes::default(),
+            changes_text: String::new(),
+            diff_generation: 0,
             toggling_rewrite: false,
             switcher: None,
             picker: None,
@@ -367,8 +376,9 @@ impl App {
             key_field: KeyField::default(),
             connection: None,
         };
-        app.resume_rewrite();
+        let resumed = app.resume_rewrite();
         let tasks = Task::batch([
+            resumed,
             app.check_syntax(),
             open.map(|_| Message::WindowOpened),
             iced::system::theme().map(Message::SystemTheme),
@@ -397,9 +407,9 @@ impl App {
         self.assistant.new_chat();
         self.syntax_problem = None;
         self.toggling_rewrite = false;
-        self.resume_rewrite();
+        let resumed = self.resume_rewrite();
         let focus = iced::widget::operation::focus(editor::EDITOR_ID);
-        Task::batch([self.count(), self.check_syntax(), focus])
+        Task::batch([resumed, self.count(), self.check_syntax(), focus])
     }
 
     fn title(&self, _window: window::Id) -> String {
@@ -516,6 +526,11 @@ impl App {
                     let _ = original.perform(action);
                 }
             }
+            Message::Changed(generation, found) if generation == self.diff_generation => {
+                self.changes = found;
+            }
+            // Of a text since edited; the next comparison is on its way.
+            Message::Changed(..) => {}
             Message::Tick(now) => {
                 self.now = now;
                 let mut tasks = Vec::new();
@@ -526,6 +541,7 @@ impl App {
                     self.uncounted_edit = None;
                     tasks.push(self.count());
                     tasks.push(self.check_syntax());
+                    tasks.push(self.find_changes());
                 }
                 // Over a file changed on disk, saves wait for Reload or Keep mine.
                 if !self.disk_conflict && self.autosaver.should_save_now(now) {
@@ -829,7 +845,7 @@ impl App {
         if self.find.open {
             self.find_again(self.pane.caret());
         }
-        self.find_changes();
+        self.shift_changes();
         // Undo, redo and a reload can drop a suggestion the change touched.
         self.settle_cards(CardState::Gone(
             "an edit to the text under it dropped it".to_string(),
@@ -1772,6 +1788,34 @@ mod tests {
         let _ = app.update(Message::ToggleRewrite);
         assert_eq!(app.pane.model.text(), "draft # notes\n");
         assert_eq!(app.original.as_ref().unwrap().model.text(), "# notes\n");
+    }
+
+    #[test]
+    fn lit_changes_follow_the_typing_until_the_comparison_answers() {
+        let (_dir, _paths, mut app, _notes) = rewriting_notes("");
+        type_in(&mut app, "x");
+        // The comparison runs off the UI thread; its answer counts only for the text it saw.
+        let current = app.diff_generation;
+        let found = Changes {
+            removed: vec![],
+            added: vec![3..4, 6..7],
+        };
+        let _ = app.update(Message::Changed(current, found.clone()));
+        assert_eq!(app.changes, found);
+        let stale = Changes {
+            removed: vec![0..1, 2..3],
+            added: vec![],
+        };
+        let _ = app.update(Message::Changed(current - 1, stale));
+        assert_eq!(app.changes, found, "an answer to an older text is dropped");
+        // Typing moves what's lit along and lights itself, until the next answer.
+        let _ = app.update(Message::Edit(Action::Move(Motion::DocumentStart)));
+        type_in(&mut app, "ab");
+        assert_eq!(app.changes.added, [0..2, 5..6, 8..9]);
+        assert!(
+            app.diff_generation > current,
+            "the running comparison is of older text"
+        );
     }
 
     #[test]

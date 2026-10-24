@@ -8,7 +8,7 @@ use std::fs;
 use std::io::{self, ErrorKind};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use similar::{DiffTag, TextDiff};
 
@@ -68,16 +68,26 @@ pub struct Changes {
     pub added: Vec<Range<usize>>,
 }
 
-/// How long each comparison past the lines (a block of changed lines word by word, a changed
-/// word letter by letter) may take, as they run on every edit; past it, more is lit than changed.
-const DIFF_TIME: Duration = Duration::from_millis(20);
+/// The most text a block of changed lines may hold for its words to be compared, and a run of
+/// changed words for its letters. Myers' search takes time in proportion to the text times the
+/// number of differences, so a block this big that differs throughout would take seconds, and
+/// is as good as lit whole. (A whole different text pasted in is one such block.)
+const WORD_PASS_BYTES: usize = 64 * 1024;
+const LETTER_PASS_BYTES: usize = 4 * 1024;
+
+/// How long a whole comparison may take, all three passes together, as a safeguard behind the
+/// size limits above; past it, the rest of the changed lines light whole. It runs off the UI
+/// thread, so this is about the highlights not falling further behind the typing.
+const DIFF_TIME: Duration = Duration::from_millis(500);
 
 /// What `draft` changes from `original`, letter by letter. Lines are compared first, then only
 /// the lines that differ word by word, then only the words that differ letter by letter: one
-/// finer pass over a long text could run out of time and light everything between two small
-/// changes.
+/// finer pass over a long text would take far longer for the same answer.
 pub fn changes(original: &str, draft: &str) -> Changes {
-    let lines = TextDiff::from_lines(original, draft);
+    let deadline = Instant::now() + DIFF_TIME;
+    let lines = TextDiff::configure()
+        .deadline(deadline)
+        .diff_lines(original, draft);
     let old_starts = starts(lines.iter_old_slices());
     let new_starts = starts(lines.iter_new_slices());
     let mut changes = Changes::default();
@@ -87,8 +97,13 @@ pub fn changes(original: &str, draft: &str) -> Changes {
         }
         let old = old_starts[op.old_range().start]..old_starts[op.old_range().end];
         let new = new_starts[op.new_range().start]..new_starts[op.new_range().end];
+        // Too big, or out of time: the changed lines light whole.
+        if old.len() + new.len() > WORD_PASS_BYTES || Instant::now() >= deadline {
+            light(Some((old, new)), original, draft, &mut changes);
+            continue;
+        }
         let words = TextDiff::configure()
-            .timeout(DIFF_TIME)
+            .deadline(deadline)
             .diff_words(&original[old.clone()], &draft[new.clone()]);
         let old_words = starts(words.iter_old_slices());
         let new_words = starts(words.iter_new_slices());
@@ -100,10 +115,45 @@ pub fn changes(original: &str, draft: &str) -> Changes {
                 ..old.start + old_words[op.old_range().end];
             let added = new.start + new_words[op.new_range().start]
                 ..new.start + new_words[op.new_range().end];
-            letters(original, removed, draft, added, &mut changes);
+            if removed.len() + added.len() > LETTER_PASS_BYTES || Instant::now() >= deadline {
+                light(Some((removed, added)), original, draft, &mut changes);
+                continue;
+            }
+            letters(original, removed, draft, added, deadline, &mut changes);
         }
     }
     changes
+}
+
+impl Changes {
+    /// Moves the lit ranges of the draft along with an edit to it, until the next comparison
+    /// comes back: `at` is where the edit began, `removed` how many bytes it took out and
+    /// `inserted` how many it put in. Ranges before the edit stay, ranges after it shift, and the
+    /// edit itself, with any range it touched, is lit as one run (what was put in is new text).
+    pub fn shift(&mut self, at: usize, removed: usize, inserted: usize) {
+        let removed_end = at + removed;
+        let mut edit = at..at + inserted;
+        let mut shifted = Vec::with_capacity(self.added.len() + 1);
+        for range in &self.added {
+            if range.end < at || (range.end == at && inserted == 0) {
+                shifted.push(range.clone());
+            } else if range.start > removed_end {
+                shifted.push(range.start + inserted - removed..range.end + inserted - removed);
+            } else {
+                // Touches the edit (typing right next to a lit run counts): joined with it, the
+                // part past the edit moved along.
+                edit.start = edit.start.min(range.start);
+                if range.end > removed_end {
+                    edit.end = edit.end.max(range.end + inserted - removed);
+                }
+            }
+        }
+        if !edit.is_empty() {
+            shifted.push(edit);
+        }
+        shifted.sort_by_key(|range| range.start);
+        self.added = shifted;
+    }
 }
 
 /// The byte offset each of `pieces` starts at, and the end of the last.
@@ -127,10 +177,11 @@ fn letters(
     removed: Range<usize>,
     draft: &str,
     added: Range<usize>,
+    deadline: Instant,
     changes: &mut Changes,
 ) {
     let diff = TextDiff::configure()
-        .timeout(DIFF_TIME)
+        .deadline(deadline)
         .diff_chars(&original[removed.clone()], &draft[added.clone()]);
     let old_letters = starts(diff.iter_old_slices());
     let new_letters = starts(diff.iter_new_slices());
@@ -263,6 +314,31 @@ mod tests {
         };
         assert_eq!(words(&original, &found.removed), ["s", "m"]);
         assert_eq!(words(&draft, &found.added), ["z", "n"]);
+    }
+
+    #[test]
+    fn lit_ranges_move_along_with_an_edit_until_the_next_comparison() {
+        let mut lit = Changes {
+            removed: vec![0..3, 7..9],
+            added: vec![2..4, 10..14, 20..22],
+        };
+        // Typed in unchanged text between two runs: they stay and shift, the typing is lit.
+        lit.shift(6, 0, 3);
+        assert_eq!(lit.added, [2..4, 6..9, 13..17, 23..25]);
+        // Deleted across the end of a run: what's left of it stays lit, the rest moves up.
+        lit.shift(15, 4, 0);
+        assert_eq!(lit.added, [2..4, 6..9, 13..15, 19..21]);
+        // Replaced over two runs: one run from the first to the end of what was put in.
+        lit.shift(8, 6, 2);
+        assert_eq!(lit.added, [2..4, 6..11, 15..17]);
+        // A deletion that touches nothing lit only shifts.
+        lit.shift(0, 1, 0);
+        assert_eq!(lit.added, [1..3, 5..10, 14..16]);
+        assert_eq!(
+            lit.removed,
+            vec![0..3, 7..9],
+            "the original is left as it was"
+        );
     }
 
     #[test]

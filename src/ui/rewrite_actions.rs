@@ -12,6 +12,7 @@ use crate::core::rewrite::{
 };
 use crate::core::shutdown;
 use crate::core::text_file::{DiskStamp, changed_on_disk, read_text};
+use crate::core::text_model::TextModel;
 use crate::ui::app::{App, Message};
 use crate::ui::editor::{self, Pane};
 
@@ -41,20 +42,23 @@ impl App {
             self.toggling_rewrite = true;
             return Task::none();
         }
-        match self.original.is_some() {
-            true => self.pause_rewrite(),
+        let toggled = match self.original.is_some() {
+            true => {
+                self.pause_rewrite();
+                Task::none()
+            }
             false => self.start_rewrite(),
-        }
-        focus(editor::EDITOR_ID)
+        };
+        Task::batch([toggled, focus(editor::EDITOR_ID)])
     }
 
-    fn start_rewrite(&mut self) {
+    fn start_rewrite(&mut self) -> Task<Message> {
         // Typing not autosaved yet belongs to the original, where it was typed.
         if !self.autosaver.close_allowed() && !self.save_before_leaving() {
-            return;
+            return Task::none();
         }
         let Some(path) = self.doc.path() else {
-            return;
+            return Task::none();
         };
         let saved = self.pane.model.text().to_string();
         let data_dir = &self.paths.data_dir;
@@ -64,7 +68,7 @@ impl App {
                 Ok(()) => saved.clone(),
                 Err(error) => {
                     self.set_notice(Some(format!("Couldn't start a rewrite: {error}")));
-                    return;
+                    return Task::none();
                 }
             },
         };
@@ -78,7 +82,7 @@ impl App {
                 .scroll_to_line(self.pane.content.scroll_line());
         }
         self.pane = draft;
-        self.show_original(&saved);
+        self.show_original(&saved)
     }
 
     /// Goes back to the original as last saved, keeping the draft aside for the next Ctrl+R (a
@@ -103,7 +107,9 @@ impl App {
             }
         }
         self.pane = original;
-        self.find_changes();
+        // A comparison still running is of the draft; its answer is dropped.
+        self.changes = Changes::default();
+        self.diff_generation += 1;
         if changed {
             self.text_changed();
         }
@@ -137,7 +143,7 @@ impl App {
     /// Ctrl+S while rewriting: writes the draft over the original, which the left side then
     /// shows. A file changed by another program since is left alone, and the left side shows it
     /// as it is now, so a second Ctrl+S writes over what can be seen.
-    pub fn save_rewrite(&mut self) {
+    pub fn save_rewrite(&mut self) -> Task<Message> {
         let text = self.pane.model.text().to_string();
         let data_dir = &self.paths.data_dir;
         let view = self.scratch_view();
@@ -146,7 +152,7 @@ impl App {
                 if stamp.is_some() {
                     self.disk_stamp = stamp;
                 }
-                self.show_original(&text);
+                self.show_original(&text)
             }
             Err(reason) => {
                 if let Doc::File {
@@ -160,12 +166,13 @@ impl App {
                     *line_ending = file.line_ending;
                     *bom = file.bom;
                     self.disk_stamp = DiskStamp::of(path);
-                    self.show_original(&file.text);
                     let words = "The file changed on disk: the left shows it now, Ctrl+S again \
                                  writes over it";
                     self.set_notice(Some(words.to_string()));
+                    self.show_original(&file.text)
                 } else {
                     self.set_notice(Some(reason));
+                    Task::none()
                 }
             }
         }
@@ -173,28 +180,57 @@ impl App {
 
     /// Brings back a rewrite of the document left open (its draft is still there), once the
     /// document is shown. A window that can't edit the document leaves the draft for one that can.
-    pub fn resume_rewrite(&mut self) {
+    pub fn resume_rewrite(&mut self) -> Task<Message> {
         self.original = None;
-        if !self.editable() {
-            return;
-        }
-        if let Some(path) = self.doc.path()
+        if self.editable()
+            && let Some(path) = self.doc.path()
             && let Some(draft) = read_draft(&self.paths.data_dir, path)
         {
             let original = std::mem::replace(&mut self.pane, Pane::new(&draft));
             self.original = Some(original);
             self.counts = Counts::of(&draft);
         }
-        self.find_changes();
+        self.find_changes()
     }
 
-    /// Works out what the draft changes from the original, for lighting both sides; nothing
-    /// outside a rewrite.
-    pub fn find_changes(&mut self) {
-        self.changes = match &self.original {
-            Some(original) => changes(original.model.text(), self.pane.model.text()),
-            None => Changes::default(),
+    /// Works out what the draft changes from the original, for lighting both sides. The
+    /// comparison runs off the UI thread (it can take a while on a long text with many changes)
+    /// and `Changed` brings the answer back; an answer to an older text is dropped. Until it
+    /// comes, the ranges lit now move along with the typing (`shift_changes`).
+    pub fn find_changes(&mut self) -> Task<Message> {
+        self.diff_generation += 1;
+        let Some(original) = &self.original else {
+            self.changes = Changes::default();
+            return Task::none();
         };
+        let draft = self.pane.model.text().to_string();
+        self.changes_text = draft.clone();
+        if original.model.text() == draft {
+            self.changes = Changes::default();
+            return Task::none();
+        }
+        let original = original.model.text().to_string();
+        let generation = self.diff_generation;
+        Task::perform(async move { changes(&original, &draft) }, move |found| {
+            Message::Changed(generation, found)
+        })
+    }
+
+    /// Moves the lit ranges along with an edit to the draft, so they stay on their letters until
+    /// the next comparison (which `Tick` starts after the typing pauses, with the counts).
+    pub fn shift_changes(&mut self) {
+        if self.original.is_none() {
+            return;
+        }
+        // A comparison under way is of the text before this edit.
+        self.diff_generation += 1;
+        let text = self.pane.model.text();
+        let edit = TextModel::change_between(&self.changes_text, text, self.pane.caret());
+        if let Some(edit) = edit {
+            self.changes
+                .shift(edit.at, edit.removed.len(), edit.inserted.len());
+        }
+        self.changes_text = text.to_string();
     }
 
     /// Whether the draft holds anything Ctrl+S hasn't written to the file yet.
@@ -204,12 +240,12 @@ impl App {
     }
 
     /// Shows `text` as the original on the left, scrolled to where the draft is.
-    fn show_original(&mut self, text: &str) {
+    fn show_original(&mut self, text: &str) -> Task<Message> {
         let mut original = Pane::new(text);
         original
             .content
             .scroll_to_line(self.pane.content.scroll_line());
         self.original = Some(original);
-        self.find_changes();
+        self.find_changes()
     }
 }

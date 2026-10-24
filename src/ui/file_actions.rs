@@ -90,10 +90,10 @@ impl App {
     /// the draft over the original.
     pub fn save_now(&mut self) -> Task<Message> {
         if self.original.is_some() {
-            if self.editable() {
-                self.save_rewrite();
-            }
-            return Task::none();
+            return match self.editable() {
+                true => self.save_rewrite(),
+                false => Task::none(),
+            };
         }
         if matches!(self.doc, Doc::Scratch) {
             return self.pick_save_path();
