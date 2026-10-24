@@ -68,12 +68,10 @@ pub fn view(app: &App) -> Element<'_, Message> {
                     ],
                     |s, theme| s.theme = theme,
                 ),
-                comment(""),
             ),
             setting_row(
                 "font",
                 value_text("JetBrains Mono NL Nerd Font", Token::String),
-                comment("bundled"),
             ),
             setting_row(
                 "font_size",
@@ -82,11 +80,6 @@ pub fn view(app: &App) -> Element<'_, Message> {
                     changed(settings, |s| s.font_size -= 1.0),
                     changed(settings, |s| s.font_size += 1.0),
                 ),
-                comment(format!(
-                    "px, also {} and {}",
-                    keys("Ctrl+="),
-                    keys("Ctrl+-")
-                )),
             ),
             setting_row(
                 "reading_mode",
@@ -107,7 +100,6 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 ]
                 .spacing(CH)
                 .into(),
-                comment("chars a line, in comfort"),
             ),
         ],
     );
@@ -122,24 +114,20 @@ pub fn view(app: &App) -> Element<'_, Message> {
                     changed(settings, |s| s.tab_spaces = s.tab_spaces.saturating_sub(1)),
                     changed(settings, |s| s.tab_spaces = s.tab_spaces.saturating_add(1)),
                 ),
-                comment("spaces, never tabs; YAML follows the file, 2 if new"),
             ),
             setting_row(
                 "word_wrap",
                 on_off(settings, settings.word_wrap, |s, on| s.word_wrap = on),
-                comment("off cuts long lines at the edge"),
             ),
             setting_row(
                 "line_numbers",
                 on_off(settings, settings.line_numbers, |s, on| s.line_numbers = on),
-                comment(keys("Ctrl+Shift+L")),
             ),
             setting_row(
                 "colour_markup",
                 on_off(settings, settings.colour_markup, |s, on| {
                     s.colour_markup = on
                 }),
-                comment("XML tags and {{macros}}"),
             ),
             setting_row(
                 "scratch_syntax",
@@ -152,14 +140,12 @@ pub fn view(app: &App) -> Element<'_, Message> {
                     ],
                     |s, syntax| s.scratch_syntax = syntax,
                 ),
-                comment("the rules scratch follows"),
             ),
             setting_row(
                 "show_line_col",
                 on_off(settings, settings.show_line_col, |s, on| {
                     s.show_line_col = on
                 }),
-                comment("in the status bar"),
             ),
         ],
     );
@@ -176,7 +162,6 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 }),
                 changed(settings, |s| s.autosave_delay_ms = delay + 250),
             ),
-            comment("pause in typing"),
         )],
     );
 
@@ -189,7 +174,6 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 field(settings, DEFAULT_BASE_URL, &settings.base_url, |s, url| {
                     s.base_url = url
                 }),
-                comment(""),
             ),
             setting_row(
                 "model",
@@ -199,7 +183,6 @@ pub fn view(app: &App) -> Element<'_, Message> {
                     &settings.model,
                     |s, model| s.model = model,
                 ),
-                comment(""),
             ),
             setting_row(
                 "request_format",
@@ -212,14 +195,13 @@ pub fn view(app: &App) -> Element<'_, Message> {
                     ],
                     |s, format| s.request_format = format,
                 ),
-                comment(""),
             ),
-            setting_row(
+            noted_row(
                 "api_key",
                 key_input(&app.key_field.text),
                 key_status(&app.key_field),
             ),
-            setting_row(
+            noted_row(
                 "",
                 value_button(
                     "test connection".to_string(),
@@ -245,7 +227,6 @@ pub fn view(app: &App) -> Element<'_, Message> {
                 ],
                 |s, controls| s.window_controls = controls,
             ),
-            comment("auto hides them on tiling WMs"),
         )],
     );
 
@@ -255,17 +236,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
         .padding(0)
         .style(icon_button)
         .on_press(Message::CloseMenu);
-    // The first line, like the comment at the top of a file. In a narrow window the words are
-    // cut off, not the close button.
-    let header = row![
-        container(comment(
-            "every change applies and saves at once · Esc goes back"
-        ))
-        .width(Fill)
-        .clip(true),
-        close
-    ]
-    .align_y(iced::Center);
+    let header = row![space().width(Fill), close].align_y(iced::Center);
 
     // A blank line between sections, as in a file.
     let mut page = column![header, appearance, editor, saving, assistant].spacing(LINE);
@@ -405,9 +376,11 @@ const SHORTCUTS: [(&str, &[Shortcut]); 5] = [
 
 /// The shortcuts section: every one of `SHORTCUTS` on this OS, the keys coloured as a key.
 fn shortcuts<'a>() -> Element<'a, Message> {
-    let mut rows = vec![comment("for reference; they can't be changed yet")];
+    let mut rows = vec![];
     for (group, shortcuts) in SHORTCUTS {
-        rows.push(space().height(LINE).into());
+        if !rows.is_empty() {
+            rows.push(space().height(LINE).into());
+        }
         rows.push(comment(group));
         for &(others, mac, what) in shortcuts {
             let shown = match (cfg!(target_os = "macos"), mac) {
@@ -465,19 +438,23 @@ fn section<'a>(name: &'a str, rows: Vec<Element<'a, Message>>) -> Element<'a, Me
     column![heading, column(rows)].into()
 }
 
-/// One setting as a line of the file: its key, `=`, the value, and a comment, each starting in
-/// its own column.
-fn setting_row<'a>(
+/// One setting as a line of the file: its key, `=` and the value, each starting in its own column.
+fn setting_row<'a>(key: &'a str, value: Element<'a, Message>) -> Element<'a, Message> {
+    noted_row(key, value, space().into())
+}
+
+/// A setting with a note after it, such as where the key is kept or how the test went.
+fn noted_row<'a>(
     key: &'a str,
     value: Element<'a, Message>,
-    comment: Element<'a, Message>,
+    note: Element<'a, Message>,
 ) -> Element<'a, Message> {
     let equals = if key.is_empty() { "" } else { "=" };
     row![
         coloured(key, Token::Key).width(19.0 * CH),
         coloured(equals, Token::Comment).width(2.0 * CH),
         container(value).width(34.0 * CH),
-        comment,
+        note,
     ]
     .align_y(iced::Center)
     .into()
@@ -493,14 +470,9 @@ fn coloured<'a>(words: impl text::IntoFragment<'a>, token: Token) -> text::Text<
         })
 }
 
-/// `# words`, after a setting or on a line of its own; nothing when `words` is empty. Long words
-/// wrap onto the next line.
+/// `# words`, after a setting or on a line of its own. Long words wrap onto the next line.
 fn comment<'a>(words: impl Into<String>) -> Element<'a, Message> {
-    let words = words.into();
-    if words.is_empty() {
-        return space().into();
-    }
-    coloured(format!("# {words}"), Token::Comment)
+    coloured(format!("# {}", words.into()), Token::Comment)
         .width(Fill)
         .into()
 }
