@@ -121,6 +121,10 @@ stays Save as), the pen in the status bar beside the assistant toggle, or "rewri
   while the draft differs from the file; `Ctrl+S` clears the lit changes and the dot goes aqua.
 - A draft left by a closed window, or a crash, brings the split back the next time its document
   opens in a window that can edit it.
+- A fingerprint of the original the draft started from, and the file's path, sit beside the
+  draft (`.base`, written at the start and on each `Ctrl+S`). If the file changed elsewhere while
+  the draft was closed or paused, a lasting orange warning sits where syntax problems show, and
+  the first `Ctrl+S` is refused; a second writes (2026-10-24).
 
 ## 7a. Projects: the rewrite flow (`rewrite` branch)
 

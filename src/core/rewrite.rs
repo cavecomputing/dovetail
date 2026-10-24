@@ -57,7 +57,39 @@ pub fn take_paused(data_dir: &Path, path: &Path) -> Option<String> {
 /// Deletes the rewrite of the file at `path`, open or paused.
 pub fn remove_draft(data_dir: &Path, path: &Path) -> io::Result<()> {
     remove_file(&draft_path(data_dir, path))?;
-    remove_file(&paused_path(data_dir, path))
+    remove_file(&paused_path(data_dir, path))?;
+    remove_file(&base_path(data_dir, path))
+}
+
+/// Where the rewrite of the file at `path` notes the original it started from: a fingerprint of
+/// its text, then the file's path (so a later sweep can tell which file a draft belongs to).
+fn base_path(data_dir: &Path, path: &Path) -> PathBuf {
+    draft_path(data_dir, path).with_extension("base")
+}
+
+/// Notes `original`, the file's text as the rewrite of the file at `path` starts from it (when
+/// it starts, and after each Ctrl+S).
+pub fn write_base(data_dir: &Path, path: &Path, original: &str) -> io::Result<()> {
+    let note = format!("{:016x}\n{}\n", fingerprint(original), path.display());
+    atomic_write(&base_path(data_dir, path), note.as_bytes())
+}
+
+/// Whether the file at `path`, now holding `original`, changed since its rewrite started from
+/// it: another program wrote it while the draft was closed or paused. A rewrite with no note
+/// (from before notes were kept) counts as unchanged.
+pub fn base_changed(data_dir: &Path, path: &Path, original: &str) -> bool {
+    match fs::read_to_string(base_path(data_dir, path)) {
+        Ok(note) => note.lines().next() != Some(&format!("{:016x}", fingerprint(original))),
+        Err(_) => false,
+    }
+}
+
+/// A fingerprint of `text` (64-bit FNV-1a), the same from one build of the app to the next,
+/// which std's hasher doesn't promise.
+fn fingerprint(text: &str) -> u64 {
+    text.bytes().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+    })
 }
 
 /// What a draft changes from its original, letter by letter: the byte ranges of the original it takes
@@ -359,5 +391,26 @@ mod tests {
         pause_draft(dir.path(), &notes, "edited").unwrap();
         remove_draft(dir.path(), &notes).unwrap();
         assert_eq!(take_paused(dir.path(), &notes), None);
+    }
+
+    #[test]
+    fn a_rewrite_notices_its_file_changed_since_it_started() {
+        let dir = tempfile::tempdir().unwrap();
+        let notes = dir.path().join("notes.md");
+        assert!(
+            !base_changed(dir.path(), &notes, "# notes\n"),
+            "no note yet"
+        );
+        write_base(dir.path(), &notes, "# notes\n").unwrap();
+        assert!(!base_changed(dir.path(), &notes, "# notes\n"));
+        assert!(base_changed(
+            dir.path(),
+            &notes,
+            "# notes, edited elsewhere\n"
+        ));
+        let note = fs::read_to_string(base_path(dir.path(), &notes)).unwrap();
+        assert!(note.ends_with(&format!("{}\n", notes.display())), "{note}");
+        remove_draft(dir.path(), &notes).unwrap();
+        assert!(!base_path(dir.path(), &notes).exists());
     }
 }

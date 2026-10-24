@@ -63,6 +63,9 @@ pub struct App {
     pub diff_generation: u64,
     /// Ctrl+R to act on once the save running now ends (see `toggle_rewrite`).
     pub toggling_rewrite: bool,
+    /// While rewriting: why Ctrl+S waits, when the file changed elsewhere since the draft started
+    /// from it (`STALE_DRAFT`, then `STALE_DRAFT_AGAIN` once Ctrl+S was refused).
+    pub stale_draft: Option<&'static str>,
     /// The Ctrl+P switcher, while it is open.
     pub switcher: Option<Switcher>,
     /// The Ctrl+O picker, while it is open.
@@ -353,6 +356,7 @@ impl App {
             changes_text: String::new(),
             diff_generation: 0,
             toggling_rewrite: false,
+            stale_draft: None,
             switcher: None,
             picker: None,
             palette: None,
@@ -1865,6 +1869,32 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&copy).unwrap(), "draft # notes\r\n");
         assert_eq!(std::fs::read_to_string(&notes).unwrap(), "# notes\r\n");
         assert_eq!(read_draft(&paths.data_dir, &notes), None);
+    }
+
+    #[test]
+    fn a_draft_whose_file_changed_elsewhere_waits_for_a_second_ctrl_s() {
+        let (_dir, _paths, mut app, notes) = rewriting_notes("");
+        type_in(&mut app, "draft ");
+        let _ = app.update(Message::OpenScratch);
+        // Another program writes the file while the draft is closed.
+        std::fs::write(&notes, "# notes, edited elsewhere\n").unwrap();
+        let _ = app.update(Message::OpenPath(notes.clone()));
+        assert!(app.original.is_some());
+        assert!(app.stale_draft.is_some(), "said so in the status bar");
+        let _ = app.update(Message::Save);
+        assert_eq!(
+            std::fs::read_to_string(&notes).unwrap(),
+            "# notes, edited elsewhere\n",
+            "the first Ctrl+S is refused"
+        );
+        let _ = app.update(Message::Save);
+        assert_eq!(std::fs::read_to_string(&notes).unwrap(), "draft # notes\n");
+        assert!(app.stale_draft.is_none());
+        // Paused and picked up again with the file unchanged since: nothing to say.
+        type_in(&mut app, "more ");
+        let _ = app.update(Message::ToggleRewrite);
+        let _ = app.update(Message::ToggleRewrite);
+        assert!(app.stale_draft.is_none());
     }
 
     #[test]

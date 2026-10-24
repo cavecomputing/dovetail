@@ -294,6 +294,9 @@ previous match), ⌘M (minimise) and ⌘Q (closes the window, waiting for the sa
   same document again brings the split back as it was left. Logging out or the app being killed
   writes the draft as the app goes; a crash loses at most the last half second of typing, and only
   from the draft.
+- **If another program changed the file** while the rewrite was closed or paused, the status bar
+  says so in orange when the copy comes back, and the left shows the file as it is now. The first
+  Ctrl+S is refused, so you can look; a second one writes the copy over it.
 - Save as mid-rewrite puts the copy in the new file and ends the rewrite; the original keeps its
   last save.
 

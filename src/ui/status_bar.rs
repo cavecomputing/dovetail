@@ -40,16 +40,17 @@ pub fn view(app: &App) -> Element<'_, Message> {
         ));
     }
     // Warnings in orange, each in words: why the text is read-only, anything a menu action
-    // couldn't do, where a data file (JSON, YAML, TOML, INI) stops being valid, and a settings
-    // problem (short here, the whole reason on hover).
-    let notice = app.notice.as_ref().map(|(words, _)| words);
+    // couldn't do, where a data file (JSON, YAML, TOML, INI) stops being valid, a rewrite's file
+    // changed elsewhere, and a settings problem (short here, the whole reason on hover).
+    let notice = app.notice.as_ref().map(|(words, _)| words.as_str());
     let warnings = [
-        app.read_only_reason.as_ref(),
+        app.read_only_reason.as_deref(),
         notice,
-        app.syntax_problem.as_ref(),
+        app.syntax_problem.as_deref(),
+        app.stale_draft,
     ];
     for warning in warnings.into_iter().flatten() {
-        left = left.push(small(warning.as_str()).color(roles.accent_warm));
+        left = left.push(small(warning).color(roles.accent_warm));
     }
     if let Some(reason) = &app.settings_error {
         let label = small("Settings problem").color(roles.accent_warm);
