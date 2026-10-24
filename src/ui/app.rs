@@ -1066,12 +1066,17 @@ impl App {
         let Some(original) = &self.original else {
             return draft;
         };
-        // The original only scrolls and selects, so its actions go to it, not the draft.
+        // The original only scrolls and selects, so its actions go to it, not the draft. It is
+        // drawn set aside: on the darker page colour, its text all dimmed, with no colouring.
+        let quiet = Settings {
+            colour_markup: false,
+            ..self.settings.clone()
+        };
         let original = editor::view(
             original,
-            &self.settings,
+            &quiet,
             false,
-            syntax,
+            Syntax::Plain,
             Vec::new(),
             ORIGINAL_ID,
         )
@@ -1080,7 +1085,9 @@ impl App {
             other => other,
         });
         row![
-            container(original).width(Fill),
+            container(original)
+                .width(Fill)
+                .style(|theme: &Theme| theme::fill(Roles::of(theme).bg_page)),
             assistant_view::divider(),
             container(draft).width(Fill),
         ]

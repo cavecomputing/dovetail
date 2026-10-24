@@ -100,8 +100,9 @@ The `rewrite` branch below is set aside; its features come back one step at a ti
 The first step is a split review, in any file or scratch: `Ctrl+R` (2026-10-23, so `Ctrl+Shift+S`
 stays Save as), the pen in the status bar beside the assistant toggle, or "rewrite" in the menu.
 
-- The window splits: the original on the left, read-only and dimmed, and an editable copy on the
-  right.
+- The window splits: the original on the left, read-only, and an editable copy on the right.
+  The original is set apart by look alone, no label (2026-10-24): it sits on `bg-page`, its text
+  all `fg-muted` with no syntax colouring.
 - The copy autosaves to a draft file in the data folder (`drafts/`, named like the document's lock),
   never to the original. `Ctrl+S` writes it over the original and the left side shows the result;
   the split stays.

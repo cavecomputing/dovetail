@@ -60,9 +60,6 @@ pub fn view(app: &App) -> Element<'_, Message> {
         1 => left = left.push(small("1 suggestion")),
         waiting => left = left.push(small(format!("{waiting} suggestions"))),
     }
-    if app.original.is_some() {
-        left = left.push(small(keys("Rewrite: Ctrl+S saves it over the original")));
-    }
     // The path comes last, so in a narrow window a long one is what gets cut.
     left = left.push(small(doc_label(&app.doc)));
 
