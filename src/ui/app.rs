@@ -152,8 +152,10 @@ pub enum Message {
     ToggleTasks,
     Undo,
     Redo,
-    /// Ctrl+R and the pen button: start a rewrite, or end the one under way.
+    /// Ctrl+R and the pen button: start a rewrite, or pause the one under way.
     ToggleRewrite,
+    /// Ctrl+Shift+R: the rewrite's draft back to the file as last saved.
+    ResetRewrite,
     /// Scrolling, selecting and the like in the original, read-only beside a rewrite's draft.
     Original(Action),
     /// Ctrl+X or Ctrl+C while reviewing: copy the selected text, without the suggestions, and
@@ -499,6 +501,7 @@ impl App {
             }
             Message::Decide(decision) => self.decide(decision),
             Message::ToggleRewrite => return self.toggle_rewrite(),
+            Message::ResetRewrite => self.reset_rewrite(),
             Message::Original(action) => {
                 if let Some(original) = &mut self.original
                     && !action.is_edit()
@@ -1212,6 +1215,7 @@ fn shortcut(event: iced::Event, status: event::Status, _window: window::Id) -> O
         keyboard::Key::Character("s" | "S") if modifiers.shift() => Some(Message::SaveAs),
         keyboard::Key::Character("s" | "S") => Some(Message::Save),
         keyboard::Key::Character("o") => Some(Message::OpenDialog),
+        keyboard::Key::Character("r" | "R") if modifiers.shift() => Some(Message::ResetRewrite),
         keyboard::Key::Character("r") => Some(Message::ToggleRewrite),
         keyboard::Key::Character("n") => Some(Message::NewFile),
         keyboard::Key::Character("f" | "F") if modifiers.shift() => {
@@ -1701,19 +1705,58 @@ mod tests {
     #[test]
     fn ctrl_z_never_crosses_into_or_out_of_a_rewrite() {
         // An edit before the rewrite: Ctrl+Z in the draft doesn't take it back.
-        let (_dir, paths, mut app, notes) = rewriting_notes("1");
+        let (_dir, _paths, mut app, notes) = rewriting_notes("1");
         let _ = app.update(Message::Undo);
         assert_eq!(app.pane.model.text(), "1# notes\n");
-        // Ending drops what Ctrl+S didn't save, and Ctrl+Z doesn't bring it into the file.
+        // Typed and taken out again: the draft is the file's text, with history behind it.
+        type_in(&mut app, "x");
+        let _ = app.update(Message::Undo);
+        let _ = app.update(Message::ToggleRewrite);
+        let _ = app.update(Message::Redo);
+        assert_eq!(app.pane.model.text(), "1# notes\n");
+        // Typed and paused: back to the file, and Ctrl+Z doesn't bring the draft into it.
+        let _ = app.update(Message::ToggleRewrite);
         type_in(&mut app, "new ");
         let _ = app.update(Message::ToggleRewrite);
         assert!(app.original.is_none());
         assert_eq!(app.pane.model.text(), "1# notes\n");
-        assert_eq!(read_draft(&paths.data_dir, &notes), None);
         assert!(!app.autosaver.pending(), "the file already holds it");
         let _ = app.update(Message::Undo);
         assert_eq!(app.pane.model.text(), "1# notes\n");
         assert_eq!(std::fs::read_to_string(&notes).unwrap(), "1# notes\r\n");
+    }
+
+    #[test]
+    fn pausing_a_rewrite_keeps_its_draft_for_the_next_ctrl_r() {
+        let (dir, paths, mut app, notes) = rewriting_notes("");
+        type_in(&mut app, "draft ");
+        let _ = app.update(Message::ToggleRewrite);
+        assert_eq!(
+            read_draft(&paths.data_dir, &notes),
+            None,
+            "not reopened with the file"
+        );
+        // Not even after the window moves on and comes back.
+        let _ = app.update(Message::OpenPath(dir.path().join("other.txt")));
+        let _ = app.update(Message::OpenPath(notes.clone()));
+        assert!(app.original.is_none());
+        let _ = app.update(Message::ToggleRewrite);
+        assert_eq!(app.pane.model.text(), "draft # notes\n");
+        assert_eq!(app.original.as_ref().unwrap().model.text(), "# notes\n");
+    }
+
+    #[test]
+    fn reset_puts_the_draft_back_to_the_file_as_one_undo_step() {
+        let (_dir, _paths, mut app, _notes) = rewriting_notes("");
+        type_in(&mut app, "draft ");
+        let _ = app.update(Message::ResetRewrite);
+        assert_eq!(app.pane.model.text(), "# notes\n");
+        assert!(app.original.is_some(), "the split stays");
+        let _ = app.update(Message::Undo);
+        assert_eq!(app.pane.model.text(), "draft # notes\n");
+        let shift = keyboard::Modifiers::COMMAND | keyboard::Modifiers::SHIFT;
+        let press = shortcut_for("r", "R", shift);
+        assert!(matches!(press, Some(Message::ResetRewrite)));
     }
 
     #[test]

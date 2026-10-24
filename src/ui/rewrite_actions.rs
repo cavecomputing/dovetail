@@ -7,7 +7,7 @@ use iced::widget::operation::focus;
 
 use crate::core::counts::Counts;
 use crate::core::opened::{Doc, write_doc};
-use crate::core::rewrite::{read_draft, remove_draft, write_draft};
+use crate::core::rewrite::{pause_draft, read_draft, remove_draft, take_paused, write_draft};
 use crate::core::shutdown;
 use crate::core::text_file::{DiskStamp, changed_on_disk, read_text};
 use crate::ui::app::{App, Message};
@@ -20,7 +20,8 @@ impl App {
         self.editable() && self.doc.path().is_some()
     }
 
-    /// Ctrl+R and the pen button: starts a rewrite of the file, or ends the one under way.
+    /// Ctrl+R and the pen button: starts a rewrite of the file (picking up a paused one), or
+    /// pauses the one under way.
     /// An autosave running now is waited for, as its `Saved` comes back here: the original's
     /// would land after the rewrite started, and a draft's after its rewrite ended, bringing the
     /// draft back.
@@ -39,7 +40,7 @@ impl App {
             return Task::none();
         }
         match self.original.is_some() {
-            true => self.end_rewrite(),
+            true => self.pause_rewrite(),
             false => self.start_rewrite(),
         }
         focus(editor::EDITOR_ID)
@@ -50,45 +51,78 @@ impl App {
         if !self.autosaver.close_allowed() && !self.save_before_leaving() {
             return;
         }
-        let text = self.pane.model.text().to_string();
         let Some(path) = self.doc.path() else {
             return;
         };
-        if let Err(error) = write_draft(&self.paths.data_dir, path, &text) {
-            self.set_notice(Some(format!("Couldn't start a rewrite: {error}")));
-            return;
-        }
-        // The draft starts its own undo history, so Ctrl+Z stays inside the rewrite.
+        let saved = self.pane.model.text().to_string();
+        let data_dir = &self.paths.data_dir;
+        let text = match take_paused(data_dir, path) {
+            Some(paused) => paused,
+            None => match write_draft(data_dir, path, &saved) {
+                Ok(()) => saved.clone(),
+                Err(error) => {
+                    self.set_notice(Some(format!("Couldn't start a rewrite: {error}")));
+                    return;
+                }
+            },
+        };
+        // The draft starts its own undo history, so Ctrl+Z stays inside the rewrite. A new one
+        // keeps the caret and the view where they were.
         let mut draft = Pane::new(&text);
-        draft.content.move_to(self.pane.content.cursor());
-        draft
-            .content
-            .scroll_to_line(self.pane.content.scroll_line());
+        if text == saved {
+            draft.content.move_to(self.pane.content.cursor());
+            draft
+                .content
+                .scroll_to_line(self.pane.content.scroll_line());
+        }
         self.pane = draft;
-        self.show_original(&text);
+        self.show_original(&saved);
     }
 
-    /// Goes back to the original as last saved, dropping the draft's unsaved changes. The
-    /// original's pane comes back with an undo history of its own, so no Ctrl+Z brings the draft
-    /// into the document.
-    fn end_rewrite(&mut self) {
-        if let Some(path) = self.doc.path()
-            && let Err(error) = remove_draft(&self.paths.data_dir, path)
-        {
-            self.set_notice(Some(format!("Couldn't end the rewrite: {error}")));
-            return;
-        }
+    /// Goes back to the original as last saved, keeping the draft aside for the next Ctrl+R (a
+    /// draft no different from the original is just deleted). The original's pane comes back
+    /// with an undo history of its own, so no Ctrl+Z brings the draft into the document.
+    fn pause_rewrite(&mut self) {
         let Some(original) = self.original.take() else {
             return;
         };
-        if self.pane.model.text() != original.model.text() {
-            self.pane = original;
+        let draft = self.pane.model.text();
+        let changed = draft != original.model.text();
+        if let Some(path) = self.doc.path() {
+            let data_dir = &self.paths.data_dir;
+            let kept = match changed {
+                true => pause_draft(data_dir, path, draft),
+                false => remove_draft(data_dir, path),
+            };
+            if let Err(error) = kept {
+                self.original = Some(original);
+                self.set_notice(Some(format!("Couldn't pause the rewrite: {error}")));
+                return;
+            }
+        }
+        self.pane = original;
+        if changed {
             self.text_changed();
         }
         // The document already holds that text.
         self.autosaver.mark_saved();
         self.saving_since = None;
         shutdown::forget();
+    }
+
+    /// Ctrl+Shift+R and the menu's "reset rewrite": the draft goes back to the file as last
+    /// saved, the split staying. It is one undo step, so Ctrl+Z takes a reset back.
+    pub fn reset_rewrite(&mut self) {
+        self.menu_open = false;
+        let Some(original) = &self.original else {
+            return;
+        };
+        let saved = original.model.text().to_string();
+        if self.pane.model.text() != saved {
+            let length = self.pane.model.text().len();
+            self.pane.replace(0..length, &saved);
+            self.text_changed();
+        }
     }
 
     /// Ctrl+S while rewriting: writes the draft over the original, which the left side then

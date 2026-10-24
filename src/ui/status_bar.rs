@@ -187,7 +187,7 @@ fn assistant_toggle<'a>(open: bool) -> Element<'a, Message> {
 fn rewrite_toggle<'a>(rewriting: bool) -> Element<'a, Message> {
     let toggle = glyph_toggle(GLYPH_PEN, rewriting, Message::ToggleRewrite);
     let words = match rewriting {
-        true => "End the rewrite, dropping what Ctrl+S hasn't saved (Ctrl+R)",
+        true => "Pause the rewrite: back to the file, the draft kept for the next Ctrl+R (Ctrl+R)",
         false => "Rewrite: edit a copy beside the original (Ctrl+R)",
     };
     hint(toggle, keys(words))
@@ -290,10 +290,14 @@ pub fn menu(app: &App) -> Element<'_, Message> {
     };
     if app.can_rewrite() {
         let rewrite = match app.original {
-            Some(_) => "end rewrite",
+            Some(_) => "pause rewrite",
             None => "rewrite",
         };
         items = items.push(menu_item(rewrite, "Ctrl+R", Message::ToggleRewrite));
+        if app.original.is_some() {
+            let reset = Message::ResetRewrite;
+            items = items.push(menu_item("reset rewrite", "Ctrl+Shift+R", reset));
+        }
     }
     let line_numbers = match app.settings.line_numbers {
         true => "hide line numbers",

@@ -108,8 +108,10 @@ stays Save as), the pen in the status bar beside the assistant toggle, or "rewri
 - The copy autosaves to a draft file in the data folder (`drafts/`, named like the document's lock),
   never to the original. `Ctrl+S` writes it over the original and the left side shows the result;
   the split stays.
-- Ending the rewrite (`Ctrl+R` again, the pen, the menu) goes back to the original as last saved,
-  deletes the draft and drops its unsaved changes (2026-10-23). Undo never crosses the rewrite's
+- `Ctrl+R` again (the pen, the menu) pauses the rewrite (2026-10-24): back to the original as
+  last saved, the draft moved aside (`.paused`) for the next `Ctrl+R`, and not reopened with the
+  file. A draft no different from the original isn't kept. Reset rewrite (`Ctrl+Shift+R`, the
+  menu) puts the draft back to the original's text as one undo step, the split staying. Undo never crosses the rewrite's
   edges (2026-10-24): the draft starts its own history, and the original comes back with its own,
   so `Ctrl+Z` can't put the draft's changes into the file.
 - A draft left by a closed window, or a crash, brings the split back the next time its document
