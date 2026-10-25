@@ -1,8 +1,8 @@
 //! SSH config files: `~/.ssh/config`, the files in `~/.ssh/config.d/`, and the system's
 //! `/etc/ssh/ssh_config` and `sshd_config` with their `.d` folders. Which files they are (none has
 //! a telling extension, so the folder names say), which parts of a line to colour, whether every
-//! line is well formed (a keyword ssh knows, with a value), and the `Host` block the command
-//! palette puts in.
+//! line is well formed (a keyword ssh knows, with a value), what Tab completes a keyword to, and
+//! the `Host` block the command palette puts in.
 
 use std::ops::Range;
 use std::path::Path;
@@ -316,6 +316,58 @@ pub fn ssh_problem(text: &str) -> Option<String> {
     None
 }
 
+/// Tab in an SSH config, with the caret at the end of a line's first word: the byte range of that
+/// word and the keyword to put in its place, or `None` when Tab should indent instead. A word
+/// that is one keyword's start (`Ide`) becomes that keyword and a space (`IdentityFile `); one
+/// that starts several (`Hostb`) grows to what they share (`Hostbased`); one that is a keyword
+/// already, in any case, gets its spelling and the space. The space is left out when one is
+/// already there.
+pub fn complete_keyword(text: &str, caret: usize) -> Option<(Range<usize>, String)> {
+    let line_start = text[..caret].rfind('\n').map_or(0, |at| at + 1);
+    let typed = text[line_start..caret].trim_start_matches(' ');
+    if typed.is_empty()
+        || !typed.chars().all(|c| c.is_ascii_alphabetic())
+        || text[caret..].starts_with(|c: char| c.is_ascii_alphanumeric())
+    {
+        return None;
+    }
+    let lower = typed.to_ascii_lowercase();
+    let matches: Vec<&str> = KEYWORDS
+        .iter()
+        .copied()
+        .filter(|keyword| keyword.to_ascii_lowercase().starts_with(&lower))
+        .collect();
+    let exact = matches
+        .iter()
+        .find(|keyword| keyword.eq_ignore_ascii_case(typed));
+    let completed = match (exact, matches.as_slice()) {
+        (Some(keyword), _) | (None, [keyword]) => {
+            let space = if text[caret..].starts_with(' ') {
+                ""
+            } else {
+                " "
+            };
+            format!("{keyword}{space}")
+        }
+        (None, []) => return None,
+        (None, [first, rest @ ..]) => {
+            let shared = rest.iter().fold(first.len(), |shared, keyword| {
+                first
+                    .bytes()
+                    .zip(keyword.bytes())
+                    .take(shared)
+                    .take_while(|(a, b)| a.eq_ignore_ascii_case(b))
+                    .count()
+            });
+            if shared <= typed.len() {
+                return None;
+            }
+            first[..shared].to_string()
+        }
+    };
+    Some((caret - typed.len()..caret, completed))
+}
+
 /// The palette's New Host block: where in `text` it goes (the end of the caret's line, kept apart
 /// from its neighbours by one blank line), the text to put there (indented by `indent` spaces,
 /// `User` set to `user`), and the byte range of the `alias` placeholder once it's in, to select so
@@ -470,6 +522,50 @@ mod tests {
             ssh_problem("IdentityFile \"~/keys\n"),
             Some("Invalid SSH config at line 1, column 1: a \" isn't closed".into())
         );
+    }
+
+    #[test]
+    fn tab_completes_the_keyword_at_the_start_of_a_line() {
+        let complete = |text: &str| {
+            let caret = text.find('|').unwrap();
+            let text = text.replace('|', "");
+            complete_keyword(&text, caret).map(|(range, with)| {
+                let mut result = text.clone();
+                result.replace_range(range, &with);
+                result
+            })
+        };
+        assert_eq!(
+            complete("    Identityf|").as_deref(),
+            Some("    IdentityFile ")
+        );
+        assert_eq!(
+            complete("    Ide|").as_deref(),
+            Some("    Identit"),
+            "IdentitiesOnly, IdentityAgent, IdentityFile"
+        );
+        assert_eq!(
+            complete("Host a\n    proxyj|\n").as_deref(),
+            Some("Host a\n    ProxyJump \n")
+        );
+        assert_eq!(complete("Hostb|").as_deref(), Some("Hostbased"));
+        assert_eq!(
+            complete("Host|").as_deref(),
+            Some("Host "),
+            "a keyword already"
+        );
+        assert_eq!(
+            complete("Pro|"),
+            None,
+            "ProxyJump, Protocol...: nothing shared to add"
+        );
+        assert_eq!(complete("hostname|").as_deref(), Some("HostName "));
+        assert_eq!(complete("Port| 22").as_deref(), Some("Port 22"));
+        assert_eq!(complete("Zzz|"), None);
+        assert_eq!(complete("Port 2|"), None, "only the first word");
+        assert_eq!(complete("Po|rt"), None, "only at the word's end");
+        assert_eq!(complete("|Port"), None);
+        assert_eq!(complete("    |"), None);
     }
 
     #[test]

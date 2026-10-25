@@ -170,7 +170,10 @@ that every line is a comment or a keyword with a value, that the keyword is one 
 (`ssh` refuses to run on one it doesn't, so a typo like `IdentityFiel` is named in the status
 bar), and that quotes close. One keyword list serves `ssh_config` and `sshd_config` both. The command palette has **New Host block**: it puts a `Host` block
 with `HostName`, `User` (your login name), `Port` and `IdentityFile` after the caret's line, a
-blank line either side, with the host's name selected so you can type it straight away.
+blank line either side, with the host's name selected so you can type it straight away. Tab at
+the end of a line's first word finishes the keyword: `identityf` and Tab gives `IdentityFile `
+with its proper spelling and a space, `Hostb` grows to `Hostbased` (what the several matches
+share), and where nothing matches Tab indents as usual.
 
 **Shell scripts** (`.sh`, `.bash`, or a file with no extension whose first line is a `#!` naming
 `sh`, `bash` or `dash`, such as `#!/usr/bin/env bash`) are coloured too: keywords like `if`,

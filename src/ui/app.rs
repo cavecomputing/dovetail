@@ -20,7 +20,7 @@ use crate::core::save::{Autosaver, SaveState};
 use crate::core::scratch::ScratchView;
 use crate::core::settings::{ReadingMode, ScratchSyntax, Settings, Theme as ThemeSetting};
 use crate::core::shutdown::{self, Unsaved};
-use crate::core::ssh::host_block;
+use crate::core::ssh::{complete_keyword, host_block};
 use crate::core::syntax::Syntax;
 use crate::core::text_file::{DiskStamp, changed_on_disk, read_text};
 use crate::core::typing::is_code;
@@ -489,8 +489,18 @@ impl App {
                     _ => usize::from(self.settings.tab_spaces),
                 };
                 let markdown = syntax == Syntax::Markdown;
+                // Tab at the end of a keyword's start in an SSH config finishes the keyword.
+                let completion = match syntax {
+                    Syntax::SshConfig if self.pane.selection().is_none() => {
+                        complete_keyword(self.pane.model.text(), self.pane.caret())
+                    }
+                    _ => None,
+                };
                 let edited = match message {
-                    Message::Indent => self.pane.indent(tab_spaces, markdown),
+                    Message::Indent => match completion {
+                        Some((typed, keyword)) => self.pane.replace_all(&[typed], &keyword),
+                        None => self.pane.indent(tab_spaces, markdown),
+                    },
                     Message::Unindent => self.pane.unindent(tab_spaces),
                     Message::NewLine { shift: false } if markdown => {
                         self.pane.markdown_new_line(tab_spaces)
