@@ -166,8 +166,9 @@ any file in `~/.ssh/config.d/`, and the system's `/etc/ssh/ssh_config` and `sshd
 their `.d` folders (on every OS, as long as the folder is called `.ssh`). `Host` and `Match` lines
 are yellow and bold, like INI sections, other keywords blue, numbers yellow, `yes`, `no`, `ask`,
 `accept-new` and ssh's other fixed words orange, and the rest of a value green. The check asks
-that every line is a comment or a keyword with a value, and that quotes close; it doesn't know
-which keywords ssh accepts. The command palette has **New Host block**: it puts a `Host` block
+that every line is a comment or a keyword with a value, that the keyword is one OpenSSH knows
+(`ssh` refuses to run on one it doesn't, so a typo like `IdentityFiel` is named in the status
+bar), and that quotes close. One keyword list serves `ssh_config` and `sshd_config` both. The command palette has **New Host block**: it puts a `Host` block
 with `HostName`, `User` (your login name), `Port` and `IdentityFile` after the caret's line, a
 blank line either side, with the host's name selected so you can type it straight away.
 

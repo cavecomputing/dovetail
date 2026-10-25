@@ -1,7 +1,8 @@
 //! SSH config files: `~/.ssh/config`, the files in `~/.ssh/config.d/`, and the system's
 //! `/etc/ssh/ssh_config` and `sshd_config` with their `.d` folders. Which files they are (none has
 //! a telling extension, so the folder names say), which parts of a line to colour, whether every
-//! line is well formed, and the `Host` block the command palette puts in.
+//! line is well formed (a keyword ssh knows, with a value), and the `Host` block the command
+//! palette puts in.
 
 use std::ops::Range;
 use std::path::Path;
@@ -87,9 +88,195 @@ fn word(line: &str, at: usize, end: usize) -> Option<(Range<usize>, usize)> {
     Some((start..stop, stop))
 }
 
+/// Every keyword OpenSSH's ssh_config and sshd_config know (as of OpenSSH 9.9, plus the GSSAPI
+/// key exchange ones Debian and Red Hat patch in), in the man pages' casing. One list for both
+/// files: ssh accepts them in any case, and a client option in sshd_config is rare enough that
+/// telling the two apart isn't worth a second list. `ssh` refuses to run at all on a keyword it
+/// doesn't know, so a typo here is worth a word.
+pub const KEYWORDS: &[&str] = &[
+    "AcceptEnv",
+    "AddKeysToAgent",
+    "AddressFamily",
+    "AllowAgentForwarding",
+    "AllowGroups",
+    "AllowStreamLocalForwarding",
+    "AllowTcpForwarding",
+    "AllowUsers",
+    "AuthenticationMethods",
+    "AuthorizedKeysCommand",
+    "AuthorizedKeysCommandUser",
+    "AuthorizedKeysFile",
+    "AuthorizedPrincipalsCommand",
+    "AuthorizedPrincipalsCommandUser",
+    "AuthorizedPrincipalsFile",
+    "Banner",
+    "BatchMode",
+    "BindAddress",
+    "BindInterface",
+    "CanonicalDomains",
+    "CanonicalizeFallbackLocal",
+    "CanonicalizeHostname",
+    "CanonicalizeMaxDots",
+    "CanonicalizePermittedCNAMEs",
+    "CASignatureAlgorithms",
+    "CertificateFile",
+    "ChallengeResponseAuthentication",
+    "ChannelTimeout",
+    "CheckHostIP",
+    "ChrootDirectory",
+    "Ciphers",
+    "ClearAllForwardings",
+    "ClientAliveCountMax",
+    "ClientAliveInterval",
+    "Compression",
+    "ConnectionAttempts",
+    "ConnectTimeout",
+    "ControlMaster",
+    "ControlPath",
+    "ControlPersist",
+    "DenyGroups",
+    "DenyUsers",
+    "DisableForwarding",
+    "DynamicForward",
+    "EnableEscapeCommandline",
+    "EnableSSHKeysign",
+    "EscapeChar",
+    "ExitOnForwardFailure",
+    "ExposeAuthInfo",
+    "FingerprintHash",
+    "ForceCommand",
+    "ForkAfterAuthentication",
+    "ForwardAgent",
+    "ForwardX11",
+    "ForwardX11Timeout",
+    "ForwardX11Trusted",
+    "GatewayPorts",
+    "GlobalKnownHostsFile",
+    "GSSAPIAuthentication",
+    "GSSAPICleanupCredentials",
+    "GSSAPIClientIdentity",
+    "GSSAPIDelegateCredentials",
+    "GSSAPIKexAlgorithms",
+    "GSSAPIKeyExchange",
+    "GSSAPIRenewalForcesRekey",
+    "GSSAPIServerIdentity",
+    "GSSAPIStrictAcceptorCheck",
+    "GSSAPITrustDns",
+    "HashKnownHosts",
+    "Host",
+    "HostbasedAcceptedAlgorithms",
+    "HostbasedAuthentication",
+    "HostbasedUsesNameFromPacketOnly",
+    "HostCertificate",
+    "HostKey",
+    "HostKeyAgent",
+    "HostKeyAlgorithms",
+    "HostKeyAlias",
+    "HostName",
+    "IdentitiesOnly",
+    "IdentityAgent",
+    "IdentityFile",
+    "IgnoreRhosts",
+    "IgnoreUnknown",
+    "IgnoreUserKnownHosts",
+    "Include",
+    "IPQoS",
+    "KbdInteractiveAuthentication",
+    "KbdInteractiveDevices",
+    "KerberosAuthentication",
+    "KerberosGetAFSToken",
+    "KerberosOrLocalPasswd",
+    "KerberosTicketCleanup",
+    "KexAlgorithms",
+    "KnownHostsCommand",
+    "ListenAddress",
+    "LocalCommand",
+    "LocalForward",
+    "LoginGraceTime",
+    "LogLevel",
+    "LogVerbose",
+    "MACs",
+    "Match",
+    "MaxAuthTries",
+    "MaxSessions",
+    "MaxStartups",
+    "ModuliFile",
+    "NoHostAuthenticationForLocalhost",
+    "NumberOfPasswordPrompts",
+    "ObscureKeystrokeTiming",
+    "PasswordAuthentication",
+    "PermitEmptyPasswords",
+    "PermitListen",
+    "PermitLocalCommand",
+    "PermitOpen",
+    "PermitRemoteOpen",
+    "PermitRootLogin",
+    "PermitTTY",
+    "PermitTunnel",
+    "PermitUserEnvironment",
+    "PermitUserRC",
+    "PerSourceMaxStartups",
+    "PerSourceNetBlockSize",
+    "PerSourcePenalties",
+    "PerSourcePenaltyExemptList",
+    "PidFile",
+    "PKCS11Provider",
+    "Port",
+    "PreferredAuthentications",
+    "PrintLastLog",
+    "PrintMotd",
+    "Protocol",
+    "ProxyCommand",
+    "ProxyJump",
+    "ProxyUseFdpass",
+    "PubkeyAcceptedAlgorithms",
+    "PubkeyAcceptedKeyTypes",
+    "PubkeyAuthentication",
+    "PubkeyAuthOptions",
+    "RefuseConnection",
+    "RekeyLimit",
+    "RemoteCommand",
+    "RemoteForward",
+    "RequestTTY",
+    "RequiredRSASize",
+    "RevokedHostKeys",
+    "RevokedKeys",
+    "SecurityKeyProvider",
+    "SendEnv",
+    "ServerAliveCountMax",
+    "ServerAliveInterval",
+    "SessionType",
+    "SetEnv",
+    "StdinNull",
+    "StreamLocalBindMask",
+    "StreamLocalBindUnlink",
+    "StrictHostKeyChecking",
+    "StrictModes",
+    "Subsystem",
+    "SyslogFacility",
+    "Tag",
+    "TCPKeepAlive",
+    "TrustedUserCAKeys",
+    "Tunnel",
+    "TunnelDevice",
+    "UnusedConnectionTimeout",
+    "UpdateHostKeys",
+    "UseDNS",
+    "UsePAM",
+    "User",
+    "UserKnownHostsFile",
+    "VerifyHostKeyDNS",
+    "VersionAddendum",
+    "VisualHostKey",
+    "X11DisplayOffset",
+    "X11Forwarding",
+    "X11UseLocalhost",
+    "XAuthLocation",
+];
+
 /// Why `text` isn't a well-formed SSH config, with where, or `None` if it is. Each line must be
-/// blank, a `#` comment, or a keyword (letters only) with at least one argument, and a `"` must
-/// close on its line. Whether the keyword is one ssh knows isn't checked.
+/// blank, a `#` comment, or a keyword ssh knows (`KEYWORDS`, in any case) with at least one
+/// argument, and a `"` must close on its line.
 pub fn ssh_problem(text: &str) -> Option<String> {
     for (index, line) in text.lines().enumerate() {
         let start = indent(line);
@@ -105,22 +292,26 @@ pub fn ssh_problem(text: &str) -> Option<String> {
         {
             after = past;
         }
-        let problem = if !line[keyword].chars().all(|c| c.is_ascii_alphabetic()) {
-            Some("expected a keyword, such as Host or Port")
+        let keyword = &line[keyword];
+        let problem = if !keyword.chars().all(|c| c.is_ascii_alphabetic()) {
+            "expected a keyword, such as Host or Port".to_string()
+        } else if !KEYWORDS
+            .iter()
+            .any(|known| known.eq_ignore_ascii_case(keyword))
+        {
+            format!("ssh doesn't know the keyword {keyword}")
         } else if word(line, after, end).is_none() {
-            Some("the keyword needs a value")
+            "the keyword needs a value".to_string()
         } else if line[start..end].match_indices('"').count() % 2 == 1 {
-            Some("a \" isn't closed")
+            "a \" isn't closed".to_string()
         } else {
-            None
+            continue;
         };
-        if let Some(reason) = problem {
-            return Some(format!(
-                "Invalid SSH config at line {}, column {}: {reason}",
-                index + 1,
-                start + 1
-            ));
-        }
+        return Some(format!(
+            "Invalid SSH config at line {}, column {}: {problem}",
+            index + 1,
+            start + 1
+        ));
     }
     None
 }
@@ -238,12 +429,28 @@ mod tests {
     }
 
     #[test]
-    fn every_line_needs_a_keyword_and_a_value() {
+    fn every_line_needs_a_keyword_ssh_knows_and_a_value() {
         assert_eq!(
             ssh_problem("# all\n\nHost dev\n    Port 22\n    User me\n"),
             None
         );
-        assert_eq!(ssh_problem("Port=22\nPort = 22"), None);
+        assert_eq!(
+            ssh_problem("Port=22\nPort = 22\nhostname a\nHOSTNAME b"),
+            None
+        );
+        assert_eq!(
+            ssh_problem("Host dev\n    IdentityFiel ~/.ssh/id\n"),
+            Some(
+                "Invalid SSH config at line 2, column 5: ssh doesn't know the keyword IdentityFiel"
+                    .into()
+            )
+        );
+        assert!(
+            KEYWORDS
+                .windows(2)
+                .all(|pair| pair[0].to_lowercase() < pair[1].to_lowercase()),
+            "sorted, for reading"
+        );
         assert_eq!(
             ssh_problem("Host dev\n    Port\n"),
             Some("Invalid SSH config at line 2, column 5: the keyword needs a value".into())
