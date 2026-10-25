@@ -11,9 +11,10 @@ scratchpad that remembers exactly where you left off. Each launch gets its own w
 opening another file from inside one swaps it in, once the one you're leaving is saved. Everything
 saves itself as you type, so there's no "save changes?" prompt, ever.
 
-Markdown, JSON, YAML, TOML, INI and shell script files are coloured as you type (the text stays
-exactly as you wrote it), and the data and config files are checked too: the status bar says where
-one stops being valid. JSON files can be formatted or minified from the command palette.
+Markdown, JSON, YAML, TOML, INI, SSH config and shell script files are coloured as you type (the
+text stays exactly as you wrote it), and the data and config files are checked too: the status bar
+says where one stops being valid. JSON files can be formatted or minified from the command palette,
+and an SSH config gets a new `Host` block from it.
 
 There's also an optional assistant pane (`Ctrl+L`) that can suggest edits for you to accept or
 reject, using any OpenAI-compatible service you point it at. The editor works fine without it; the

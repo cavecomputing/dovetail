@@ -128,6 +128,7 @@ fn summary(snapshot: &Snapshot) -> String {
                 Syntax::Toml => "TOML file",
                 Syntax::Ini => "INI config file",
                 Syntax::Shell => "shell script",
+                Syntax::SshConfig => "SSH config file",
             };
             format!("the {kind} \"{name}\".")
         }

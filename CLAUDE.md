@@ -259,10 +259,12 @@ src/
     markdown.rs          which parts of a Markdown (.md) line to colour, whether a code fence is
                          open, what Enter and Tab do in a list, and Ctrl+B and Ctrl+I's markers
     syntax.rs            which kind of text a file is (plain, Markdown, JSON, YAML, TOML, INI,
-                         shell), by name, extension or `#!` line; the shared colour tokens; the
+                         shell, SSH config), by folder, name, extension or `#!` line; the shared colour tokens; the
                          validity check for each; Ctrl+/'s comments
     shell.rs             shell scripts: which parts of a line to colour, whether a `#!` line
                          names sh or bash, and the `bash -n` check
+    ssh.rs               SSH config files (~/.ssh/config, /etc/ssh/*): known by their folders,
+                         which parts of a line to colour, the check, and the palette's Host block
     shutdown.rs          the save when the app ends without closing its window: logout,
                          shutdown, signals, Dock Quit, a lost display
     json.rs              which parts of a .json line to colour, whether the text is valid JSON,
@@ -295,7 +297,8 @@ src/
                          and the panel look it shares with the picker and the palette
     picker.rs            the Ctrl+O picker: a path box and the folder's entries; goes into a
                          folder or opens a file here
-    palette.rs           the Ctrl+Shift+P command palette: the open file's tools (Format JSON...)
+    palette.rs           the Ctrl+Shift+P command palette: the open file's tools (Format JSON,
+                         New Host block...)
     find_bar.rs          the Ctrl+F find bar: its matches, stepping through them, how they're lit
     rewrite_actions.rs   App's handlers for a rewrite (Ctrl+R): the read-only original beside the
                          draft, Ctrl+S writing the draft over it, ending and resuming

@@ -161,6 +161,16 @@ that each line is a `[section]`, a `key = value` (or `key: value`), a `;` or `#`
 indented to carry on the value above it. There's no Format for these: rewriting them would lose
 your comments and layout.
 
+**SSH config files** are known by where they live, since none has an extension: `~/.ssh/config`,
+any file in `~/.ssh/config.d/`, and the system's `/etc/ssh/ssh_config` and `sshd_config` with
+their `.d` folders (on every OS, as long as the folder is called `.ssh`). `Host` and `Match` lines
+are yellow and bold, like INI sections, other keywords blue, numbers yellow, `yes`, `no`, `ask`,
+`accept-new` and ssh's other fixed words orange, and the rest of a value green. The check asks
+that every line is a comment or a keyword with a value, and that quotes close; it doesn't know
+which keywords ssh accepts. The command palette has **New Host block**: it puts a `Host` block
+with `HostName`, `User` (your login name), `Port` and `IdentityFile` after the caret's line, a
+blank line either side, with the host's name selected so you can type it straight away.
+
 **Shell scripts** (`.sh`, `.bash`, or a file with no extension whose first line is a `#!` naming
 `sh`, `bash` or `dash`, such as `#!/usr/bin/env bash`) are coloured too: keywords like `if`,
 `then`, `for`, `do`, `case` and `local` orange, `$variables` and `${…}` blue (also inside `"…"`
@@ -192,7 +202,7 @@ Shortcuts are written with Ctrl; on macOS use ⌘ (the app's menu and hints show
 | Ctrl+N | New file: asks where, then opens it, empty, as Ctrl+O would. Choosing an existing file empties it (the dialog asks first); a file open in any window is refused |
 | Ctrl+O | Open a file in this window: Enter or → goes into a folder, ← goes up one, Enter opens a file |
 | Ctrl+P | Scratch and the recent files, numbered 0 (scratch) to 9: type part of a name, ↑ and ↓ to choose, Enter to open. With nothing typed a row's number opens it; Ctrl+number does at any time |
-| Ctrl+Shift+P | The command palette: the tools for the kind of file open (Format JSON and Minify JSON in a `.json` file). Type part of a name, ↑ and ↓ to choose, Enter to run |
+| Ctrl+Shift+P | The command palette: the tools for the kind of file open (Format JSON and Minify JSON in a `.json` file, New Host block in an SSH config). Type part of a name, ↑ and ↓ to choose, Enter to run |
 | Ctrl+0 | Back to scratch in this window (if another window has it, the status bar says so instead) |
 | Ctrl+S | Save now; in scratch, save to a file |
 | Ctrl+Shift+S | Save as |
@@ -218,7 +228,7 @@ Shortcuts are written with Ctrl; on macOS use ⌘ (the app's menu and hints show
 | Ctrl+Shift+K | Delete the line, or every selected line |
 | Ctrl+D | Select the word at the cursor; press again to also select the next place it appears (matching case and whole words; with part of a word selected, anywhere), going round to the top after the end. Typing, pasting, Backspace, Delete and Enter then change every selected place at once, each press its own Ctrl+Z. Moving the cursor or Esc lets the extra places go |
 | Ctrl+B and Ctrl+I | In a Markdown file, bold (`**`) or italic (`_`, or `*` inside a word): put the markers around the selection, or with nothing selected a pair with the cursor between. Pressed again, they come off |
-| Ctrl+/ | In a shell script or a YAML, TOML or INI file, comment out the line, or every selected line, with `# ` at their shared indent. When they are all comments already, it takes the `#` off instead |
+| Ctrl+/ | In a shell script or a YAML, TOML, INI or SSH config file, comment out the line, or every selected line, with `# ` at their shared indent. When they are all comments already, it takes the `#` off instead |
 | Ctrl+Z | Undo |
 | Ctrl+Shift+Z or Ctrl+Y | Redo |
 | Ctrl+A, C, X, V | Select all, copy, cut, paste |

@@ -20,6 +20,7 @@ use crate::core::save::{Autosaver, SaveState};
 use crate::core::scratch::ScratchView;
 use crate::core::settings::{ReadingMode, ScratchSyntax, Settings, Theme as ThemeSetting};
 use crate::core::shutdown::{self, Unsaved};
+use crate::core::ssh::host_block;
 use crate::core::syntax::Syntax;
 use crate::core::text_file::{DiskStamp, changed_on_disk, read_text};
 use crate::core::typing::is_code;
@@ -195,6 +196,8 @@ pub enum Message {
     ReformatJson {
         minify: bool,
     },
+    /// Put a `Host` block of the usual options into an SSH config file, after the caret's line.
+    InsertHostBlock,
 
     WindowOpened,
     CursorToMiddle(Size),
@@ -633,6 +636,26 @@ impl App {
                         self.set_notice(Some(format!("Can't {action} invalid JSON")));
                     }
                 }
+                return iced::widget::operation::focus(editor::EDITOR_ID);
+            }
+            Message::InsertHostBlock => {
+                if !self.editable() {
+                    return Task::none();
+                }
+                // The OS user name is the likeliest `User`; "user" when the OS doesn't say.
+                let user = std::env::var("USER")
+                    .or_else(|_| std::env::var("USERNAME"))
+                    .unwrap_or_else(|_| "user".to_string());
+                let indent = usize::from(self.settings.tab_spaces);
+                let (at, block, alias) =
+                    host_block(self.pane.model.text(), self.pane.caret(), indent, &user);
+                let here = at..at;
+                let edited = self.pane.replace_all(&[here], &block);
+                if edited == Ok(true) {
+                    // The placeholder name is selected, so typing names the host.
+                    self.pane.select(alias);
+                }
+                self.after_edit(edited);
                 return iced::widget::operation::focus(editor::EDITOR_ID);
             }
 

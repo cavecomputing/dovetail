@@ -8,6 +8,7 @@ use std::path::Path;
 use crate::core::config::{ini_problem, toml_problem, yaml_problem};
 use crate::core::json::json_problem;
 use crate::core::shell::{is_shell_script, shell_problem};
+use crate::core::ssh::{is_ssh_config, ssh_problem};
 use crate::core::text_model::offset;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -24,13 +25,20 @@ pub enum Syntax {
     /// A .sh or .bash file, bash's own dotfiles or a PKGBUILD, or a file with no extension whose
     /// `#!` line names sh or bash.
     Shell,
+    /// `~/.ssh/config`, a file in `~/.ssh/config.d/`, or `/etc/ssh`'s `ssh_config` and
+    /// `sshd_config` and their `.d` files: `Keyword value` lines under `Host` or `Match` blocks.
+    SshConfig,
 }
 
 impl Syntax {
-    /// The syntax of the file at `path`: by its whole name for the config files that have no
-    /// telling extension (`.bashrc`, `PKGBUILD`, `.gitconfig`, ...), else by its extension in any
-    /// case, or for a file with no extension by the `#!` line at the top of its `text`.
+    /// The syntax of the file at `path`: by its folders for SSH config files (`.ssh/config`), by
+    /// its whole name for the config files that have no telling extension (`.bashrc`,
+    /// `PKGBUILD`, `.gitconfig`, ...), else by its extension in any case, or for a file with no
+    /// extension by the `#!` line at the top of its `text`.
     pub fn of(path: &Path, text: &str) -> Syntax {
+        if is_ssh_config(path) {
+            return Syntax::SshConfig;
+        }
         let name = path.file_name().and_then(|name| name.to_str());
         match name {
             // bash's own files and sh's `.profile` and X session scripts. zsh's (`.zshrc`) are
@@ -70,6 +78,7 @@ impl Syntax {
             Syntax::Toml => toml_problem(text),
             Syntax::Ini => ini_problem(text),
             Syntax::Shell => shell_problem(text),
+            Syntax::SshConfig => ssh_problem(text),
         }
     }
 
@@ -77,7 +86,9 @@ impl Syntax {
     /// Markdown and JSON have none.
     pub fn comment_marker(self) -> Option<&'static str> {
         match self {
-            Syntax::Shell | Syntax::Yaml | Syntax::Toml | Syntax::Ini => Some("#"),
+            Syntax::Shell | Syntax::Yaml | Syntax::Toml | Syntax::Ini | Syntax::SshConfig => {
+                Some("#")
+            }
             Syntax::Plain | Syntax::Markdown | Syntax::Json => None,
         }
     }
@@ -156,10 +167,11 @@ pub enum Token {
     Key,
     String,
     Number,
-    /// `true`, `false`, `null` and their kin; in a shell script, its keywords (`if`, `for`...).
+    /// `true`, `false`, `null` and their kin; in a shell script, its keywords (`if`, `for`...);
+    /// in an SSH config, `yes`, `no`, `ask` and ssh's other fixed words.
     Literal,
     Comment,
-    /// An INI `[section]` or a TOML `[table]`.
+    /// An INI `[section]`, a TOML `[table]`, or the `Host` or `Match` that opens an SSH config block.
     Section,
     /// YAML's structure: `---`, a list's `-`, `|` and `>`, anchors, aliases and tags; in a shell
     /// script, a here-doc's markers.
@@ -218,6 +230,12 @@ mod tests {
         assert_eq!(syntax(".zshrc"), Syntax::Plain, "bash -n can't check zsh");
         assert_eq!(syntax(".bashrc.txt"), Syntax::Plain);
         assert_eq!(syntax("pkgbuild"), Syntax::Plain, "the name is exact");
+        assert_eq!(syntax("/home/me/.ssh/config"), Syntax::SshConfig);
+        assert_eq!(
+            syntax("/etc/ssh/ssh_config.d/10-work.conf"),
+            Syntax::SshConfig
+        );
+        assert_eq!(syntax("/home/me/.ssh/known_hosts"), Syntax::Plain);
     }
 
     #[test]

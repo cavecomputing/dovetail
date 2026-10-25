@@ -13,6 +13,7 @@ use crate::core::json::json_ranges;
 use crate::core::markdown::{Block, Markdown, markdown_ranges};
 use crate::core::markup::{Markup, markup_ranges};
 use crate::core::shell::{ShellOpen, shell_ranges};
+use crate::core::ssh::ssh_ranges;
 use crate::core::syntax::{Syntax, Token};
 use crate::ui::theme::{MONO, Roles, bold};
 
@@ -171,6 +172,7 @@ impl Highlighter for MarkupHighlighter {
                 carry.shell = next;
                 data(found)
             }
+            Syntax::SshConfig => data(ssh_ranges(text)),
         };
         self.carried.push(carry);
         if self.colouring.markup {

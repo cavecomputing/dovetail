@@ -1,5 +1,5 @@
 //! The Ctrl+Shift+P command palette: the tools for the kind of file open (Format JSON and Minify
-//! JSON in a .json file). Type a few letters of a tool's name, ↑ and ↓ choose, Enter runs it, Esc
+//! JSON in a .json file, New Host block in an SSH config). Type a few letters of a tool's name, ↑ and ↓ choose, Enter runs it, Esc
 //! closes.
 
 use iced::widget::{column, text, text_input};
@@ -29,6 +29,7 @@ fn tools(syntax: Syntax) -> Vec<(&'static str, Message)> {
             ("Format JSON", Message::ReformatJson { minify: false }),
             ("Minify JSON", Message::ReformatJson { minify: true }),
         ],
+        Syntax::SshConfig => vec![("New Host block", Message::InsertHostBlock)],
         _ => Vec::new(),
     }
 }
@@ -135,6 +136,7 @@ mod tests {
         assert_eq!(names("", Syntax::Json), ["Format JSON", "Minify JSON"]);
         assert_eq!(names("min", Syntax::Json), ["Minify JSON"]);
         assert_eq!(names("zzz", Syntax::Json), Vec::<&str>::new());
+        assert_eq!(names("", Syntax::SshConfig), ["New Host block"]);
         assert_eq!(names("", Syntax::Yaml), Vec::<&str>::new());
         assert_eq!(names("", Syntax::Plain), Vec::<&str>::new());
     }
