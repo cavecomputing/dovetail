@@ -594,13 +594,23 @@ where
     }
 
     /// Where the view sits, for the scroll bar: its top row, the rows it shows and the rows in
-    /// the whole text. cosmic-text lays out only lines it has shown, so one it hasn't counts as
-    /// one row, however far it would wrap.
+    /// the whole text. cosmic-text lays out only lines it has shown, so a line it hasn't is
+    /// counted by estimate (see `estimated_rows`) until it comes into view and has its real rows.
     pub fn scroll_rows(&self) -> ScrollRows {
         let internal = self.0.borrow();
         let buffer = internal.editor.buffer();
         let row_height = buffer.metrics().line_height;
-        let rows = |line: &cosmic_text::BufferLine| line.layout_opt().map_or(1, Vec::len);
+        // The monospace font makes the width of a row in characters a plain division.
+        let columns = match (buffer.wrap(), buffer.size().0) {
+            (cosmic_text::Wrap::None, _) | (_, None) => None,
+            (_, Some(width)) => {
+                Some((width / (buffer.metrics().font_size * CHAR_WIDTH_RATIO)) as usize)
+            }
+        };
+        let rows = |line: &cosmic_text::BufferLine| match line.layout_opt() {
+            Some(layout) => layout.len(),
+            None => estimated_rows(line.text(), columns),
+        };
         let scroll = buffer.scroll();
         let above: usize = buffer.lines.iter().take(scroll.line).map(rows).sum();
         ScrollRows {
@@ -608,6 +618,16 @@ where
             shown: buffer.size().1.unwrap_or(0.0) / row_height,
             total: buffer.lines.iter().map(rows).sum::<usize>() as f32,
         }
+    }
+}
+
+/// ours: the rows a line not laid out yet will take: its characters over the characters a row
+/// holds, rounded up, and at least one. Wrapping at word ends can take a row more; the real count
+/// replaces this once the line is shown. `None` columns (no wrapping, or no width yet) is one row.
+fn estimated_rows(line: &str, columns: Option<usize>) -> usize {
+    match columns {
+        Some(columns) => line.chars().count().div_ceil(columns.max(1)).max(1),
+        None => 1,
     }
 }
 
@@ -1666,6 +1686,28 @@ mod tests {
         content.move_to(caret(1, 0));
         content.perform(Action::Edit(Edit::Backspace));
         assert_eq!(changed_from(&content), Some(0));
+    }
+
+    #[test]
+    fn a_line_not_laid_out_yet_counts_its_wrapped_rows() {
+        assert_eq!(estimated_rows("", Some(10)), 1);
+        assert_eq!(estimated_rows("0123456789", Some(10)), 1);
+        assert_eq!(estimated_rows("0123456789a", Some(10)), 2);
+        assert_eq!(
+            estimated_rows(&"é".repeat(25), Some(10)),
+            3,
+            "characters, not bytes"
+        );
+        assert_eq!(
+            estimated_rows(&"x".repeat(500), None),
+            1,
+            "no wrapping, one row"
+        );
+        assert_eq!(
+            estimated_rows("abc", Some(0)),
+            3,
+            "a width of nothing still ends"
+        );
     }
 
     #[test]
