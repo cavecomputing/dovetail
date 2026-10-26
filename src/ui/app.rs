@@ -1446,6 +1446,36 @@ mod tests {
     }
 
     #[test]
+    fn a_revised_suggestion_replaces_the_waiting_one_and_its_card() {
+        let (_dir, _paths, mut app, _notes) = scratch_window("Stay cold.");
+        let suggestion = |at: usize, find: &str, replace: &str| crate::ai::tools::Suggestion {
+            at,
+            find: find.to_string(),
+            replace: replace.to_string(),
+            why: String::new(),
+        };
+        app.assistant.conversation.new_suggestions = vec![suggestion(5, "cold", "warm")];
+        app.show_suggestions();
+        let waiting = app.snapshot().waiting;
+        assert_eq!((waiting.len(), app.assistant.cards.len()), (1, 1));
+        // The model revises it: the old suggestion and its card go, the new ones take their place.
+        app.assistant.conversation.withdrawn = vec![waiting[0].id];
+        app.assistant.conversation.new_suggestions = vec![suggestion(5, "cold", "hot")];
+        app.show_suggestions();
+        let waiting = app.snapshot().waiting;
+        assert_eq!(waiting.len(), 1);
+        assert_eq!(waiting[0].replace, "hot");
+        assert_eq!(app.assistant.cards.len(), 1);
+        assert_eq!(app.assistant.cards[0].suggestion.replace, "hot");
+        // Withdrawing alone takes the suggestion and its card away.
+        app.assistant.conversation.withdrawn = vec![waiting[0].id];
+        app.show_suggestions();
+        assert!(app.snapshot().waiting.is_empty());
+        assert!(app.assistant.cards.is_empty());
+        assert_eq!(app.pane.model.text(), "Stay cold.");
+    }
+
+    #[test]
     fn a_file_dropped_on_settings_opens_and_closes_settings() {
         let (_dir, _paths, mut app, notes) = scratch_window("");
         let _ = app.update(Message::OpenSettings);

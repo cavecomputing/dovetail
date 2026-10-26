@@ -383,11 +383,15 @@ impl Pane {
     /// The suggestion Ctrl+Enter and Ctrl+Backspace decide: the one the caret is on (in or
     /// touching the text it takes out or puts in), or else the first in the text.
     pub fn current_suggestion(&self) -> Option<u64> {
+        self.suggestion_at_caret()
+            .or_else(|| self.suggestions().first().map(|s| s.id))
+    }
+
+    /// The suggestion the caret is on (in or touching the text it takes out or puts in), if any.
+    pub fn suggestion_at_caret(&self) -> Option<u64> {
         let caret = self.content.cursor().position;
         let display = self.display.as_ref()?;
-        display
-            .suggestion_at(offset(&display.text, caret.line, caret.column))
-            .or_else(|| self.suggestions().first().map(|s| s.id))
+        display.suggestion_at(offset(&display.text, caret.line, caret.column))
     }
 
     /// Where widget position `at` is in the model's text. Inside a suggestion's added text,

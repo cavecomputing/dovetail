@@ -34,12 +34,27 @@ pub struct Snapshot {
     /// The window can't change the text (another window has it, or it can't be saved), so no
     /// edit can be suggested.
     pub read_only: bool,
-    /// The parts of `text` that suggestions still waiting for the user replace. A new suggestion
-    /// may not overlap them.
-    pub waiting: Vec<Range<usize>>,
+    /// The suggestions still waiting for the user, in text order. A new suggestion over one
+    /// replaces it.
+    pub waiting: Vec<Waiting>,
+    /// The parts of `text` that suggestions made in the reply being answered replace. A new
+    /// suggestion may not overlap them.
+    pub proposed: Vec<Range<usize>>,
+    /// The waiting suggestion the caret is on, if it is on one.
+    pub caret_on: Option<u64>,
     /// How the user decided suggestions since the model was last told, one `decided` line each,
     /// for the next question's note.
     pub decided: Vec<String>,
+}
+
+/// A suggestion waiting for the user: put `replace` in place of `range` of the snapshot's text.
+#[derive(Debug, Clone)]
+pub struct Waiting {
+    /// What the model calls it, and `withdraw_edit` takes it back by. Later suggestions have
+    /// bigger ones.
+    pub id: u64,
+    pub range: Range<usize>,
+    pub replace: String,
 }
 
 impl Snapshot {
@@ -83,6 +98,11 @@ How you work:
 document, marked, until the user accepts or rejects it, so say \"I suggested\", never \"I changed\". \
 The next question's note says which they accepted and rejected; don't suggest a rejected edit again \
 unless asked.
+- Suggestions that wait for the user are listed in the note, numbered. A message sent while any \
+wait is about them unless it is clearly about something else: \"shorter\" or \"use we\" means rework them. \
+Call propose_edit again for the same text and the new one replaces the waiting one; \
+withdraw_edit takes one back. When several wait, \"this\" means the one the caret is on, otherwise the \
+newest (the highest number).
 - The newest question comes with the text as it is now (a long text is cut short: get_document \
 reads the rest by lines), its size, the selection and the caret. Copy the text you want to replace \
 into propose_edit's find exactly, spaces and punctuation included. Leave find empty to add text at \
@@ -157,6 +177,24 @@ pub fn turn_note(snapshot: &Snapshot) -> String {
 left the text as it was.]\n",
             snapshot.decided.join("; ")
         ));
+    }
+    if !snapshot.waiting.is_empty() {
+        note.push_str("[Your suggestions still waiting for the user:\n");
+        for waiting in &snapshot.waiting {
+            let line = position(text, waiting.range.start).0 + 1;
+            let find = text.get(waiting.range.clone()).unwrap_or("");
+            let here = match snapshot.caret_on == Some(waiting.id) {
+                true => " (the caret is on it)",
+                false => "",
+            };
+            note.push_str(&format!(
+                "{}. line {line}: \"{}\" → \"{}\"{here}\n",
+                waiting.id,
+                tools::shorten(find, 60),
+                tools::shorten(&waiting.replace, 60)
+            ));
+        }
+        note.push_str("]\n");
     }
     note.push_str(&format!(
         "[Document now: {} lines, {} words, about {} tokens",
@@ -277,6 +315,29 @@ pub(crate) mod tests {
         assert!(note.starts_with(
             "[Since your last reply the user decided your suggested edits: rejected \"cold\" → \
 \"warm\"; accepted \"Stay\" → \"Be\". A rejected edit left the text as it was.]\n[Document now:"
+        ));
+    }
+
+    #[test]
+    fn the_note_lists_the_suggestions_still_waiting() {
+        let mut snapshot = scratch("Stay cold.\nBe brief.");
+        assert!(!turn_note(&snapshot).contains("waiting"));
+        snapshot.waiting = vec![
+            Waiting {
+                id: 4,
+                range: 5..9,
+                replace: "warm".to_string(),
+            },
+            Waiting {
+                id: 6,
+                range: 11..20,
+                replace: "Be short.".to_string(),
+            },
+        ];
+        snapshot.caret_on = Some(6);
+        assert!(turn_note(&snapshot).starts_with(
+            "[Your suggestions still waiting for the user:\n4. line 1: \"cold\" → \"warm\"\n\
+6. line 2: \"Be brief.\" → \"Be short.\" (the caret is on it)\n]\n[Document now:"
         ));
     }
 

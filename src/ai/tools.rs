@@ -1,5 +1,6 @@
 //! The tools the assistant can call, and running them against a `Snapshot` of the open document.
-//! Every tool only reads; `propose_edit` records a suggestion for the user to accept or reject.
+//! Every tool only reads; `propose_edit` records a suggestion for the user to accept or reject,
+//! and `withdraw_edit` takes a waiting one back.
 //! Results are plain text or JSON, written for the model.
 
 use std::ops::Range;
@@ -20,6 +21,9 @@ const MAX_MATCHES: usize = 50;
 const MAX_LINE_CHARS: usize = 400;
 /// What `propose_edit` answers when the suggestion is shown.
 const SUGGESTED: &str = "Suggested. The user sees it in the document and will accept or reject it.";
+
+/// What `withdraw_edit` answers when the suggestion is taken back.
+const WITHDRAWN: &str = "Withdrawn.";
 
 /// A tool the model may call, with a JSON schema of its arguments.
 #[derive(Debug, Clone, PartialEq)]
@@ -47,6 +51,14 @@ impl Suggestion {
     pub fn range(&self) -> Range<usize> {
         self.at..self.at + self.find.len()
     }
+}
+
+/// What a tool asks the editor to do: show a suggestion, and take these waiting ones away first.
+#[derive(Debug, Default, PartialEq)]
+pub struct Edit {
+    pub suggestion: Option<Suggestion>,
+    /// The ids (`Waiting::id`) of the waiting suggestions to remove.
+    pub withdrawn: Vec<u64>,
 }
 
 /// The tools on offer.
@@ -100,24 +112,42 @@ pub fn catalogue() -> Vec<Tool> {
             name: "propose_edit",
             description: "Suggest replacing text in the document, or adding text at its end. The \
                 user sees it marked in the document and accepts or rejects it; nothing changes until they \
-                accept. Use one call per passage.",
+                accept. Use one call per passage. Over text that a waiting suggestion already \
+                changes, it replaces that suggestion.",
             parameters: json!({
                 "type": "object",
                 "properties": edit_arguments,
                 "required": ["find", "replace", "why"],
             }),
         },
+        Tool {
+            name: "withdraw_edit",
+            description: "Take back a suggestion still waiting for the user, by the number the \
+                note lists it under. To change one instead, call propose_edit again.",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "number": { "type": "integer", "description": "The waiting suggestion's number." },
+                },
+                "required": ["number"],
+            }),
+        },
     ]
 }
 
-/// Runs `call` against `snapshot` and returns what to send back to the model, plus the new
-/// suggestion if it was a successful `propose_edit`.
-pub fn run(call: &ToolCall, snapshot: &Snapshot) -> (String, Option<Suggestion>) {
+/// Runs `call` against `snapshot` and returns what to send back to the model, plus what the
+/// editor should do (a new suggestion from a successful `propose_edit`, waiting ones to remove).
+pub fn run(call: &ToolCall, snapshot: &Snapshot) -> (String, Edit) {
     let arguments = match call.arguments.trim() {
         "" => json!({}),
         text => match serde_json::from_str::<Value>(text) {
             Ok(arguments) if arguments.is_object() => arguments,
-            _ => return ("The arguments weren't a JSON object.".to_string(), None),
+            _ => {
+                return (
+                    "The arguments weren't a JSON object.".to_string(),
+                    Edit::default(),
+                );
+            }
         },
     };
     let text = &snapshot.text;
@@ -127,9 +157,10 @@ pub fn run(call: &ToolCall, snapshot: &Snapshot) -> (String, Option<Suggestion>)
         "find_text" => find_text(text, arguments["text"].as_str().unwrap_or("")),
         "count_tokens" => count(arguments["text"].as_str().unwrap_or(text)).to_string(),
         "propose_edit" => return propose_edit(snapshot, &arguments),
+        "withdraw_edit" => return withdraw_edit(snapshot, &arguments),
         name => format!("There is no tool called {name} here."),
     };
-    (output, None)
+    (output, Edit::default())
 }
 
 /// What the chat shows for a tool call that gave back `output`, such as "Searched for "warm"".
@@ -145,6 +176,8 @@ pub fn describe(call: &ToolCall, output: &str) -> String {
         "count_tokens" => "Counted tokens".to_string(),
         "propose_edit" if output.starts_with(SUGGESTED) => "Suggested an edit".to_string(),
         "propose_edit" => "Couldn't suggest an edit".to_string(),
+        "withdraw_edit" if output.starts_with(WITHDRAWN) => "Withdrew an edit".to_string(),
+        "withdraw_edit" => "Couldn't withdraw an edit".to_string(),
         name => format!("Used {name}"),
     }
 }
@@ -313,8 +346,8 @@ fn trim_shared<'a>(find: &'a str, replace: &'a str, words: bool) -> (usize, &'a 
     (head, &find[head..find_end], &replace[head..replace_end])
 }
 
-fn propose_edit(snapshot: &Snapshot, arguments: &Value) -> (String, Option<Suggestion>) {
-    let refuse = |reason: String| (reason, None);
+fn propose_edit(snapshot: &Snapshot, arguments: &Value) -> (String, Edit) {
+    let refuse = |reason: String| (reason, Edit::default());
     let text = &snapshot.text;
     let find = arguments["find"].as_str().unwrap_or("");
     let replace = arguments["replace"].as_str().unwrap_or("");
@@ -351,13 +384,18 @@ fn propose_edit(snapshot: &Snapshot, arguments: &Value) -> (String, Option<Sugge
     // those; the validity check below looks at the whole edit, which is the same.
     let (skipped, find_part, replace_part) = changed_part(find, replace);
     let range = at + skipped..at + skipped + find_part.len();
-    if snapshot.waiting.iter().any(|other| clashes(other, &range)) {
+    if snapshot.proposed.iter().any(|other| clashes(other, &range)) {
         return refuse(
-            "That overlaps another suggestion still waiting for the user. Change different \
-             text, or wait for them to accept or reject it."
-                .to_string(),
+            "That overlaps another suggestion you just made. Change different text.".to_string(),
         );
     }
+    // A suggestion over text that one still waiting for the user changes replaces it.
+    let replaced: Vec<u64> = snapshot
+        .waiting
+        .iter()
+        .filter(|other| clashes(&other.range, &range))
+        .map(|other| other.id)
+        .collect();
     let suggestion = Suggestion {
         at: range.start,
         find: find_part.to_string(),
@@ -373,21 +411,50 @@ fn propose_edit(snapshot: &Snapshot, arguments: &Value) -> (String, Option<Sugge
         None => syntax.problem(&edited),
         Some(_) => None,
     };
-    let output = match broken {
+    let mut output = match broken {
         None => SUGGESTED.to_string(),
         Some(problem) => format!(
             "{SUGGESTED} But on its own it would leave the file invalid: {problem}. If no other \
              edit of yours fixes that, suggest a corrected one."
         ),
     };
-    (output, Some(suggestion))
+    if !replaced.is_empty() {
+        output.push_str(" It replaces the suggestion that was waiting there.");
+    }
+    let edit = Edit {
+        suggestion: Some(suggestion),
+        withdrawn: replaced,
+    };
+    (output, edit)
+}
+
+/// Takes back the waiting suggestion the model names by number.
+fn withdraw_edit(snapshot: &Snapshot, arguments: &Value) -> (String, Edit) {
+    let id = number(&arguments["number"]).map(u64::from);
+    match snapshot
+        .waiting
+        .iter()
+        .find(|waiting| Some(waiting.id) == id)
+    {
+        Some(waiting) => {
+            let edit = Edit {
+                suggestion: None,
+                withdrawn: vec![waiting.id],
+            };
+            (WITHDRAWN.to_string(), edit)
+        }
+        None => {
+            let reason = "No suggestion with that number is waiting. The note lists them.";
+            (reason.to_string(), Edit::default())
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ai::context::DocKind;
     use crate::ai::context::tests::scratch;
+    use crate::ai::context::{DocKind, Waiting};
 
     fn call(name: &str, arguments: Value) -> ToolCall {
         ToolCall {
@@ -415,7 +482,8 @@ mod tests {
                 "get_selection",
                 "find_text",
                 "count_tokens",
-                "propose_edit"
+                "propose_edit",
+                "withdraw_edit"
             ]
         );
         // A tool that isn't there is refused in words.
@@ -541,7 +609,7 @@ mod tests {
     #[test]
     fn propose_edit_records_a_suggestion_only_for_exact_unique_text() {
         let mut snapshot = scratch("Keep it warm. Keep it short, ünïcode.");
-        let (said, suggestion) = run(
+        let (said, Edit { suggestion, .. }) = run(
             &call(
                 "propose_edit",
                 json!({ "find": "short, ünïcode", "replace": "brief", "why": "Tighter." }),
@@ -557,7 +625,7 @@ mod tests {
         );
 
         let refused = |arguments: Value, snapshot: &Snapshot| {
-            let (said, suggestion) = run(&call("propose_edit", arguments), snapshot);
+            let (said, Edit { suggestion, .. }) = run(&call("propose_edit", arguments), snapshot);
             assert!(suggestion.is_none());
             said
         };
@@ -573,12 +641,17 @@ mod tests {
                 .contains("changes nothing")
         );
         assert!(refused(json!({}), &snapshot).contains("changes nothing"));
-        snapshot.waiting.push(suggestion.range());
+        snapshot.proposed.push(suggestion.range());
         let overlapping = json!({ "find": "it short", "replace": "x" });
         assert!(refused(overlapping, &snapshot).contains("overlaps"));
         // Next to a waiting suggestion is fine.
         let beside = json!({ "find": "Keep it warm.", "replace": "Stay warm." });
-        assert!(run(&call("propose_edit", beside), &snapshot).1.is_some());
+        assert!(
+            run(&call("propose_edit", beside), &snapshot)
+                .1
+                .suggestion
+                .is_some()
+        );
 
         let broken = ToolCall {
             arguments: "{not json".to_string(),
@@ -599,6 +672,63 @@ mod tests {
     }
 
     #[test]
+    fn a_suggestion_over_a_waiting_one_replaces_it() {
+        let mut snapshot = scratch("Keep it cold. Keep it short.");
+        let at = snapshot.text.find("cold").unwrap();
+        snapshot.waiting.push(Waiting {
+            id: 7,
+            range: at..at + 4,
+            replace: "warm".to_string(),
+        });
+        let edit = |find: &str, replace: &str| {
+            let arguments = json!({ "find": find, "replace": replace, "why": "x" });
+            run(&call("propose_edit", arguments), &snapshot)
+        };
+        let (said, revised) = edit("Keep it cold.", "Stay hot.");
+        assert!(
+            said.starts_with(SUGGESTED) && said.contains("replaces"),
+            "{said}"
+        );
+        assert_eq!(revised.withdrawn, [7]);
+        assert_eq!(revised.suggestion.unwrap().replace, "Stay hot.");
+        // Elsewhere in the text, the waiting one stays.
+        let (said, other) = edit("short", "long");
+        assert_eq!(said, SUGGESTED);
+        assert!(other.withdrawn.is_empty());
+    }
+
+    #[test]
+    fn withdraw_edit_takes_back_a_waiting_suggestion_by_number() {
+        let mut snapshot = scratch("Stay cold.");
+        snapshot.waiting.push(Waiting {
+            id: 3,
+            range: 5..9,
+            replace: "warm".to_string(),
+        });
+        let withdraw = |number: Value| {
+            run(
+                &call("withdraw_edit", json!({ "number": number })),
+                &snapshot,
+            )
+        };
+        let (said, edit) = withdraw(json!(3));
+        assert_eq!(said, WITHDRAWN);
+        assert_eq!(edit.withdrawn, [3]);
+        assert_eq!(
+            withdraw(json!("3.0")).1.withdrawn,
+            [3],
+            "tolerates 3.0 written as text"
+        );
+        let (said, edit) = withdraw(json!(4));
+        assert!(said.starts_with("No suggestion with that number"), "{said}");
+        assert_eq!(edit, Edit::default());
+        assert_eq!(
+            describe(&call("withdraw_edit", json!({})), WITHDRAWN),
+            "Withdrew an edit"
+        );
+    }
+
+    #[test]
     fn a_suggestion_covers_only_the_lines_that_change() {
         let yaml = "web:\n  image: nginx\n  restart: always\n";
         let arguments = json!({
@@ -606,7 +736,7 @@ mod tests {
             "replace": "  image: nginx\n  ports: [80]\n  restart: always\n",
             "why": "x",
         });
-        let (_, suggestion) = run(&call("propose_edit", arguments), &scratch(yaml));
+        let (_, Edit { suggestion, .. }) = run(&call("propose_edit", arguments), &scratch(yaml));
         let suggestion = suggestion.expect("suggested");
         assert_eq!(suggestion.at, yaml.find("  restart").unwrap());
         assert_eq!(suggestion.find, "");
@@ -633,10 +763,10 @@ mod tests {
             let arguments = json!({ "find": find, "replace": replace, "why": "x" });
             run(&call("propose_edit", arguments), &json)
         };
-        let (output, suggestion) = edit("\"b\": 2", "\"b\": 3");
+        let (output, Edit { suggestion, .. }) = edit("\"b\": 2", "\"b\": 3");
         assert_eq!(output, SUGGESTED);
         assert!(suggestion.is_some());
-        let (output, suggestion) = edit(", \"b\": 2", ", \"b\" 2");
+        let (output, Edit { suggestion, .. }) = edit(", \"b\": 2", ", \"b\" 2");
         assert!(output.starts_with(SUGGESTED), "it still shows");
         assert!(
             output.contains("invalid: Invalid JSON at line 1"),
@@ -656,7 +786,7 @@ mod tests {
 
     #[test]
     fn propose_edit_with_an_empty_find_adds_text_at_the_end() {
-        let (said, suggestion) = run(
+        let (said, Edit { suggestion, .. }) = run(
             &call(
                 "propose_edit",
                 json!({ "find": "", "replace": "Dear Sam,", "why": "w" }),
@@ -669,10 +799,11 @@ mod tests {
         let add = json!({ "replace": "\nBye." });
         let suggestion = run(&call("propose_edit", add.clone()), &snapshot)
             .1
+            .suggestion
             .unwrap();
         assert_eq!((suggestion.at, suggestion.find.as_str()), (3, ""));
         // A second addition at the end clashes with the first, as it would in the pane.
-        snapshot.waiting.push(3..3);
+        snapshot.proposed.push(3..3);
         assert!(
             run(&call("propose_edit", add), &snapshot)
                 .0

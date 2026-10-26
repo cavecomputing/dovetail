@@ -8,7 +8,7 @@ use iced::widget::{scrollable, text_editor};
 
 use crate::ai::agent::{Conversation, Next, test_connection};
 use crate::ai::client::{Item, Reply, StreamEvent};
-use crate::ai::context::{self, DocKind, Snapshot};
+use crate::ai::context::{self, DocKind, Snapshot, Waiting};
 use crate::ai::key::{api_key, set_api_key};
 use crate::ai::tools::Suggestion;
 use crate::core::opened::Doc;
@@ -322,20 +322,33 @@ impl App {
                 .pane
                 .suggestions()
                 .iter()
-                .map(|s| s.range.clone())
+                .map(|s| Waiting {
+                    id: s.id,
+                    range: s.range.clone(),
+                    replace: s.text.clone(),
+                })
                 .collect(),
+            proposed: Vec::new(),
+            caret_on: self.pane.suggestion_at_caret(),
             decided: Vec::new(),
         }
     }
 
     /// Shows each edit the model just proposed as a suggestion in the document, with its card in
-    /// the chat. The tools checked them against the text as it is, so the pane takes them.
-    fn show_suggestions(&mut self) {
+    /// the chat, after removing the waiting ones it replaced or withdrew. The tools checked them
+    /// against the text as it is, so the pane takes them.
+    pub(crate) fn show_suggestions(&mut self) {
         let conversation = &mut self.assistant.conversation;
         let new: Vec<Suggestion> = std::mem::take(&mut conversation.new_suggestions);
-        if new.is_empty() {
-            return;
+        // Suggestions the model replaced or withdrew go first, with their cards: the new ones
+        // may sit where they were.
+        for id in std::mem::take(&mut conversation.withdrawn) {
+            self.pane.decide(Decision::Reject(Some(id)));
+            self.assistant
+                .cards
+                .retain(|card| card.state != CardState::Waiting(id));
         }
+        let conversation = &self.assistant.conversation;
         let turn = conversation
             .items
             .iter()

@@ -5,8 +5,9 @@
 //! 3. When `receive` says `SendAgain`, the model's tool calls have run against the snapshot and
 //!    their results are in the conversation: go back to step 2. `Finished` ends the turn.
 //!
-//! Tools never touch the editor: `propose_edit` only adds to `new_suggestions`, which the pane
-//! takes and shows in the document for the user to accept or reject.
+//! Tools never touch the editor: `propose_edit` only adds to `new_suggestions` (and `withdrawn`,
+//! the waiting suggestions it replaces), which the pane takes and shows in the document for the
+//! user to accept or reject.
 //!
 //! Every question in the history has an answer after it, so the next request never has two
 //! questions in a row, which some servers refuse.
@@ -34,6 +35,9 @@ pub struct Conversation {
     calls: Vec<ToolCall>,
     /// Edits the model just proposed, for the pane to take and show.
     pub new_suggestions: Vec<Suggestion>,
+    /// The ids of waiting suggestions the model replaced or withdrew, for the pane to remove
+    /// before it shows `new_suggestions`.
+    pub withdrawn: Vec<u64>,
     /// What the current question sees.
     snapshot: Option<Snapshot>,
     /// The text being edited, sent with the current question only (see `open_text`).
@@ -172,11 +176,11 @@ impl Conversation {
             .as_mut()
             .expect("a reply only comes after ask, which sets the snapshot");
         for call in &calls {
-            let (output, suggestion) = tools::run(call, snapshot);
-            if let Some(suggestion) = suggestion {
+            let (output, edit) = tools::run(call, snapshot);
+            self.withdrawn.extend(edit.withdrawn);
+            if let Some(suggestion) = edit.suggestion {
                 // The next call in this reply may not overlap it either.
-                let range = suggestion.range();
-                snapshot.waiting.push(range);
+                snapshot.proposed.push(suggestion.range());
                 self.new_suggestions.push(suggestion);
             }
             self.items.push(Item::ToolResult {
@@ -251,6 +255,7 @@ pub async fn test_connection(settings: &Settings, api_key: Option<&str>) -> Resu
 mod tests {
     use super::*;
     use crate::ai::client::tests::{all_events, serve, settings_for};
+    use crate::ai::context::Waiting;
     use crate::ai::context::tests::scratch as snapshot;
     use crate::core::settings::RequestFormat;
 
@@ -329,6 +334,24 @@ mod tests {
             panic!("expected a tool result, got {:?}", talk.items[3]);
         };
         assert!(output.contains("overlaps"), "{output}");
+    }
+
+    #[test]
+    fn a_waiting_suggestion_is_replaced_by_the_next_edit_over_it() {
+        let mut talk = Conversation::default();
+        let mut waiting = snapshot("Stay cold.");
+        waiting.waiting.push(Waiting {
+            id: 2,
+            range: 5..9,
+            replace: "warm".to_string(),
+        });
+        talk.ask("Hotter", waiting);
+        talk.request(&settings(), None).unwrap();
+        let edit = r#"{"find":"cold","replace":"hot","why":"Hotter."}"#;
+        talk.receive(tool_call("c1", "propose_edit", edit));
+        talk.receive(StreamEvent::Done);
+        assert_eq!(talk.new_suggestions.len(), 1);
+        assert_eq!(talk.withdrawn, [2]);
     }
 
     #[tokio::test]

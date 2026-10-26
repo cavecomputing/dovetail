@@ -382,7 +382,10 @@ the line it's on and the reason, with `accept`, `reject` and `try shorter`, whic
 shorter version (`accept all` and `reject all` when several wait). Ctrl+Enter accepts and
 Ctrl+Backspace rejects from anywhere: the suggestion the cursor is on, or else the first one. With
 Shift they take them all. Your next question tells the assistant which you accepted and rejected,
-so after rejecting one you can just ask for something different. It
+so after rejecting one you can just ask for something different. A message sent while
+suggestions wait is taken as being about them ("shorter", "use we"): the assistant replaces the
+suggestion with a new one, or takes it back, and when several wait, "this" means the one the
+cursor is on, else the newest. It
 works on scripts and config files as well as prose: it's told what kind of file is open, a
 suggestion covers only the lines or words that change (not the text around them the model copied), and in a
 JSON, YAML, TOML, INI or shell file it's told when an edit would make the file invalid, so it can
