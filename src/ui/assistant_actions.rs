@@ -301,8 +301,8 @@ impl App {
         task
     }
 
-    /// What the assistant sees: the text, its selection and caret, and the suggestions waiting
-    /// in it.
+    /// What the assistant sees: the text, its selection and caret, the suggestions waiting in it,
+    /// and the original while rewriting.
     pub fn snapshot(&self) -> Snapshot {
         let doc = match &self.doc {
             Doc::Scratch => DocKind::Scratch {
@@ -328,6 +328,10 @@ impl App {
                     replace: s.text.clone(),
                 })
                 .collect(),
+            original: self
+                .original
+                .as_ref()
+                .map(|pane| pane.model.text().to_string()),
             proposed: Vec::new(),
             caret_on: self.pane.suggestion_at_caret(),
             decided: Vec::new(),

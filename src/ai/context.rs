@@ -34,6 +34,8 @@ pub struct Snapshot {
     /// The window can't change the text (another window has it, or it can't be saved), so no
     /// edit can be suggested.
     pub read_only: bool,
+    /// While the user is rewriting: the original, which the document is a draft of.
+    pub original: Option<String>,
     /// The suggestions still waiting for the user, in text order. A new suggestion over one
     /// replaces it.
     pub waiting: Vec<Waiting>,
@@ -113,6 +115,9 @@ including XML tags and {{{{macros}}}}, unless they ask otherwise.
 that would leave a JSON, YAML, TOML, INI or shell file invalid still shows, but propose_edit's \
 result says what breaks, so you can correct it.
 - When no edit is wanted, just answer. Keep replies short and plain: the chat pane is narrow.
+- When the note says the user is rewriting, the document is their draft of an original text, which \
+get_original reads by lines; get_changes lists what the draft changes from it. Suggest edits to \
+the draft only.
 - Word and token counts come from count_tokens (tokens are an estimate, about four bytes each).
 "
     );
@@ -195,6 +200,12 @@ left the text as it was.]\n",
             ));
         }
         note.push_str("]\n");
+    }
+    if snapshot.original.is_some() {
+        note.push_str(
+            "[The user is rewriting: the document is a draft of an original, which stays as it \
+was. get_original reads it; get_changes lists what the draft changes.]\n",
+        );
     }
     note.push_str(&format!(
         "[Document now: {} lines, {} words, about {} tokens",
@@ -339,6 +350,14 @@ pub(crate) mod tests {
             "[Your suggestions still waiting for the user:\n4. line 1: \"cold\" → \"warm\"\n\
 6. line 2: \"Be brief.\" → \"Be short.\" (the caret is on it)\n]\n[Document now:"
         ));
+    }
+
+    #[test]
+    fn the_note_says_when_the_document_is_a_rewrite() {
+        let mut snapshot = scratch("Stay cold.");
+        assert!(!turn_note(&snapshot).contains("rewriting"));
+        snapshot.original = Some("Stay hot.".to_string());
+        assert!(turn_note(&snapshot).starts_with("[The user is rewriting: "));
     }
 
     #[test]

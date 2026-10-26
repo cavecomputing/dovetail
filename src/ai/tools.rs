@@ -1,6 +1,7 @@
 //! The tools the assistant can call, and running them against a `Snapshot` of the open document.
 //! Every tool only reads; `propose_edit` records a suggestion for the user to accept or reject,
-//! and `withdraw_edit` takes a waiting one back.
+//! and `withdraw_edit` takes a waiting one back. During a rewrite `get_original` and
+//! `get_changes` read the original the draft started from.
 //! Results are plain text or JSON, written for the model.
 
 use std::ops::Range;
@@ -11,16 +12,24 @@ use crate::ai::client::ToolCall;
 use crate::ai::context::Snapshot;
 use crate::core::counts::Counts;
 use crate::core::review::clashes;
+use crate::core::rewrite::changes;
 use crate::core::text_model::position;
 
 /// The most text one result hands back (about 12,000 tokens). Longer texts are read by lines.
 const MAX_RESULT_TEXT: usize = 48_000;
+/// The most changes `get_changes` lists on each side.
+const MAX_CHANGES: usize = 50;
+/// The longest changed text `get_changes` shows, in characters.
+const MAX_CHANGE_CHARS: usize = 200;
 /// The most lines `find_text` lists.
 const MAX_MATCHES: usize = 50;
 /// The longest line `find_text` shows, in characters.
 const MAX_LINE_CHARS: usize = 400;
 /// What `propose_edit` answers when the suggestion is shown.
 const SUGGESTED: &str = "Suggested. The user sees it in the document and will accept or reject it.";
+
+/// What the rewrite tools answer when the user isn't rewriting.
+const NOT_REWRITING: &str = "The user isn't rewriting, so there is no original.";
 
 /// What `withdraw_edit` answers when the suggestion is taken back.
 const WITHDRAWN: &str = "Withdrawn.";
@@ -90,6 +99,19 @@ pub fn catalogue() -> Vec<Tool> {
             parameters: json!({ "type": "object", "properties": {} }),
         },
         Tool {
+            name: "get_original",
+            description: "While the user is rewriting, read the original text their document is a \
+                draft of. Returns the whole original, or the lines asked for, as get_document does.",
+            parameters: json!({ "type": "object", "properties": line_range }),
+        },
+        Tool {
+            name: "get_changes",
+            description: "While the user is rewriting, list what the draft changes from the \
+                original: the words taken out of the original and the words put into the draft, \
+                each with its line number.",
+            parameters: json!({ "type": "object", "properties": {} }),
+        },
+        Tool {
             name: "find_text",
             description: "Find every line of the document containing some text, ignoring upper \
                 and lower case. Returns each line's number and exact text.",
@@ -154,6 +176,14 @@ pub fn run(call: &ToolCall, snapshot: &Snapshot) -> (String, Edit) {
     let output = match call.name.as_str() {
         "get_document" => read_lines(text, &arguments),
         "get_selection" => selection(snapshot),
+        "get_original" => match &snapshot.original {
+            Some(original) => read_lines(original, &arguments),
+            None => NOT_REWRITING.to_string(),
+        },
+        "get_changes" => match &snapshot.original {
+            Some(original) => draft_changes(original, text),
+            None => NOT_REWRITING.to_string(),
+        },
         "find_text" => find_text(text, arguments["text"].as_str().unwrap_or("")),
         "count_tokens" => count(arguments["text"].as_str().unwrap_or(text)).to_string(),
         "propose_edit" => return propose_edit(snapshot, &arguments),
@@ -169,6 +199,8 @@ pub fn describe(call: &ToolCall, output: &str) -> String {
     match call.name.as_str() {
         "get_document" => "Read the document".to_string(),
         "get_selection" => "Read the selection".to_string(),
+        "get_original" => "Read the original".to_string(),
+        "get_changes" => "Compared the draft with the original".to_string(),
         "find_text" => format!(
             "Searched for \"{}\"",
             arguments["text"].as_str().unwrap_or("")
@@ -247,6 +279,33 @@ pub fn shorten(text: &str, chars: usize) -> String {
         short.push('…');
     }
     short
+}
+
+/// What `draft` changes from `original`, one line each for the text taken out of the original and
+/// the text put into the draft, with the line it is on.
+fn draft_changes(original: &str, draft: &str) -> String {
+    let found = changes(original, draft);
+    if found.removed.is_empty() && found.added.is_empty() {
+        return "The draft is the same as the original.".to_string();
+    }
+    let list = |label: &str, text: &str, ranges: &[Range<usize>]| {
+        let mut lines: Vec<String> = ranges
+            .iter()
+            .take(MAX_CHANGES)
+            .map(|range| {
+                let line = position(text, range.start).0 + 1;
+                let shown = shorten(&text[range.clone()], MAX_CHANGE_CHARS);
+                format!("{label} (line {line}): {shown:?}")
+            })
+            .collect();
+        if ranges.len() > MAX_CHANGES {
+            lines.push(format!("…and {} more", ranges.len() - MAX_CHANGES));
+        }
+        lines
+    };
+    let mut lines = list("Removed from the original", original, &found.removed);
+    lines.extend(list("Added in the draft", draft, &found.added));
+    lines.join("\n")
 }
 
 fn selection(snapshot: &Snapshot) -> String {
@@ -480,6 +539,8 @@ mod tests {
             [
                 "get_document",
                 "get_selection",
+                "get_original",
+                "get_changes",
                 "find_text",
                 "count_tokens",
                 "propose_edit",
@@ -669,6 +730,33 @@ mod tests {
             &snapshot,
         );
         assert!(said.starts_with("This window is read-only"));
+    }
+
+    #[test]
+    fn the_original_and_its_changes_are_there_only_while_rewriting() {
+        let mut snapshot = scratch("Stay warm.\nBe brief.");
+        for name in ["get_original", "get_changes"] {
+            assert!(output(&snapshot, name, json!({})).starts_with("The user isn't rewriting"));
+        }
+        snapshot.original = Some("Stay cold.\nBe brief.".to_string());
+        assert_eq!(
+            output(&snapshot, "get_original", json!({})),
+            "Stay cold.\nBe brief."
+        );
+        assert!(
+            output(&snapshot, "get_original", json!({ "start_line": 2 }))
+                .starts_with("[Lines 2-2 of 2]\nBe brief.")
+        );
+        let changed = output(&snapshot, "get_changes", json!({}));
+        assert_eq!(
+            changed,
+            "Removed from the original (line 1): \"cold\"\nAdded in the draft (line 1): \"warm\""
+        );
+        snapshot.original = Some(snapshot.text.clone());
+        assert_eq!(
+            output(&snapshot, "get_changes", json!({})),
+            "The draft is the same as the original."
+        );
     }
 
     #[test]
