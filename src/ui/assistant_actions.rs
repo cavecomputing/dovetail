@@ -332,6 +332,7 @@ impl App {
                 .original
                 .as_ref()
                 .map(|pane| pane.model.text().to_string()),
+            changes: self.changes.clone(),
             proposed: Vec::new(),
             caret_on: self.pane.suggestion_at_caret(),
             decided: Vec::new(),

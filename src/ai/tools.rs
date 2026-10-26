@@ -12,7 +12,7 @@ use crate::ai::client::ToolCall;
 use crate::ai::context::Snapshot;
 use crate::core::counts::Counts;
 use crate::core::review::clashes;
-use crate::core::rewrite::changes;
+use crate::core::rewrite::Changes;
 use crate::core::text_model::position;
 
 /// The most text one result hands back (about 12,000 tokens). Longer texts are read by lines.
@@ -181,7 +181,7 @@ pub fn run(call: &ToolCall, snapshot: &Snapshot) -> (String, Edit) {
             None => NOT_REWRITING.to_string(),
         },
         "get_changes" => match &snapshot.original {
-            Some(original) => draft_changes(original, text),
+            Some(original) => draft_changes(original, text, &snapshot.changes),
             None => NOT_REWRITING.to_string(),
         },
         "find_text" => find_text(text, arguments["text"].as_str().unwrap_or("")),
@@ -281,15 +281,30 @@ pub fn shorten(text: &str, chars: usize) -> String {
     short
 }
 
-/// What `draft` changes from `original`, one line each for the text taken out of the original and
-/// the text put into the draft, with the line it is on.
-fn draft_changes(original: &str, draft: &str) -> String {
-    let found = changes(original, draft);
+/// What `draft` changes from `original` (`found`, the comparison the split lights), one line each
+/// for the text taken out of the original and the text put into the draft, with the line it is on.
+/// Each change shows the whole words it touches, since the comparison goes down to letters.
+fn draft_changes(original: &str, draft: &str, found: &Changes) -> String {
     if found.removed.is_empty() && found.added.is_empty() {
-        return "The draft is the same as the original.".to_string();
+        return match original == draft {
+            true => "The draft is the same as the original.".to_string(),
+            false => "The comparison isn't ready yet. Try again in a moment.".to_string(),
+        };
     }
     let list = |label: &str, text: &str, ranges: &[Range<usize>]| {
-        let mut lines: Vec<String> = ranges
+        // Letters changed in one word widen to the same word: list it once.
+        let mut words: Vec<Range<usize>> = Vec::new();
+        for range in ranges
+            .iter()
+            .filter(|range| text.get((*range).clone()).is_some())
+        {
+            let word = whole_words(text, range);
+            match words.last_mut() {
+                Some(last) if word.start <= last.end => last.end = last.end.max(word.end),
+                _ => words.push(word),
+            }
+        }
+        let mut lines: Vec<String> = words
             .iter()
             .take(MAX_CHANGES)
             .map(|range| {
@@ -298,14 +313,30 @@ fn draft_changes(original: &str, draft: &str) -> String {
                 format!("{label} (line {line}): {shown:?}")
             })
             .collect();
-        if ranges.len() > MAX_CHANGES {
-            lines.push(format!("…and {} more", ranges.len() - MAX_CHANGES));
+        if words.len() > MAX_CHANGES {
+            lines.push(format!("…and {} more", words.len() - MAX_CHANGES));
         }
         lines
     };
     let mut lines = list("Removed from the original", original, &found.removed);
     lines.extend(list("Added in the draft", draft, &found.added));
     lines.join("\n")
+}
+
+/// `range` of `text` widened to the whole words at its ends: "c" in "cold" becomes "cold". An end
+/// that is a space already is a word's edge, and stays.
+fn whole_words(text: &str, range: &Range<usize>) -> Range<usize> {
+    let inside = &text[range.clone()];
+    let not_space = |c: char| !c.is_whitespace();
+    let start = match inside.starts_with(char::is_whitespace) {
+        true => range.start,
+        false => text[..range.start].trim_end_matches(not_space).len(),
+    };
+    let end = match inside.ends_with(char::is_whitespace) {
+        true => range.end,
+        false => text.len() - text[range.end..].trim_start_matches(not_space).len(),
+    };
+    start..end
 }
 
 fn selection(snapshot: &Snapshot) -> String {
@@ -734,29 +765,50 @@ mod tests {
 
     #[test]
     fn the_original_and_its_changes_are_there_only_while_rewriting() {
-        let mut snapshot = scratch("Stay warm.\nBe brief.");
+        let mut snapshot = scratch("Stay bold today.\nKeep it walking.");
         for name in ["get_original", "get_changes"] {
             assert!(output(&snapshot, name, json!({})).starts_with("The user isn't rewriting"));
         }
-        snapshot.original = Some("Stay cold.\nBe brief.".to_string());
-        assert_eq!(
-            output(&snapshot, "get_original", json!({})),
-            "Stay cold.\nBe brief."
-        );
+        let original = "Stay cold today.\nKeep it running.";
+        snapshot.original = Some(original.to_string());
+        assert_eq!(output(&snapshot, "get_original", json!({})), original);
         assert!(
             output(&snapshot, "get_original", json!({ "start_line": 2 }))
-                .starts_with("[Lines 2-2 of 2]\nBe brief.")
+                .starts_with("[Lines 2-2 of 2]\nKeep it running.")
         );
-        let changed = output(&snapshot, "get_changes", json!({}));
+        assert!(
+            output(&snapshot, "get_changes", json!({})).contains("isn't ready"),
+            "the split hasn't compared them yet"
+        );
+        // The comparison goes down to letters ("c" for "b"); the list shows whole words.
+        snapshot.changes = crate::core::rewrite::changes(original, &snapshot.text);
         assert_eq!(
-            changed,
-            "Removed from the original (line 1): \"cold\"\nAdded in the draft (line 1): \"warm\""
+            output(&snapshot, "get_changes", json!({})),
+            "Removed from the original (line 1): \"cold\"\n\
+             Removed from the original (line 2): \"running.\"\n\
+             Added in the draft (line 1): \"bold\"\n\
+             Added in the draft (line 2): \"walking.\""
         );
         snapshot.original = Some(snapshot.text.clone());
+        snapshot.changes = Changes::default();
         assert_eq!(
             output(&snapshot, "get_changes", json!({})),
             "The draft is the same as the original."
         );
+    }
+
+    #[test]
+    fn a_change_widens_to_the_words_it_touches() {
+        let text = "Keep it running, please.";
+        let at = |part: &str| {
+            let start = text.find(part).unwrap();
+            start..start + part.len()
+        };
+        let word = |range| &text[whole_words(text, &range)];
+        assert_eq!(word(at("unn")), "running,");
+        assert_eq!(word(at(" it")), " it", "a space is already an edge");
+        assert_eq!(word(at("Keep")), "Keep");
+        assert_eq!(word(at("ase.")), "please.");
     }
 
     #[test]

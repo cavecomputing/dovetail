@@ -13,6 +13,7 @@ use serde_json::Value;
 use crate::ai::tools::{self, Suggestion};
 use crate::brand::APP_NAME;
 use crate::core::counts::Counts;
+use crate::core::rewrite::Changes;
 use crate::core::syntax::Syntax;
 use crate::core::text_model::position;
 
@@ -36,6 +37,8 @@ pub struct Snapshot {
     pub read_only: bool,
     /// While the user is rewriting: the original, which the document is a draft of.
     pub original: Option<String>,
+    /// While rewriting: what the document changes from `original`, as the split lights it.
+    pub changes: Changes,
     /// The suggestions still waiting for the user, in text order. A new suggestion over one
     /// replaces it.
     pub waiting: Vec<Waiting>,
