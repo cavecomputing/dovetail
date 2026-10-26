@@ -380,10 +380,10 @@ The fields:
 the document and the selection, search the text, count words and tokens, and suggest edits. It never
 changes the text itself. Each suggestion shows in the text: the words it takes out on red and struck
 through, the words it puts in on green just after them. You decide in the chat, where each one shows
-the line it's on and the reason, with `accept`, `reject` and `try shorter`, which asks for a
-shorter version (`accept all` and `reject all` when several wait). Ctrl+Enter accepts and
-Ctrl+Backspace rejects from anywhere: the suggestion the cursor is on, or else the first one. With
-Shift they take them all. Your next question tells the assistant which you accepted and rejected,
+the line it's on and the reason, with `reject`; below them, `accept` takes them all together
+(Ctrl+Z takes them back) and `reject all` drops them. From anywhere, Ctrl+Enter accepts them all,
+Ctrl+Backspace rejects one (the suggestion the cursor is on, or else the first one) and
+Ctrl+Shift+Backspace rejects them all. Your next question tells the assistant which you accepted and rejected,
 so after rejecting one you can just ask for something different. A message sent while
 suggestions wait is taken as being about them ("shorter", "use we"): the assistant replaces the
 suggestion with a new one, or takes it back, and when several wait, "this" means the one the
