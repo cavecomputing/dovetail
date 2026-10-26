@@ -318,9 +318,9 @@ fn window_settings() -> window::Settings {
 /// (about 2 ms for 1 MB), too long to do on every key.
 const COUNT_PAUSE: Duration = Duration::from_millis(300);
 
-/// How strongly a rewrite's changes are lit, on top of a suggestion's tint: faintly, so they
-/// don't pull the eye from the text.
-const CHANGE_ALPHA: f32 = 0.4;
+/// How strongly a rewrite's changes are lit, on top of a suggestion's tint: a little less than a
+/// suggestion, so they don't pull the eye from the text.
+const CHANGE_ALPHA: f32 = 0.75;
 
 /// How long a notice stays in the status bar: long enough to read, gone before it goes stale.
 const NOTICE_TIME: Duration = Duration::from_secs(6);
