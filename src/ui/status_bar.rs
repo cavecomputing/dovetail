@@ -1,4 +1,4 @@
-//! The 24px status bar along the bottom, and the menu that opens from its glyph.
+//! The 29px status bar along the bottom, and the menu that opens from its glyph.
 
 use std::f32::consts::TAU;
 use std::path::Path;
@@ -17,7 +17,7 @@ use crate::ui::find_bar::{FindAction, LINE_KEYS};
 use crate::ui::switcher::row_style;
 use crate::ui::theme::{self, GLYPH_CLAUDE, GLYPH_MENU, GLYPH_PEN, Roles, icon_button, raised_box};
 
-pub const HEIGHT: f32 = 24.0;
+pub const HEIGHT: f32 = 29.0;
 const TEXT_SIZE: f32 = 11.0;
 
 pub fn view(app: &App) -> Element<'_, Message> {
@@ -106,6 +106,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
 }
 
 /// The status bar's frame: a 1px top border, then the bar on `bg-page` in small mono text.
+/// The 20px button chips sit 4px from the window edge on every side.
 pub fn bar(content: Element<'_, Message>) -> Element<'_, Message> {
     column![
         container(space().width(Fill).height(1))
@@ -114,7 +115,7 @@ pub fn bar(content: Element<'_, Message>) -> Element<'_, Message> {
             .height(HEIGHT - 1.0)
             .width(Fill)
             .center_y(HEIGHT - 1.0)
-            .padding([0, 6])
+            .padding([0, 4])
             .style(|theme: &Theme| container::Style {
                 text_color: Some(Roles::of(theme).fg_muted),
                 ..theme::fill(Roles::of(theme).bg_page)

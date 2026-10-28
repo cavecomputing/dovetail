@@ -24,7 +24,7 @@ Rewriting a prompt usually means two windows side by side: the old version on th
 - **Top strip:** about 32px tall, no border, same colour as the page. It holds **only the window controls**, which are plain glyphs, not GNOME circles. GTK-style big header bars are out.
   - Auto-sense: hide the app-drawn controls under a tiling WM. On Hyprland, check `HYPRLAND_INSTANCE_SIGNATURE` and/or the Wayland decoration support. Show them everywhere else, since not every machine is tiling. Can be overridden in Settings.
   - Per OS (2026-10-18): on Linux and Windows the window is undecorated, so the strip holds the app's glyph controls and the window's edges, top included, resize it. Windows adds a drop shadow, and rounded corners on Windows 11. On macOS the window keeps the system's see-through, untitled title bar: its traffic lights sit in the strip, macOS resizes the window, and the strip is always there with nothing of ours in it, so Settings has no Window row there.
-- **Status bar** at the bottom, VS Code style, 24px, mono 11px. See §6.
+- **Status bar** at the bottom, VS Code style, 29px, mono 11px. See §6.
 
 ## 3. Opening behaviour
 
