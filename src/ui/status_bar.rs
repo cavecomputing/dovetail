@@ -19,6 +19,9 @@ use crate::ui::theme::{self, GLYPH_CLAUDE, GLYPH_MENU, GLYPH_PEN, Roles, icon_bu
 
 pub const HEIGHT: f32 = 29.0;
 const TEXT_SIZE: f32 = 11.0;
+/// Room at the bar's left and right ends. macOS rounds the window's corners by far more than the
+/// other OSes, and 4px let the curve cut into the corner buttons; the others have square corners.
+const SIDE_PADDING: f32 = if cfg!(target_os = "macos") { 12.0 } else { 4.0 };
 
 pub fn view(app: &App) -> Element<'_, Message> {
     let roles = Roles::of(&app.theme);
@@ -106,7 +109,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
 }
 
 /// The status bar's frame: a 1px top border, then the bar on `bg-page` in small mono text.
-/// The 20px button chips sit 4px from the window edge on every side.
+/// The 20px button chips sit 4px from the window edge, more at the ends on macOS.
 pub fn bar(content: Element<'_, Message>) -> Element<'_, Message> {
     column![
         container(space().width(Fill).height(1))
@@ -115,7 +118,7 @@ pub fn bar(content: Element<'_, Message>) -> Element<'_, Message> {
             .height(HEIGHT - 1.0)
             .width(Fill)
             .center_y(HEIGHT - 1.0)
-            .padding([0, 4])
+            .padding([0.0, SIDE_PADDING])
             .style(|theme: &Theme| container::Style {
                 text_color: Some(Roles::of(theme).fg_muted),
                 ..theme::fill(Roles::of(theme).bg_page)
