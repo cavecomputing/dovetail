@@ -9,8 +9,8 @@ plain-text editor and scratchpad, with an assistant pane that reads the text and
 The full design is in [docs/spec.md](docs/spec.md); read the section you are building before you
 start.
 
-Project mode (Rewrite, ideas, paint, versions) lives on the `rewrite` branch, and project work
-happens there.
+Everything lives on `main`: the old `rewrite` branch is abandoned, and its split review has been
+merged into `main`. Work goes straight onto `main` (see [Git workflow](#git-workflow)).
 
 The owner is new to Rust. When you report back, explain Rust-specific things in plain words
 (what a crate is, why the borrow checker complained, what a command does) rather than assuming
@@ -20,6 +20,10 @@ they are known. [Rust in plain terms](#rust-in-plain-terms) below is the shared 
 
 The owner has given standing permission to **commit and push to `main` as needed**, without
 asking. There are no outside users yet, and the owner wants the work to land where it can be seen.
+
+- **Everything goes on `main`.** Never leave work on a side branch (`update/...`, `feature/...`,
+  or a branch a tool or session assigns) and don't open a pull request for it: commit on `main` and
+  push `main`. If a session hands you another branch, put the work on `main` as well, and say so.
 
 - Commit when a piece of work is finished and verified (see [Verification](#how-much-verification-a-change-needs)),
   then `git push`. Don't leave finished work sitting only in the working tree.
@@ -196,7 +200,7 @@ signed ad hoc, so Gatekeeper asks once before its first launch (docs/guide.md). 
 - Anything visual (layout, colours, the status bar, panes): run the app and look. In a headless
   container: `xvfb-run -a -s "-screen 0 1280x800x24" env ICED_BACKEND=tiny-skia cargo run`, then
   screenshot with `import -window root shot.png` (ImageMagick). Compare against the mockups
-  (on the `rewrite` branch, see the spec). Never claim a change was checked in the app when it wasn't.
+  (see the spec). Never claim a change was checked in the app when it wasn't.
 
 ## Architecture
 
