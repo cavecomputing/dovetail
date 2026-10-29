@@ -17,11 +17,21 @@ use crate::ui::find_bar::{FindAction, LINE_KEYS};
 use crate::ui::switcher::row_style;
 use crate::ui::theme::{self, GLYPH_CLAUDE, GLYPH_MENU, GLYPH_PEN, Roles, icon_button, raised_box};
 
-pub const HEIGHT: f32 = 29.0;
+pub const HEIGHT: f32 = 29.0 + HIDDEN_BELOW;
 const TEXT_SIZE: f32 = 11.0;
 /// Room at the bar's left and right ends. macOS rounds the window's corners by far more than the
-/// other OSes, and 4px let the curve cut into the corner buttons; the others have square corners.
-const SIDE_PADDING: f32 = if cfg!(target_os = "macos") { 12.0 } else { 4.0 };
+/// other OSes, and 4px let the curve cut into the corner buttons. On Windows the window's own
+/// border covers 1px of each side, so it gets 1px more; Linux has square, borderless corners.
+const SIDE_PADDING: f32 = if cfg!(target_os = "macos") {
+    12.0
+} else if cfg!(windows) {
+    5.0
+} else {
+    4.0
+};
+/// Room under the buttons that the window's border hides: on Windows the bottom 2px are covered,
+/// so the buttons looked 2px from the edge where the sides had 4px. Nothing is hidden elsewhere.
+const HIDDEN_BELOW: f32 = if cfg!(windows) { 2.0 } else { 0.0 };
 
 pub fn view(app: &App) -> Element<'_, Message> {
     let roles = Roles::of(&app.theme);
@@ -118,7 +128,12 @@ pub fn bar(content: Element<'_, Message>) -> Element<'_, Message> {
             .height(HEIGHT - 1.0)
             .width(Fill)
             .center_y(HEIGHT - 1.0)
-            .padding([0.0, SIDE_PADDING])
+            .padding(iced::Padding {
+                top: 0.0,
+                right: SIDE_PADDING,
+                bottom: HIDDEN_BELOW,
+                left: SIDE_PADDING,
+            })
             .style(|theme: &Theme| container::Style {
                 text_color: Some(Roles::of(theme).fg_muted),
                 ..theme::fill(Roles::of(theme).bg_page)
