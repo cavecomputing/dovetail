@@ -1916,6 +1916,26 @@ mod tests {
     }
 
     #[test]
+    fn the_find_bar_looks_again_in_a_draft_picked_up_by_ctrl_r() {
+        // The draft is cut down to almost nothing and paused, so the original is much longer.
+        let (_dir, _paths, mut app, _notes) = rewriting_notes("");
+        let _ = app.update(Message::Edit(Action::SelectAll));
+        let _ = app.update(Message::Edit(Action::Edit(Edit::Insert('x'))));
+        let _ = app.update(Message::ToggleRewrite);
+        assert_eq!(app.pane.model.text(), "# notes\n");
+        // Found in the original, near its end; then Ctrl+R shows the one-letter draft.
+        let _ = app.update(Message::Find(FindAction::Open));
+        let _ = app.update(Message::Find(FindAction::Query("notes".into())));
+        assert_eq!(app.find.matches, [2..7]);
+        let _ = app.update(Message::ToggleRewrite);
+        assert_eq!(app.pane.model.text(), "x");
+        // Both used to panic on the stale match, the drawing on every frame.
+        assert!(app.find.matches.is_empty());
+        assert!(app.find_runs().is_empty());
+        let _ = app.update(Message::EnterKey { shift: false });
+    }
+
+    #[test]
     fn lit_changes_follow_the_typing_until_the_comparison_answers() {
         let (_dir, _paths, mut app, _notes) = rewriting_notes("");
         type_in(&mut app, "x");

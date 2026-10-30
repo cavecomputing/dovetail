@@ -105,11 +105,14 @@ impl App {
                 .scroll_to_line(self.pane.content.scroll_line());
         }
         self.pane = draft;
-        // A paused draft isn't the text counted and checked so far.
+        // A paused draft isn't the text counted, checked and searched so far.
         let checked = match text == saved {
             true => Task::none(),
             false => Task::batch([self.count(), self.check_syntax()]),
         };
+        if self.find.open {
+            self.find_again(self.pane.caret());
+        }
         Task::batch([self.show_original(&saved), checked])
     }
 
