@@ -25,6 +25,11 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 /// The longest silence allowed while a reply streams. Reasoning models can think quietly for a
 /// while before their first word.
 const READ_TIMEOUT: Duration = Duration::from_secs(300);
+/// The most text and tool arguments one reply may bring, and the most bytes read for it. A real
+/// reply is a few hundred KB at most; past these the server has run away, and the pane would
+/// need gigabytes to lay the text out.
+const MAX_REPLY_TEXT: usize = 1_000_000;
+const MAX_REPLY_BYTES: usize = 64_000_000;
 
 /// Numbers tool calls that arrive without an id, so every call can be paired with its result.
 static UNNAMED_CALLS: AtomicU64 = AtomicU64::new(0);
@@ -243,6 +248,8 @@ pub struct Reply {
     parser: SseParser,
     decoder: Decoder,
     ready: VecDeque<StreamEvent>,
+    /// Bytes read so far, checked against `MAX_REPLY_BYTES`.
+    received: usize,
     ended: bool,
 }
 
@@ -255,6 +262,7 @@ impl Reply {
             response: None,
             parser: SseParser::default(),
             ready: VecDeque::new(),
+            received: 0,
             ended: false,
         }
     }
@@ -296,6 +304,12 @@ impl Reply {
         };
         match response.chunk().await {
             Ok(Some(bytes)) => {
+                self.received += bytes.len();
+                if self.received > MAX_REPLY_BYTES {
+                    self.ready
+                        .extend(self.decoder.fail(too_long("64MB of events")));
+                    return;
+                }
                 for event in self.parser.feed(&bytes) {
                     self.ready.extend(self.decoder.decode(&event));
                 }
@@ -400,6 +414,10 @@ fn innermost(error: &dyn Error) -> String {
     cause.to_string()
 }
 
+fn too_long(what: &str) -> String {
+    format!("The reply was cut off: it went past {what}, far more than a real reply.")
+}
+
 /// Turns one format's events into `StreamEvent`s. Text goes out as it comes; tool calls are
 /// collected piece by piece and go out together when the reply finishes.
 struct Decoder {
@@ -408,6 +426,8 @@ struct Decoder {
     calls: Vec<(String, ToolCall)>,
     /// Whether any event made sense, to tell a stream from some other answer.
     heard: bool,
+    /// Bytes of text so far, checked with the tool arguments against `MAX_REPLY_TEXT`.
+    text: usize,
     /// Set once the reply finished or failed; anything after is ignored.
     finished: bool,
 }
@@ -418,6 +438,7 @@ impl Decoder {
             format,
             calls: Vec::new(),
             heard: false,
+            text: 0,
             finished: false,
         }
     }
@@ -434,10 +455,26 @@ impl Decoder {
             return Vec::new();
         };
         self.heard = true;
-        match self.format {
+        let events = match self.format {
             RequestFormat::Responses => self.responses_event(&event.event, &json),
             RequestFormat::ChatCompletions => self.chat_event(&json),
+        };
+        self.text += events
+            .iter()
+            .map(|event| match event {
+                StreamEvent::Text(text) => text.len(),
+                _ => 0,
+            })
+            .sum::<usize>();
+        let arguments: usize = self
+            .calls
+            .iter()
+            .map(|(_, call)| call.arguments.len())
+            .sum();
+        if self.text + arguments > MAX_REPLY_TEXT {
+            return self.fail(too_long("1MB"));
         }
+        events
     }
 
     /// The stream ended. A reply that never said it finished is taken as finished, since the
@@ -788,6 +825,37 @@ data: [DONE]\r\n\r\n";
         }
         events.extend(decoder.end());
         events
+    }
+
+    #[test]
+    fn a_reply_past_a_megabyte_is_cut_off() {
+        let delta = |size: usize| {
+            format!(
+                "data: {{\"type\":\"response.output_text.delta\",\"delta\":\"{}\"}}\n\n",
+                "x".repeat(size)
+            )
+        };
+        let stream = format!(
+            "{}{}data: {{\"type\":\"response.completed\"}}\n\n",
+            delta(600_000),
+            delta(500_000)
+        );
+        let events = decoded(RequestFormat::Responses, &[stream.as_bytes()]);
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0], text(&"x".repeat(600_000)));
+        assert_eq!(
+            events[1],
+            StreamEvent::Failed(
+                "The reply was cut off: it went past 1MB, far more than a real reply.".to_string()
+            )
+        );
+        // Tool arguments count too: one call's `replace` of 1MB is refused with it.
+        let call = format!(
+            "data: {{\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{{\"type\":\"function_call\",\"call_id\":\"c1\",\"name\":\"propose_edit\",\"arguments\":\"{}\"}}}}\n\n",
+            "y".repeat(1_000_001)
+        );
+        let events = decoded(RequestFormat::Responses, &[call.as_bytes()]);
+        assert!(matches!(events.as_slice(), [StreamEvent::Failed(_)]));
     }
 
     #[test]
