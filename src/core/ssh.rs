@@ -79,7 +79,8 @@ fn word(line: &str, at: usize, end: usize) -> Option<(Range<usize>, usize)> {
         return None;
     }
     let stop = match line.as_bytes()[start] {
-        b'"' => quoted_end(line, start),
+        // A quote left open runs to the end of the line, past the trailing spaces `end` left out.
+        b'"' => quoted_end(line, start).min(end),
         b'=' => start + 1,
         _ => line[start..end]
             .find([' ', '\t', '='])
@@ -280,8 +281,10 @@ pub const KEYWORDS: &[&str] = &[
 pub fn ssh_problem(text: &str) -> Option<String> {
     for (index, line) in text.lines().enumerate() {
         let start = indent(line);
-        let rest = line.trim();
-        if rest.is_empty() || rest.starts_with('#') {
+        // Measured from `start`, as `ssh_ranges` does: a tab in the indent isn't in `start`, and
+        // taking it off the length would put `end` inside a last character such as `é`.
+        let rest = line[start..].trim_end();
+        if rest.trim_start().is_empty() || rest.trim_start().starts_with('#') {
             continue;
         }
         let end = start + rest.len();
@@ -478,6 +481,11 @@ mod tests {
             [("HostName", Key), ("10.0.0.5", String)]
         );
         assert_eq!(looks("Compression"), [("Compression", Key)]);
+        // A quote still being typed, with a space after it, used to crash the colouring.
+        assert_eq!(
+            looks("IdentityFile \"~/my "),
+            [("IdentityFile", Key), ("\"~/my", String)]
+        );
     }
 
     #[test]
@@ -506,6 +514,11 @@ mod tests {
         assert_eq!(
             ssh_problem("Host dev\n    Port\n"),
             Some("Invalid SSH config at line 2, column 5: the keyword needs a value".into())
+        );
+        // A tab-indented line ending in a two-byte letter used to crash the check.
+        assert_eq!(
+            ssh_problem("Host dev\n\tUser ren\u{e9}\n\t# caf\u{e9}\n"),
+            None
         );
         assert_eq!(
             ssh_problem("Port =\n"),
