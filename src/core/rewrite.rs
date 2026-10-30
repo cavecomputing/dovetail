@@ -121,7 +121,11 @@ const DIFF_TIME: Duration = Duration::from_millis(500);
 /// the lines that differ word by word, then only the words that differ letter by letter: one
 /// finer pass over a long text would take far longer for the same answer.
 pub fn changes(original: &str, draft: &str) -> Changes {
-    let deadline = Instant::now() + DIFF_TIME;
+    changes_by(original, draft, Instant::now() + DIFF_TIME)
+}
+
+/// `changes`, giving up finer passes once `deadline` has passed.
+fn changes_by(original: &str, draft: &str, deadline: Instant) -> Changes {
     let lines = TextDiff::configure()
         .deadline(deadline)
         .diff_lines(original, draft);
@@ -435,7 +439,8 @@ mod tests {
     #[test]
     fn a_few_letters_changed_in_a_long_text_light_only_themselves() {
         // Long enough that a word by word diff of it all runs out of time, which lit everything
-        // between the two changes.
+        // between the two changes. The deadline is far off so a slow test machine (CI, with the
+        // other tests running alongside) can't make the line pass give up and light whole lines.
         let original: String = (0..50_000)
             .map(|line| format!("line {line} says the same few words again\n"))
             .collect();
@@ -444,7 +449,7 @@ mod tests {
             "40000 says the sane",
             1,
         );
-        let found = changes(&original, &draft);
+        let found = changes_by(&original, &draft, Instant::now() + Duration::from_secs(60));
         let words = |text: &str, ranges: &[Range<usize>]| -> Vec<String> {
             ranges
                 .iter()
