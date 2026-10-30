@@ -12,6 +12,7 @@ use crate::core::config::yaml_indent;
 use crate::core::counts::Counts;
 use crate::core::json::reformat;
 use crate::core::lock::Lock;
+use crate::core::markdown::fence_language;
 use crate::core::opened::{Doc, OpenedDoc, open_doc, write_doc};
 use crate::core::paths::Paths;
 use crate::core::recent::existing_recent_files;
@@ -440,8 +441,8 @@ impl App {
             // A read-only window still scrolls, selects and copies, but never changes the text.
             Message::Edit(action) if action.is_edit() && !self.editable() => {}
             // In code, brackets and quotes close themselves.
-            Message::Edit(Action::Edit(Edit::Insert(typed))) if is_code(self.syntax()) => {
-                let edited = self.pane.type_in_code(typed, self.syntax());
+            Message::Edit(Action::Edit(Edit::Insert(typed))) if is_code(self.typing_syntax()) => {
+                let edited = self.pane.type_in_code(typed, self.typing_syntax());
                 self.after_edit(edited);
             }
             Message::Edit(action) => {
@@ -483,9 +484,13 @@ impl App {
                     self.pane.clear_others();
                 }
                 let syntax = self.syntax();
-                // A YAML file nests by its own step, 2 when it has none yet.
-                let tab_spaces = match syntax {
-                    Syntax::Yaml => yaml_indent(self.pane.model.text()),
+                // In a Markdown code block, the block's language decides how typing behaves.
+                let typing = self.typing_syntax();
+                // A YAML file nests by its own step, 2 when it has none yet (and in a Markdown
+                // code block).
+                let tab_spaces = match typing {
+                    Syntax::Yaml if syntax == Syntax::Yaml => yaml_indent(self.pane.model.text()),
+                    Syntax::Yaml => 2,
                     _ => usize::from(self.settings.tab_spaces),
                 };
                 let markdown = syntax == Syntax::Markdown;
@@ -502,16 +507,16 @@ impl App {
                         None => self.pane.indent(tab_spaces, markdown),
                     },
                     Message::Unindent => self.pane.unindent(tab_spaces),
+                    Message::NewLine { shift: false }
+                        if is_code(typing) || typing == Syntax::Yaml =>
+                    {
+                        self.pane.code_new_line(tab_spaces, typing)
+                    }
                     Message::NewLine { shift: false } if markdown => {
                         self.pane.markdown_new_line(tab_spaces)
                     }
-                    Message::NewLine { shift: false }
-                        if is_code(syntax) || syntax == Syntax::Yaml =>
-                    {
-                        self.pane.code_new_line(tab_spaces, syntax)
-                    }
                     Message::NewLine { .. } => self.pane.new_line(),
-                    Message::Backspace => self.pane.backspace(tab_spaces, syntax),
+                    Message::Backspace => self.pane.backspace(tab_spaces, typing),
                     Message::DeleteTo(motion) => self.pane.delete_to(motion),
                     Message::MoveLines { up } => self.pane.move_lines(up),
                     Message::DuplicateLines => self.pane.duplicate_lines(),
@@ -1193,6 +1198,18 @@ impl App {
             },
         }
     }
+
+    /// The syntax typing follows at the caret: the language a Markdown code block names (JSON,
+    /// YAML, shell) for the lines inside it, else the document's own.
+    fn typing_syntax(&self) -> Syntax {
+        let syntax = self.syntax();
+        if syntax != Syntax::Markdown {
+            return syntax;
+        }
+        fence_language(self.pane.model.text(), self.pane.caret())
+            .and_then(Syntax::of_fence)
+            .unwrap_or(syntax)
+    }
 }
 
 /// The editor for `opened`: its text, cursor and view. Scratch emptied by Save to a file opens
@@ -1443,6 +1460,24 @@ mod tests {
             let _ = app.update(Message::Edit(Action::Edit(Edit::Insert(letter))));
         }
         (dir, paths, app, notes)
+    }
+
+    #[test]
+    fn typing_in_a_markdown_code_block_follows_the_blocks_language() {
+        let (_dir, _paths, mut app, _notes) = scratch_window("");
+        app.settings.scratch_syntax = ScratchSyntax::Markdown;
+        for letter in "```json".chars() {
+            let _ = app.update(Message::Edit(Action::Edit(Edit::Insert(letter))));
+        }
+        let _ = app.update(Message::NewLine { shift: false });
+        let _ = app.update(Message::Edit(Action::Edit(Edit::Insert('{'))));
+        let _ = app.update(Message::NewLine { shift: false });
+        assert_eq!(app.pane.model.text(), "```json\n{\n    \n}\n```");
+        // Outside the block, nothing closes itself.
+        let after = app.pane.model.text().len();
+        app.pane.put_caret(after);
+        let _ = app.update(Message::Edit(Action::Edit(Edit::Insert('('))));
+        assert_eq!(app.pane.model.text(), "```json\n{\n    \n}\n```(");
     }
 
     #[test]

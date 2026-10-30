@@ -77,6 +77,34 @@ pub fn block_after(line: &str, block: Block) -> Block {
     }
 }
 
+/// The language a fenced code block names (`json` for ```` ```json ````, the first word of its info
+/// string) when byte `at` of `text` is on a line inside it. `None` in prose, on the fence lines
+/// themselves, and in a block that names no language.
+pub fn fence_language(text: &str, at: usize) -> Option<&str> {
+    let start = text[..at].rfind('\n').map_or(0, |newline| newline + 1);
+    let end = text[at..]
+        .find('\n')
+        .map_or(text.len(), |newline| at + newline);
+    let mut block = Block::Prose;
+    let mut opener = "";
+    for line in text[..start].lines() {
+        let next = block_after(line, block);
+        if block == Block::Prose && next != Block::Prose {
+            opener = line;
+        }
+        block = next;
+    }
+    let inside = matches!(block, Block::Code { .. })
+        && matches!(block_after(&text[start..end], block), Block::Code { .. });
+    if !inside {
+        return None;
+    }
+    let info = opener.trim_start_matches([' ', '\t', '>']);
+    info.trim_start_matches(['`', '~'])
+        .split_whitespace()
+        .next()
+}
+
 /// The coloured parts of `line` when it starts in `block`, as byte ranges with outer ones
 /// first (a later range wins where they overlap), and the block the next line starts in.
 pub fn markdown_ranges(line: &str, block: Block) -> (Vec<(Range<usize>, Markdown)>, Block) {
@@ -672,6 +700,25 @@ mod tests {
         assert_eq!(enter("``|`"), None);
         assert_eq!(enter("```\n```|"), None);
         assert_eq!(enter("```x```|"), None);
+    }
+
+    #[test]
+    fn a_fence_names_its_language_for_the_lines_inside() {
+        let text = "```json\n{\n}\n```\n  ~~~~ yaml title=x\na: 1\n~~~~\n```\nplain\n```\nprose";
+        let language = |line: &str| {
+            let at = text.find(line).unwrap();
+            fence_language(text, at)
+        };
+        assert_eq!(language("{"), Some("json"));
+        assert_eq!(language("}"), Some("json"));
+        assert_eq!(language("a: 1"), Some("yaml"));
+        // Not on the fences, in a block with no language, or in prose.
+        assert_eq!(language("```json"), None);
+        assert_eq!(language("~~~~ yaml"), None);
+        assert_eq!(language("plain"), None);
+        assert_eq!(language("prose"), None);
+        assert_eq!(fence_language(text, text.len()), None);
+        assert_eq!(fence_language("> ```sh\n> ls", 10), Some("sh"));
     }
 
     #[test]

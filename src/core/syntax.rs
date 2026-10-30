@@ -68,6 +68,17 @@ impl Syntax {
         }
     }
 
+    /// The syntax a Markdown fence's language names (```` ```json ````), for the languages typing
+    /// helps with; `None` for any other.
+    pub fn of_fence(language: &str) -> Option<Syntax> {
+        match language.to_ascii_lowercase().as_str() {
+            "json" => Some(Syntax::Json),
+            "yaml" | "yml" => Some(Syntax::Yaml),
+            "sh" | "bash" | "shell" => Some(Syntax::Shell),
+            _ => None,
+        }
+    }
+
     /// Why `text` isn't valid in this syntax, with where, or `None` if it is. Plain text and
     /// Markdown have nothing to check.
     pub fn problem(self, text: &str) -> Option<String> {

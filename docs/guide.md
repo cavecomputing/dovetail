@@ -241,6 +241,9 @@ Shortcuts are written with Ctrl; on macOS use ⌘ (the app's menu and hints show
 
 **In shell scripts and JSON files**, typing helps with blocks, as in a code editor:
 
+The same goes for the lines inside a Markdown code block that names its language (` ```json `,
+` ```yaml `, ` ```sh `, ` ```bash `), but not for its fence lines or a block with no language.
+
 - A bracket or quote closes itself: typing `{` gives `{}` with the cursor between, and typing the
   `}` when you get there steps over the one already in. Script files pair `( [ { " '` and the
   backtick, JSON files `[ { "`. With text selected, the pair goes around it. A quote right after a
