@@ -59,6 +59,11 @@ const BOM: char = '\u{feff}';
 /// Reads a UTF-8 text file. A file that isn't UTF-8 is refused with a readable error, rather than
 /// opened with replacement characters that the next autosave would write back.
 pub fn read_text(path: &Path) -> io::Result<TextFile> {
+    // Only a regular file: reading a pipe or a device such as /dev/zero would block or grow
+    // forever, with no window to close.
+    if !fs::metadata(path)?.is_file() {
+        return Err(io::Error::new(ErrorKind::InvalidData, "not a regular file"));
+    }
     let bytes = fs::read(path)?;
     let text = String::from_utf8(bytes)
         .map_err(|_| io::Error::new(ErrorKind::InvalidData, "not a UTF-8 text file"))?;
@@ -266,6 +271,21 @@ mod tests {
         fs::remove_file(&path).unwrap();
         save_text(&path, "back", LineEnding::Lf, false, stamp).unwrap();
         assert_eq!(fs::read_to_string(&path).unwrap(), "back");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_pipe_is_refused_instead_of_read_forever() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pipe.txt");
+        let status = std::process::Command::new("mkfifo").arg(&path).status();
+        if !status.is_ok_and(|status| status.success()) {
+            return;
+        }
+        let error = read_text(&path).unwrap_err();
+        assert_eq!(error.to_string(), "not a regular file");
+        let error = read_text(Path::new("/dev/zero")).unwrap_err();
+        assert_eq!(error.to_string(), "not a regular file");
     }
 
     #[test]
