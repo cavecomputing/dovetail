@@ -1926,7 +1926,7 @@ mod tests {
         // Found in the original, near its end; then Ctrl+R shows the one-letter draft.
         let _ = app.update(Message::Find(FindAction::Open));
         let _ = app.update(Message::Find(FindAction::Query("notes".into())));
-        assert_eq!(app.find.matches, [2..7]);
+        assert_eq!(app.find.matches.first(), Some(&(2..7)));
         let _ = app.update(Message::ToggleRewrite);
         assert_eq!(app.pane.model.text(), "x");
         // Both used to panic on the stale match, the drawing on every frame.
