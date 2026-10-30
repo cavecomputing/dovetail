@@ -126,11 +126,14 @@ fn pane(app: &App) -> Element<'_, Message> {
     column![head, chat(app), bottom].height(Fill).into()
 }
 
-/// One line of the pane's text in a colour from the palette, wrapping when it's long.
+/// One line of the pane's text in a colour from the palette, wrapping when it's long. A word
+/// wider than the pane (a long URL, a search for a long string) breaks mid-word rather than
+/// running off the edge.
 pub fn line<'a>(words: impl text::IntoFragment<'a>, color: fn(&Roles) -> Color) -> text::Text<'a> {
     text(words)
         .size(SIZE)
         .line_height(LINE)
+        .wrapping(Wrapping::WordOrGlyph)
         .style(move |theme: &Theme| text::Style {
             color: Some(color(Roles::of(theme))),
         })
