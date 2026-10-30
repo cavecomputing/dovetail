@@ -76,7 +76,10 @@ pub fn check_writable(path: &Path) -> io::Result<()> {
 /// The file a save really replaces (a symlink resolved to its target), its folder, and the temp
 /// file written there first.
 fn save_paths(path: &Path) -> io::Result<(PathBuf, PathBuf, PathBuf)> {
-    let path = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let path = match fs::canonicalize(path) {
+        Ok(path) => path,
+        Err(_) => follow_links(path)?,
+    };
     let dir = match path.parent() {
         Some(dir) if !dir.as_os_str().is_empty() => dir.to_path_buf(),
         _ => PathBuf::from("."),
@@ -91,6 +94,23 @@ fn save_paths(path: &Path) -> io::Result<(PathBuf, PathBuf, PathBuf)> {
         TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
     ));
     Ok((path, dir, temp))
+}
+
+/// Where a symlink points when `canonicalize` can't say because the target doesn't exist yet:
+/// link by link, so the first save makes the target instead of replacing the link with a file.
+fn follow_links(path: &Path) -> io::Result<PathBuf> {
+    let mut path = path.to_path_buf();
+    for _ in 0..40 {
+        if !fs::symlink_metadata(&path).is_ok_and(|meta| meta.is_symlink()) {
+            return Ok(path);
+        }
+        let target = fs::read_link(&path)?;
+        path = match path.parent() {
+            Some(dir) => dir.join(target),
+            None => target,
+        };
+    }
+    Err(io::Error::other("symlink loop"))
 }
 
 /// What the save dot in the status bar shows.
@@ -227,6 +247,23 @@ mod tests {
     use super::*;
 
     const DELAY: Duration = Duration::from_millis(500);
+
+    // Windows needs a privilege to make symlinks, so only Linux and macOS check this.
+    #[cfg(unix)]
+    #[test]
+    fn a_dangling_symlink_is_written_through_to_its_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let link = dir.path().join("link.txt");
+        let hop = dir.path().join("hop.txt");
+        std::os::unix::fs::symlink("hop.txt", &link).unwrap();
+        std::os::unix::fs::symlink(dir.path().join("target.txt"), &hop).unwrap();
+        check_writable(&link).unwrap();
+        atomic_write(&link, b"made").unwrap();
+        assert!(fs::symlink_metadata(&link).unwrap().is_symlink());
+        assert!(fs::symlink_metadata(&hop).unwrap().is_symlink());
+        assert_eq!(fs::read(dir.path().join("target.txt")).unwrap(), b"made");
+        assert_eq!(fs::read(&link).unwrap(), b"made");
+    }
 
     #[test]
     fn atomic_write_creates_and_replaces() {
