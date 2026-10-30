@@ -129,8 +129,9 @@ pub fn changed_on_disk(path: &Path, expected: Option<DiskStamp>) -> bool {
     current.is_some() && expected.is_some() && current != expected
 }
 
-/// A file name for saving `text` that has none yet: its first words, or "untitled".
-pub fn suggested_file_name(text: &str) -> String {
+/// A file name for saving `text` that has none yet: its first words, or "untitled", ending in
+/// `extension` (without the dot).
+pub fn suggested_file_name(text: &str, extension: &str) -> String {
     let first_line = text
         .lines()
         .find(|line| !line.trim().is_empty())
@@ -144,8 +145,8 @@ pub fn suggested_file_name(text: &str) -> String {
         .take(60)
         .collect();
     match name.trim_matches(|c: char| c == ' ' || c == '.') {
-        "" => "untitled.txt".to_string(),
-        name => format!("{name}.txt"),
+        "" => format!("untitled.{extension}"),
+        name => format!("{name}.{extension}"),
     }
 }
 
@@ -156,19 +157,20 @@ mod tests {
     #[test]
     fn suggested_name_comes_from_the_first_words() {
         assert_eq!(
-            suggested_file_name("\n  Meeting notes: Sam\nmore"),
+            suggested_file_name("\n  Meeting notes: Sam\nmore", "txt"),
             "Meeting notes Sam.txt"
         );
         assert_eq!(
-            suggested_file_name("<system_instructions>"),
+            suggested_file_name("<system_instructions>", "txt"),
             "system_instructions.txt"
         );
         assert_eq!(
-            suggested_file_name("one two three four five six seven"),
+            suggested_file_name("one two three four five six seven", "txt"),
             "one two three four five six.txt"
         );
-        assert_eq!(suggested_file_name("  \n../"), "untitled.txt");
-        assert_eq!(suggested_file_name(""), "untitled.txt");
+        assert_eq!(suggested_file_name("  \n../", "txt"), "untitled.txt");
+        assert_eq!(suggested_file_name("", "md"), "untitled.md");
+        assert_eq!(suggested_file_name("# Plan", "md"), "Plan.md");
     }
 
     #[test]

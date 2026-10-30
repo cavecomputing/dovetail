@@ -276,8 +276,9 @@ previous match), ⌘M (minimise) and ⌘Q (closes the window, waiting for the sa
 - Logging out or shutting down with a window open still saves what you typed last, before the
   app goes.
 - **Ctrl+S** writes now instead of after the pause. In scratch, which has no file, it asks where to
-  save one: the window becomes that file and scratch is emptied. The next scratch window opens
-  empty, and Ctrl+Z there brings the text back.
+  save one, suggesting a name from the first words (ending in `.md` while scratch follows
+  Markdown, so the file keeps its colours, or `.txt`): the window becomes that file and scratch is
+  emptied. The next scratch window opens empty, and Ctrl+Z there brings the text back.
 - **Save as** (Ctrl+Shift+S) moves the text to a new file and keeps editing there, undo history and
   all. Typing that hasn't autosaved yet is written to the old file first, so the old file keeps the
   text as it was at that moment; later edits go only to the new file.

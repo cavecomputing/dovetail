@@ -11,6 +11,7 @@ use crate::core::recent::same_file;
 use crate::core::rewrite::remove_draft;
 use crate::core::save::failure_reason;
 use crate::core::scratch::clear_scratch;
+use crate::core::settings::ScratchSyntax;
 use crate::core::text_file::{LineEnding, save_text, suggested_file_name};
 use crate::ui::app::{App, Message};
 
@@ -110,7 +111,14 @@ impl App {
     pub fn pick_save_path(&mut self) -> Task<Message> {
         self.menu_open = false;
         let name = match &self.doc {
-            Doc::Scratch => suggested_file_name(self.pane.model.text()),
+            // Scratch coloured as Markdown is saved as `.md`, so the file keeps its colours.
+            Doc::Scratch => {
+                let extension = match self.settings.scratch_syntax {
+                    ScratchSyntax::Markdown => "md",
+                    ScratchSyntax::Plain => "txt",
+                };
+                suggested_file_name(self.pane.model.text(), extension)
+            }
             Doc::File { path, .. } => path.file_name().map_or_else(
                 || "untitled.txt".to_string(),
                 |name| name.to_string_lossy().into_owned(),
