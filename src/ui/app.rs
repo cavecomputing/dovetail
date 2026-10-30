@@ -2039,6 +2039,24 @@ mod tests {
     }
 
     #[test]
+    fn a_rewrite_started_over_a_suggestion_keeps_the_caret_in_the_text() {
+        let (_dir, _paths, mut app, notes) = scratch_window("");
+        let _ = app.update(Message::OpenPath(notes.clone()));
+        type_in(&mut app, "cold tea");
+        // Suggesting "hot" for "cold" shows "cold" struck out and "hot" added after it, so the
+        // widget's line is longer than the document's; put the caret at its end.
+        app.pane.suggest(0..4, "hot").unwrap();
+        let _ = app.update(Message::Edit(Action::Move(Motion::End)));
+        let _ = app.update(Message::ToggleRewrite);
+        assert!(app.original.is_some());
+        let text = app.pane.model.text().to_string();
+        assert!(app.pane.caret() <= text.len());
+        // Used to crash in the text layout, the caret being past the end of the line.
+        let _ = app.update(Message::Indent);
+        assert_eq!(app.pane.model.text(), "cold tea# notes    \n");
+    }
+
+    #[test]
     fn ctrl_r_toggles_a_rewrite_but_not_in_scratch() {
         let press = shortcut_for("r", "r", keyboard::Modifiers::COMMAND);
         assert!(matches!(press, Some(Message::ToggleRewrite)));

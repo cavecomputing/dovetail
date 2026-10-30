@@ -94,10 +94,12 @@ impl App {
             },
         };
         // The draft starts its own undo history, so Ctrl+Z stays inside the rewrite. A new one
-        // keeps the caret and the view where they were.
+        // keeps the caret and the view where they were. The caret is taken as an offset of the
+        // text, not the widget's position: with suggestions waiting, the widget shows their
+        // added text too, and a position past it would be off the end of the draft's line.
         let mut draft = Pane::new(&text);
         if text == saved {
-            draft.content.move_to(self.pane.content.cursor());
+            draft.put_caret(self.pane.caret());
             draft
                 .content
                 .scroll_to_line(self.pane.content.scroll_line());
