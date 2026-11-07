@@ -212,8 +212,7 @@ pub enum Message {
 
     ToggleMenu,
     CloseMenu,
-    /// Enter outside the editor, or ⌘G on macOS: steps through the find bar's matches (back with
-    /// Shift).
+    /// Enter outside the editor: steps through the find bar's matches (back with Shift).
     EnterKey {
         shift: bool,
     },
@@ -1287,6 +1286,12 @@ fn shortcut(event: iced::Event, status: event::Status, _window: window::Id) -> O
     }
     match key {
         keyboard::Key::Named(keyboard::key::Named::Escape) => return Some(Message::CloseMenu),
+        // Next and previous match, bar open or closed (⌘G does the same on macOS).
+        keyboard::Key::Named(keyboard::key::Named::F3) => {
+            return Some(Message::Find(FindAction::Next {
+                back: modifiers.shift(),
+            }));
+        }
         // Not an Enter the editor or a text box has already taken.
         keyboard::Key::Named(keyboard::key::Named::Enter) if status == event::Status::Ignored => {
             let shift = modifiers.shift();
@@ -1350,11 +1355,13 @@ fn shortcut(event: iced::Event, status: event::Status, _window: window::Id) -> O
         }
         keyboard::Key::Character("=" | "+") => Some(Message::Zoom(1.0)),
         keyboard::Key::Character("-") => Some(Message::Zoom(-1.0)),
-        // macOS's own: ⌘M minimizes, and ⌘G and ⇧⌘G step through the find bar's matches.
+        // macOS's own: ⌘M minimizes, and ⌘G and ⇧⌘G step through the matches like F3.
         keyboard::Key::Character("m") if cfg!(target_os = "macos") => Some(Message::Minimize),
-        keyboard::Key::Character("g") if cfg!(target_os = "macos") => Some(Message::EnterKey {
-            shift: modifiers.shift(),
-        }),
+        keyboard::Key::Character("g") if cfg!(target_os = "macos") => {
+            Some(Message::Find(FindAction::Next {
+                back: modifiers.shift(),
+            }))
+        }
         _ => None,
     }
 }
@@ -1967,6 +1974,30 @@ mod tests {
         assert!(!app.paused_draft);
         assert_eq!(app.pane.model.text(), "draft # notes\n");
         assert_eq!(app.original.as_ref().unwrap().model.text(), "# notes\n");
+    }
+
+    #[test]
+    fn f3_steps_through_the_matches_with_the_find_bar_closed() {
+        let (_dir, _paths, mut app, _scratch) = scratch_window("");
+        type_in(&mut app, "ab ab ab");
+        let found = |app: &mut App, back: bool| {
+            let _ = app.update(Message::Find(FindAction::Next { back }));
+            app.pane.selection()
+        };
+        // Nothing searched yet: F3 opens the bar.
+        let _ = app.update(Message::Find(FindAction::Next { back: false }));
+        assert!(app.find.open);
+        let _ = app.update(Message::Find(FindAction::Query("ab".into())));
+        let _ = app.update(Message::CloseMenu);
+        assert!(!app.find.open);
+        let selected = app.pane.selection();
+        // Whichever match the search left selected, F3 goes on to the next, wrapping round.
+        assert_eq!(selected, Some(0..2));
+        assert_eq!(found(&mut app, false), Some(3..5));
+        assert_eq!(found(&mut app, false), Some(6..8));
+        assert_eq!(found(&mut app, false), Some(0..2));
+        assert_eq!(found(&mut app, true), Some(6..8));
+        assert_eq!(found(&mut app, true), Some(3..5));
     }
 
     #[test]

@@ -217,6 +217,7 @@ Shortcuts are written with Ctrl; on macOS use ⌘ (the app's menu and hints show
 | Ctrl+Shift+R | Reset the rewrite's copy to the file as last saved |
 | Ctrl+W | Close the window, once the latest save is written |
 | Ctrl+F | Find (text selected on one line becomes the search). Case is ignored unless you switch on Match case (the Aa button); the button next to it finds whole words only. In the find box, Enter and Shift+Enter step through the matches; Esc closes, leaving the match selected |
+| F3 and Shift+F3 | Select the next or previous match of the last search, with the find bar open or closed (⌘G and ⇧⌘G on macOS); with nothing searched yet, open the find bar |
 | Ctrl+Shift+F | Find and replace: the find bar with a Replace box under it (Tab moves between the two). In the Replace box, Enter replaces the selected match and goes to the next one, and Ctrl+Enter replaces them all, as one Ctrl+Z |
 | Ctrl+G | Go to line: type a line number and the text jumps there as you type; Enter goes back to the text with the caret at the start of that line, Esc closes the box. On macOS it's ⌃G, since ⌘G is the next find match |
 | Ctrl+= and Ctrl+- | Bigger or smaller text. This is the Font size setting (9 to 40), so every window follows and it is remembered |
@@ -267,8 +268,8 @@ next line lines up under `name`.
 
 While Settings is open, only Esc, Ctrl+W, Ctrl+=, Ctrl+- and Ctrl+Shift+L (and ⌘M on macOS) work.
 
-macOS also has ⌘↑ and ⌘↓ (start and end of the text, with ⇧ to select), ⌘G and ⇧⌘G (next and
-previous match), ⌘M (minimise) and ⌘Q (closes the window, waiting for the save like any close).
+macOS also has ⌘↑ and ⌘↓ (start and end of the text, with ⇧ to select), ⌘G and ⇧⌘G (its keys for
+F3's next and previous match), ⌘M (minimise) and ⌘Q (closes the window, waiting for the save like any close).
 
 ## Saving
 

@@ -322,7 +322,11 @@ const SHORTCUTS: [(&str, &[Shortcut]); 5] = [
                 "",
                 "next or previous match, in the find box",
             ),
-            ("", "⌘G / ⇧⌘G", "next or previous match"),
+            (
+                "F3 / Shift+F3",
+                "⌘G / ⇧⌘G",
+                "next or previous match, with the find box closed too",
+            ),
             ("Ctrl+Enter", "", "replace every match, in the replace box"),
             ("Ctrl+G", "⌃G", "go to line"),
         ],

@@ -52,6 +52,11 @@ pub enum FindAction {
     Replacement(String),
     /// Select the next match (1) or the one before (-1), wrapping around.
     Step(isize),
+    /// F3 (⌘G on macOS), or Shift for `back`: select the match after (or before) the selection or
+    /// the caret, with the bar open or closed. With nothing to find yet, open the bar.
+    Next {
+        back: bool,
+    },
     MatchCase,
     WholeWord,
     /// Ctrl+G: open the go to line box.
@@ -170,6 +175,29 @@ impl App {
                     self.find.current = Some(next);
                     self.select_match();
                 }
+            }
+            FindAction::Next { .. } if self.find.query.is_empty() => {
+                return self.update_find(FindAction::Open);
+            }
+            FindAction::Next { back } => {
+                self.find_again(0);
+                let range = self.pane.selection();
+                let matches = &self.find.matches;
+                self.find.current = match (back, range) {
+                    (false, range) => {
+                        let from = range.map_or(self.pane.caret(), |range| range.end);
+                        matches.iter().position(|m| m.start >= from).or(Some(0))
+                    }
+                    (true, range) => {
+                        let from = range.map_or(self.pane.caret(), |range| range.start);
+                        matches
+                            .iter()
+                            .rposition(|m| m.end <= from)
+                            .or(matches.len().checked_sub(1))
+                    }
+                }
+                .filter(|_| !matches.is_empty());
+                self.select_match();
             }
         }
         Task::none()
