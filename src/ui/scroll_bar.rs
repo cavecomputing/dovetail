@@ -1,6 +1,7 @@
 //! The editor's scroll bar: the same rail and handle as Settings' scrollable, beside a text the
 //! editor scrolls itself (`Content::scroll_rows`). Dragging the handle, or pressing the rail,
-//! scrolls the editor by whole rows.
+//! scrolls the editor by whole rows. The bar is drawn `WIDTH` wide but can be grabbed `GRAB` wide,
+//! with a hand cursor over it.
 
 use iced::advanced::layout::{self, Layout};
 use iced::advanced::widget::{self, Widget};
@@ -12,6 +13,9 @@ use crate::ui::text_editor::ScrollRows;
 
 /// As wide as Settings' bar (iced's default).
 const WIDTH: f32 = 10.0;
+/// How wide the bar can be grabbed, drawn at its right: as wide as the editor's right padding, so
+/// it never covers text, and more than what is left of the bar beside the window's resize edge.
+const GRAB: f32 = 16.0;
 /// The shortest the handle gets, so a long text still leaves something to grab.
 const MIN_HANDLE: f32 = 24.0;
 
@@ -65,7 +69,7 @@ impl<Message, Renderer: renderer::Renderer> Widget<Message, Theme, Renderer>
     }
 
     fn size(&self) -> Size<Length> {
-        Size::new(Length::Fixed(WIDTH), Length::Fill)
+        Size::new(Length::Fixed(GRAB), Length::Fill)
     }
 
     fn layout(
@@ -74,7 +78,7 @@ impl<Message, Renderer: renderer::Renderer> Widget<Message, Theme, Renderer>
         _renderer: &Renderer,
         limits: &layout::Limits,
     ) -> layout::Node {
-        layout::Node::new(limits.width(WIDTH).height(Length::Fill).max())
+        layout::Node::new(limits.width(GRAB).height(Length::Fill).max())
     }
 
     fn update(
@@ -131,15 +135,24 @@ impl<Message, Renderer: renderer::Renderer> Widget<Message, Theme, Renderer>
 
     fn mouse_interaction(
         &self,
-        _tree: &widget::Tree,
+        tree: &widget::Tree,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         _viewport: &Rectangle,
         _renderer: &Renderer,
     ) -> mouse::Interaction {
-        match self.handle(layout.bounds()).is_some() && cursor.is_over(layout.bounds()) {
-            true => mouse::Interaction::Idle,
-            false => mouse::Interaction::None,
+        let rail = layout.bounds();
+        let Some(handle) = self.handle(rail) else {
+            return mouse::Interaction::None;
+        };
+        match (
+            tree.state.downcast_ref::<Grab>().0,
+            cursor.position_over(rail),
+        ) {
+            (Some(_), _) => mouse::Interaction::Grabbing,
+            (None, Some(point)) if handle.contains(point) => mouse::Interaction::Grab,
+            (None, Some(_)) => mouse::Interaction::Pointer,
+            (None, None) => mouse::Interaction::None,
         }
     }
 
@@ -178,16 +191,22 @@ impl<Message, Renderer: renderer::Renderer> Widget<Message, Theme, Renderer>
             },
         };
         let look = default(theme, status).vertical_rail;
+        // Only the right `WIDTH` of the grab area is drawn.
+        let drawn = |part: Rectangle| Rectangle {
+            x: part.x + part.width - WIDTH,
+            width: WIDTH,
+            ..part
+        };
         if let Some(background) = look.background {
             let quad = renderer::Quad {
-                bounds: rail,
+                bounds: drawn(rail),
                 border: look.border,
                 ..renderer::Quad::default()
             };
             renderer.fill_quad(quad, background);
         }
         let quad = renderer::Quad {
-            bounds: handle,
+            bounds: drawn(handle),
             border: look.scroller.border,
             ..renderer::Quad::default()
         };
@@ -214,7 +233,7 @@ mod tests {
     const RAIL: Rectangle = Rectangle {
         x: 0.0,
         y: 100.0,
-        width: WIDTH,
+        width: GRAB,
         height: 400.0,
     };
 

@@ -58,7 +58,8 @@ pub const PADDING: Padding = Padding {
 /// find matches and Ctrl+D's other places) drawn under the text, coloured for its `syntax`
 /// (Markdown, a data file's keys and values, a shell script). Without `editable` the text is
 /// dimmed; it can still be scrolled, selected and copied, and `App::update` drops any change to
-/// it.
+/// it. `right_edge` is how much of the pane's right side is the window's resize edge, which the
+/// scroll bar keeps clear of.
 pub fn view<'a>(
     pane: &'a Pane,
     settings: &Settings,
@@ -66,6 +67,7 @@ pub fn view<'a>(
     syntax: Syntax,
     paint: Vec<PaintRun>,
     id: &'static str,
+    right_edge: f32,
 ) -> Element<'a, Message> {
     let reviewing = pane.reviewing();
     let colouring = Colouring {
@@ -122,7 +124,13 @@ pub fn view<'a>(
     });
     stack![
         container(column).width(Fill).height(Fill),
-        container(bar).align_right(Fill).height(Fill),
+        container(bar)
+            .align_right(Fill)
+            .height(Fill)
+            .padding(Padding {
+                right: right_edge,
+                ..Padding::ZERO
+            }),
     ]
     .into()
 }

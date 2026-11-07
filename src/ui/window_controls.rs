@@ -48,6 +48,15 @@ fn tiling_window_manager() -> bool {
         .any(|name| desktop.contains(name))
 }
 
+/// How far from the window's right edge the resize strip reaches, so the editor's scroll bar can
+/// stay clear of it: nothing on macOS, or where the controls and resize edges are left out.
+pub fn resize_edge(setting: WindowControls) -> f32 {
+    match visible(setting) && !NATIVE_FRAME {
+        true => EDGE,
+        false => 0.0,
+    }
+}
+
 /// The top strip: a drag area with minimize, maximize and close at the right (on macOS, the
 /// system's own buttons at the left).
 pub fn strip<'a>() -> Element<'a, Message> {

@@ -1172,6 +1172,7 @@ impl App {
             syntax,
             paint,
             EDITOR_ID,
+            window_controls::resize_edge(self.settings.window_controls),
         );
         let Some(original) = &self.original else {
             return draft;
@@ -1185,6 +1186,7 @@ impl App {
             syntax,
             lit(original, &self.changes.removed, roles.removed),
             ORIGINAL_ID,
+            0.0,
         )
         .map(|message| match message {
             Message::Edit(action) => Message::Original(action),
