@@ -249,6 +249,8 @@ pub enum Message {
     Zoom(f32),
     /// Ctrl+Shift+L and the menu: line numbers on or off.
     ToggleLineNumbers,
+    /// Ctrl+Shift+E and the menu: word wrap on or off.
+    ToggleWordWrap,
     /// Once a second: rereads settings.toml if it changed, and takes down an old notice.
     PollSettings,
     SystemTheme(iced::theme::Mode),
@@ -856,6 +858,12 @@ impl App {
                 settings.line_numbers = !settings.line_numbers;
                 return self.update(Message::Setting(settings));
             }
+            Message::ToggleWordWrap => {
+                self.menu_open = false;
+                let mut settings = self.settings.clone();
+                settings.word_wrap = !settings.word_wrap;
+                return self.update(Message::Setting(settings));
+            }
             Message::PollSettings => {
                 if let Some((_, shown)) = &self.notice
                     && shown.elapsed() >= NOTICE_TIME
@@ -1349,6 +1357,7 @@ fn shortcut(event: iced::Event, status: event::Status, _window: window::Id) -> O
             Some(Message::ToggleLineNumbers)
         }
         keyboard::Key::Character("l") => Some(Message::Assistant(AssistantAction::Toggle)),
+        keyboard::Key::Character("e" | "E") if modifiers.shift() => Some(Message::ToggleWordWrap),
         keyboard::Key::Character("w" | "W") => Some(Message::CloseRequested),
         keyboard::Key::Character("s" | "S") if modifiers.shift() => Some(Message::SaveAs),
         keyboard::Key::Character("s" | "S") => Some(Message::Save),
@@ -1377,7 +1386,7 @@ fn shortcut(event: iced::Event, status: event::Status, _window: window::Id) -> O
 }
 
 /// The keys that still work while Settings is open: Esc and Ctrl+, close it, Ctrl+W closes the
-/// window and ⌘M (macOS) minimizes it, and the zoom keys and Ctrl+Shift+L change a setting the
+/// window and ⌘M (macOS) minimizes it, and the zoom keys, Ctrl+Shift+L and Ctrl+Shift+E change a setting the
 /// panel shows. The rest would act on the document behind it.
 fn settings_key(message: Message) -> Option<Message> {
     match message {
@@ -1387,6 +1396,7 @@ fn settings_key(message: Message) -> Option<Message> {
         | Message::Minimize
         | Message::Zoom(_)
         | Message::ToggleLineNumbers
+        | Message::ToggleWordWrap
         | Message::OpenPath(_)
         | Message::Modifiers(_) => Some(message),
         _ => None,
@@ -1467,6 +1477,26 @@ mod tests {
             press(keyboard::Modifiers::COMMAND),
             Some(Message::Assistant(AssistantAction::Toggle))
         ));
+    }
+
+    #[test]
+    fn ctrl_shift_e_toggles_word_wrap_even_with_settings_open() {
+        let press = shortcut_for(
+            "e",
+            "E",
+            keyboard::Modifiers::COMMAND | keyboard::Modifiers::SHIFT,
+        );
+        assert!(matches!(press, Some(Message::ToggleWordWrap)));
+        assert!(matches!(
+            press.and_then(settings_key),
+            Some(Message::ToggleWordWrap)
+        ));
+        let (_dir, _paths, mut app, _scratch) = scratch_window("");
+        assert!(app.settings.word_wrap);
+        let _ = app.update(Message::ToggleWordWrap);
+        assert!(!app.settings.word_wrap);
+        let _ = app.update(Message::ToggleWordWrap);
+        assert!(app.settings.word_wrap);
     }
 
     #[test]

@@ -128,7 +128,7 @@ it in this window. ← goes up a folder, with the one you left highlighted, and 
 after the last `/` the first row is `../`, which does the same.
 
 **The status bar**, left to right: the ☰ menu (New file, Open, Open recent, Save as, Undo,
-Redo, Find, Replace, Go to line, Line numbers, Settings, Scratch, then the six most recent files; Ctrl+P has
+Redo, Find, Replace, Go to line, Line numbers, Word wrap, Settings, Scratch, then the six most recent files; Ctrl+P has
 the rest), the save dot, any problem
 in orange (a failed save, a file that isn't valid JSON, say), and the file's path (or Scratch); on
 the right, words and tokens, the line and column if switched on, then the assistant button. Tokens are counted with OpenAI's o200k tokenizer (hover to
@@ -224,6 +224,7 @@ Shortcuts are written with Ctrl; on macOS use ⌘ (the app's menu and hints show
 | Ctrl+, | Settings |
 | Ctrl+L | Open or close the assistant pane |
 | Ctrl+Shift+L | Line numbers on or off. This is the Line numbers setting, so every window follows and it is remembered |
+| Ctrl+Shift+E | Word wrap on or off (also in the ☰ menu). This is the Word wrap setting, so every window follows and it is remembered |
 | Esc | Close the menu, the switcher, the command palette or Settings, or else the go to line box, the find bar, or Ctrl+D's extra selections, and put the keyboard back in the text (from the assistant's box, say) |
 | Tab | Insert spaces at the cursor, never a tab character (text selected within one line is replaced); with several lines selected, indent each. In an SSH config, at the end of a line's first word, finish the keyword instead. In a Markdown file, on a list item it indents the whole line instead, nesting the item; a numbered item starts its new level at 1 (or counts on from the item above it there) and the items after it close up |
 | Shift+Tab | Unindent the line, or each selected line. In a Markdown file a numbered item that moves out takes the next number of the level it returns to, and the items after it are numbered again |
@@ -266,7 +267,7 @@ nothing nested yet, uses 2. Enter after a key with no value (`web:`), a block (`
 `-` indents the new line a step, and after a list item that starts a mapping (`- name: web`) the
 next line lines up under `name`.
 
-While Settings is open, only Esc, Ctrl+W, Ctrl+=, Ctrl+- and Ctrl+Shift+L (and ⌘M on macOS) work.
+While Settings is open, only Esc, Ctrl+W, Ctrl+=, Ctrl+-, Ctrl+Shift+L and Ctrl+Shift+E (and ⌘M on macOS) work.
 
 macOS also has ⌘↑ and ⌘↓ (start and end of the text, with ⇧ to select), ⌘G and ⇧⌘G (its keys for
 F3's next and previous match), ⌘M (minimise) and ⌘Q (closes the window, waiting for the save like any close).

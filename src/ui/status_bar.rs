@@ -386,6 +386,10 @@ pub fn menu(app: &App) -> Element<'_, Message> {
         true => "hide line numbers",
         false => "show line numbers",
     };
+    let word_wrap = match app.settings.word_wrap {
+        true => "turn word wrap off",
+        false => "turn word wrap on",
+    };
     items = items
         .push(menu_item("undo", "Ctrl+Z", Message::Undo))
         .push(menu_item("redo", "Ctrl+Shift+Z", Message::Redo))
@@ -404,6 +408,11 @@ pub fn menu(app: &App) -> Element<'_, Message> {
             line_numbers,
             "Ctrl+Shift+L",
             Message::ToggleLineNumbers,
+        ))
+        .push(menu_item(
+            word_wrap,
+            "Ctrl+Shift+E",
+            Message::ToggleWordWrap,
         ))
         .push(menu_item("settings", "Ctrl+,", Message::OpenSettings))
         .push(menu_item("scratch", "Ctrl+0", Message::OpenScratch));
