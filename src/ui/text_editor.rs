@@ -840,6 +840,9 @@ pub struct State<Highlighter: text::Highlighter> {
     preedit: Option<input_method::Preedit>,
     last_click: Option<mouse::Click>,
     drag_click: Option<mouse::click::Kind>,
+    // ours: while a drag is held past the top or bottom edge, how far past it is (negative above)
+    // and the nearest point inside, so the view can keep scrolling while the pointer sits still.
+    edge_drag: Option<(f32, Point)>,
     partial_scroll: f32,
     last_theme: RefCell<Option<String>>,
     highlighter: RefCell<Highlighter>,
@@ -908,6 +911,7 @@ where
             preedit: None,
             last_click: None,
             drag_click: None,
+            edge_drag: None,
             partial_scroll: 0.0,
             last_theme: RefCell::default(),
             highlighter: RefCell::new(Highlighter::new(&self.highlighter_settings)),
@@ -1069,6 +1073,29 @@ where
             _ => {}
         }
 
+        // ours: a drag held past the top or bottom edge scrolls the view a little on every frame
+        // and extends the selection to the line now at that edge, even when the pointer is still.
+        if let Event::Window(window::Event::RedrawRequested(now)) = event {
+            match (state.drag_click, state.edge_drag) {
+                (Some(mouse::click::Kind::Single), Some((past, point))) => {
+                    let lines = state.partial_scroll + edge_scroll_lines(past);
+                    state.partial_scroll = lines.fract();
+                    if lines as i32 != 0 {
+                        let scrolled = Vector::new(
+                            horizontal_scroll(&self.content.0.borrow().editor, self.wrapping),
+                            0.0,
+                        );
+                        shell.publish(on_edit(Action::Scroll {
+                            lines: lines as i32,
+                        }));
+                        shell.publish(on_edit(Action::Drag(point + scrolled)));
+                    }
+                    shell.request_redraw_at(*now + EDGE_SCROLL_TICK);
+                }
+                _ => state.edge_drag = None,
+            }
+        }
+
         if let Some(update) = Update::from_event(
             event,
             state,
@@ -1097,11 +1124,22 @@ where
                     shell.publish(on_edit(action));
                     shell.capture_event();
                 }
-                Update::Drag(position) => {
+                Update::Drag(mut position) => {
+                    // ours: past the top or bottom edge the drag goes on at the edge, and the
+                    // view scrolls (see the frame tick above).
+                    let text_height = (layout.bounds().height - self.padding.y()).max(0.0);
+                    let clamped = position.y.clamp(0.0, text_height);
+                    let past = position.y - clamped;
+                    position.y = clamped;
+                    state.edge_drag = (past != 0.0).then_some((past, position));
+                    if past != 0.0 {
+                        shell.request_redraw();
+                    }
                     shell.publish(on_edit(Action::Drag(position + scrolled)));
                 }
                 Update::Release => {
                     state.drag_click = None;
+                    state.edge_drag = None;
                 }
                 Update::Scroll(lines) => {
                     let bounds = self.content.0.borrow().editor.bounds();
@@ -1152,6 +1190,7 @@ where
                             Binding::Unfocus => {
                                 state.focus = None;
                                 state.drag_click = None;
+                                state.edge_drag = None;
                             }
                             Binding::Copy => {
                                 if let Some(selection) = content.selection() {
@@ -1517,6 +1556,16 @@ where
     }
 }
 
+/// ours: how often a drag held past the editor's top or bottom edge scrolls.
+const EDGE_SCROLL_TICK: Duration = Duration::from_millis(16);
+
+/// ours: how many lines a drag held `past` pixels beyond the top (negative) or bottom edge scrolls
+/// on each tick: slowly right at the edge, faster the further out, and never more than two a
+/// tick (about 125 lines a second).
+fn edge_scroll_lines(past: f32) -> f32 {
+    past.signum() * (past.abs() / 150.0).clamp(0.05, 2.0)
+}
+
 enum Update<Message> {
     Click(mouse::Click),
     Drag(Point),
@@ -1569,8 +1618,9 @@ impl<Message> Update<Message> {
                 mouse::Event::ButtonReleased(mouse::Button::Left) => Some(Update::Release),
                 mouse::Event::CursorMoved { .. } => match state.drag_click {
                     Some(mouse::click::Kind::Single) => {
-                        let cursor_position =
-                            cursor.position_in(bounds)? - Vector::new(padding.left, padding.top);
+                        // ours: also when the pointer has left the editor, for edge scrolling.
+                        let cursor_position = cursor.position()?
+                            - Vector::new(bounds.x + padding.left, bounds.y + padding.top);
 
                         Some(Update::Drag(cursor_position))
                     }
@@ -1646,6 +1696,21 @@ impl<Message> Update<Message> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_drag_past_the_edge_scrolls_faster_the_further_out_and_the_right_way() {
+        assert!(
+            edge_scroll_lines(1.0) > 0.0 && edge_scroll_lines(1.0) < 0.1,
+            "slow at the edge"
+        );
+        assert!(edge_scroll_lines(60.0) > edge_scroll_lines(10.0));
+        assert_eq!(
+            edge_scroll_lines(-60.0),
+            -edge_scroll_lines(60.0),
+            "up is down reversed"
+        );
+        assert_eq!(edge_scroll_lines(5000.0), 2.0, "capped");
+    }
 
     fn caret(line: usize, column: usize) -> Cursor {
         Cursor {

@@ -236,6 +236,7 @@ Shortcuts are written with Ctrl; on macOS use ⌘ (the app's menu and hints show
 | Ctrl+Z | Undo (also in the ☰ menu) |
 | Ctrl+Shift+Z or Ctrl+Y | Redo (also in the ☰ menu) |
 | Ctrl+A, C, X, V | Select all, copy, cut, paste |
+| Mouse drag | Select text. Held past the top or bottom of the editor, the view scrolls (faster the further out) and the selection keeps growing |
 | Ctrl+Enter and Ctrl+Backspace | Accept or reject the assistant's suggestion the cursor is on, or else the first one; with Shift, all of them. While suggestions wait these keys do only this |
 | Enter, in the assistant's box | Send (Shift+Enter starts a new line) |
 
