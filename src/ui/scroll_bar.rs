@@ -1,7 +1,6 @@
 //! The editor's scroll bar: the same rail and handle as Settings' scrollable, beside a text the
 //! editor scrolls itself (`Content::scroll_rows`). Dragging the handle, or pressing the rail,
-//! scrolls the editor by whole rows. The bar is drawn `WIDTH` wide but can be grabbed `GRAB` wide,
-//! with a hand cursor over it.
+//! scrolls the editor by whole rows. The bar is drawn `WIDTH` wide but can be grabbed `GRAB` wide.
 
 use iced::advanced::layout::{self, Layout};
 use iced::advanced::widget::{self, Widget};
@@ -135,24 +134,16 @@ impl<Message, Renderer: renderer::Renderer> Widget<Message, Theme, Renderer>
 
     fn mouse_interaction(
         &self,
-        tree: &widget::Tree,
+        _tree: &widget::Tree,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         _viewport: &Rectangle,
         _renderer: &Renderer,
     ) -> mouse::Interaction {
-        let rail = layout.bounds();
-        let Some(handle) = self.handle(rail) else {
-            return mouse::Interaction::None;
-        };
-        match (
-            tree.state.downcast_ref::<Grab>().0,
-            cursor.position_over(rail),
-        ) {
-            (Some(_), _) => mouse::Interaction::Grabbing,
-            (None, Some(point)) if handle.contains(point) => mouse::Interaction::Grab,
-            (None, Some(_)) => mouse::Interaction::Pointer,
-            (None, None) => mouse::Interaction::None,
+        // The plain arrow over the bar, as over Settings' bar; the cursor never changes shape.
+        match self.handle(layout.bounds()).is_some() && cursor.is_over(layout.bounds()) {
+            true => mouse::Interaction::Idle,
+            false => mouse::Interaction::None,
         }
     }
 
