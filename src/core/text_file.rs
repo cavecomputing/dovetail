@@ -97,9 +97,12 @@ pub fn read_lossy(path: &Path) -> io::Result<String> {
 
 /// UTF-16 text from `bytes`, two to a unit, `unit` saying which byte comes first.
 fn utf16(bytes: &[u8], unit: fn([u8; 2]) -> u16) -> String {
+    // A last odd byte, cut off by the file's end, is dropped.
     let units: Vec<u16> = bytes
-        .chunks_exact(2)
-        .map(|pair| unit([pair[0], pair[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|&pair| unit(pair))
         .collect();
     String::from_utf16_lossy(&units)
 }
