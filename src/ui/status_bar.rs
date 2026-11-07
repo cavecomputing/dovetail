@@ -45,7 +45,10 @@ pub fn view(app: &App, width: f32) -> Element<'_, Message> {
     // the dot and its gap, the 16px gaps between and around the two halves, the right-hand
     // buttons, and a few characters of slack.
     let letter = TEXT_SIZE * CHAR_WIDTH_RATIO;
-    let mut used = 2.0 * SIDE_PADDING + 22.0 + 16.0 + 16.0 + 16.0 + 3.0 * 22.0 + 4.0 * letter;
+    let mut used = 2.0 * SIDE_PADDING + 22.0 + 16.0 + 16.0 + 16.0 + 2.0 * 22.0 + 2.0 * letter;
+    if app.can_rewrite() {
+        used += 22.0;
+    }
     if app.editable() {
         left = left.push(save_status(app, roles));
         used += 7.0 + 16.0;
