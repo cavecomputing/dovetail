@@ -507,7 +507,7 @@ impl App {
                         Some((typed, keyword)) => self.pane.replace_all(&[typed], &keyword),
                         None => self.pane.indent(tab_spaces, markdown),
                     },
-                    Message::Unindent => self.pane.unindent(tab_spaces),
+                    Message::Unindent => self.pane.unindent(tab_spaces, markdown),
                     Message::NewLine { shift: false }
                         if is_code(typing) || typing == Syntax::Yaml =>
                     {

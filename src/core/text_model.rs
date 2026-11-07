@@ -207,6 +207,30 @@ impl TextModel {
     /// step, as Replace all does. They are applied from the last back, so each range is still
     /// right when its turn comes. Returns the changes to replay, in order.
     pub fn replace_each(&mut self, edits: &[(Range<usize>, &str)]) -> Vec<Change> {
+        let changes = self.apply_each(edits);
+        if !changes.is_empty() {
+            self.redo.clear();
+            self.push_step(changes.clone(), false, Instant::now());
+        }
+        changes
+    }
+
+    /// Like `replace_each`, but the edits join the last undo step instead of making their own:
+    /// for fixing up what that step just did (renumbering a list after Tab), so one Ctrl+Z takes
+    /// back both.
+    pub fn amend(&mut self, edits: &[(Range<usize>, &str)]) -> Vec<Change> {
+        let changes = self.apply_each(edits);
+        if let Some(last) = self.undo.last_mut()
+            && !changes.is_empty()
+        {
+            last.changes.extend(changes.iter().cloned());
+            last.typing = false;
+        }
+        changes
+    }
+
+    /// Applies each edit, from the last back, and returns the changes in that order.
+    fn apply_each(&mut self, edits: &[(Range<usize>, &str)]) -> Vec<Change> {
         let mut changes = Vec::new();
         for (range, text) in edits.iter().rev() {
             let change = Change {
@@ -216,10 +240,6 @@ impl TextModel {
             };
             self.apply(&change);
             changes.push(change);
-        }
-        if !changes.is_empty() {
-            self.redo.clear();
-            self.push_step(changes.clone(), false, Instant::now());
         }
         changes
     }

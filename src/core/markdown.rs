@@ -355,6 +355,77 @@ fn next_marker(marker: &str) -> String {
     }
 }
 
+/// After Tab, Shift+Tab or Enter changed the list from line `first` (counted from zero): the
+/// edits, in text order, that number its numbered items again from there to the end of the list.
+/// Each level counts on from the item before it at that level, a level that has just opened
+/// starts at 1, and the first item of a list keeps its own number. The lines above `first` are
+/// read but never changed, and bullets, quotes and fenced code are left alone.
+pub fn renumber(text: &str, first: usize) -> Vec<(Range<usize>, String)> {
+    // The levels of the list being read, outermost first: how far its items are indented, and
+    // the number of the last item on it (none after a bullet).
+    let mut levels: Vec<(usize, Option<u64>)> = Vec::new();
+    let mut edits = Vec::new();
+    let mut block = Block::Prose;
+    let mut line_start = 0;
+    for (index, line) in text.split('\n').enumerate() {
+        let start = line_start;
+        line_start += line.len() + 1;
+        let after = block_after(line, block);
+        let prose = block == Block::Prose && after == Block::Prose;
+        block = after;
+        if !prose || line.trim().is_empty() {
+            continue;
+        }
+        let indent = line.len() - line.trim_start_matches([' ', '\t']).len();
+        let width = line[..indent]
+            .chars()
+            .map(|c| if c == '\t' { 4 } else { 1 })
+            .sum();
+        let Some(marker) = list_marker(line, 0).filter(|_| !is_rule(line)) else {
+            // Text indented under an item belongs to it; any other line ends the list.
+            if levels.first().is_some_and(|(outer, _)| width <= *outer) {
+                if index > first {
+                    break;
+                }
+                levels.clear();
+            }
+            continue;
+        };
+        while levels.last().is_some_and(|(at, _)| *at > width) {
+            levels.pop();
+        }
+        let opens = levels.last().is_none_or(|(at, _)| *at < width);
+        let nested = opens && !levels.is_empty();
+        if opens {
+            levels.push((width, None));
+        }
+        let digits = line[marker.start..]
+            .bytes()
+            .take_while(u8::is_ascii_digit)
+            .count();
+        let own = line[marker.start..marker.start + digits]
+            .parse::<u64>()
+            .ok();
+        let (_, last) = levels
+            .last_mut()
+            .expect("this item's level was just pushed");
+        let number = match own {
+            Some(own) if index >= first => Some(match *last {
+                Some(last) => last + 1,
+                None if nested => 1,
+                None => own,
+            }),
+            own => own,
+        };
+        *last = number;
+        if let Some(number) = number.filter(|number| Some(*number) != own) {
+            let at = start + marker.start;
+            edits.push((at..at + digits, number.to_string()));
+        }
+    }
+    edits
+}
+
 /// Ctrl+B and Ctrl+I: puts `marker` around `selection` (a byte range of `text`, empty for just
 /// the caret), or takes it off when the selection already has it, just outside or at its ends.
 /// Italic is a `*` instead when a letter or digit is right outside the selection, and comes off
@@ -1058,5 +1129,64 @@ mod tests {
             toggle_marker("_a__b_", 3..3, ITALIC),
             (3..3, "__".to_string(), 4..4)
         );
+    }
+
+    /// `text` with `renumber(text, first)` applied.
+    fn renumbered(text: &str, first: usize) -> String {
+        let mut text = text.to_string();
+        for (range, number) in renumber(&text.clone(), first).into_iter().rev() {
+            text.replace_range(range, &number);
+        }
+        text
+    }
+
+    #[test]
+    fn a_numbered_item_nested_by_tab_starts_its_level_at_one_and_the_rest_close_up() {
+        let nested = "1. one\n2. two\n    3. three\n4. four\n5. five";
+        assert_eq!(
+            renumbered(nested, 2),
+            "1. one\n2. two\n    1. three\n3. four\n4. five"
+        );
+        // A second child counts on from the first.
+        let second = "1. one\n    1. a\n    3. b\n2. two";
+        assert_eq!(renumbered(second, 2), "1. one\n    1. a\n    2. b\n2. two");
+    }
+
+    #[test]
+    fn a_numbered_item_moved_out_by_shift_tab_takes_the_next_number_of_its_parent_level() {
+        let out = "1. one\n2. two\n    1. a\n3. b\n    1. c\n3. three";
+        assert_eq!(
+            renumbered(out, 3),
+            "1. one\n2. two\n    1. a\n3. b\n    1. c\n4. three"
+        );
+    }
+
+    #[test]
+    fn enter_in_the_middle_of_a_list_numbers_the_new_item_and_closes_up_what_follows() {
+        let after_enter = "1. one\n2. two\n3. \n3. three\n4. four";
+        assert_eq!(
+            renumbered(after_enter, 2),
+            "1. one\n2. two\n3. \n4. three\n5. four"
+        );
+    }
+
+    #[test]
+    fn renumbering_keeps_the_start_number_and_what_is_above_the_line_asked() {
+        assert_eq!(renumbered("3. a\n9. b\n9. c", 1), "3. a\n4. b\n5. c");
+        assert_eq!(renumbered("5. a\n5. b\n5. c", 2), "5. a\n5. b\n6. c");
+    }
+
+    #[test]
+    fn renumbering_stops_at_the_end_of_the_list_and_skips_bullets_quotes_and_code() {
+        let text = "1. a\n1. b\n\ntext\n\n1. x\n1. y";
+        assert_eq!(renumbered(text, 1), "1. a\n2. b\n\ntext\n\n1. x\n1. y");
+        let mixed = "1. a\n    - bullet\n    - bullet\n1. b\n```\n1. code\n```\n> 1. quoted";
+        assert_eq!(
+            renumbered(mixed, 0),
+            "1. a\n    - bullet\n    - bullet\n2. b\n```\n1. code\n```\n> 1. quoted"
+        );
+        // A bullet inside a number, and a number inside a bullet, and a task box.
+        let nested = "- a\n    1. x\n    1. [ ] y\n- b";
+        assert_eq!(renumbered(nested, 1), "- a\n    1. x\n    2. [ ] y\n- b");
     }
 }

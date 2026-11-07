@@ -17,7 +17,8 @@ use iced::{Background, Border, Element, Fill, Padding, Theme};
 
 use crate::core::find::{find_all, word_at};
 use crate::core::markdown::{
-    BOLD, ITALIC, ListEnter, fence_enter, is_list_item, list_enter, toggle_marker, toggle_tasks,
+    BOLD, ITALIC, ListEnter, fence_enter, is_list_item, list_enter, renumber, toggle_marker,
+    toggle_tasks,
 };
 use crate::core::review::{DisplayMap, Review, Shown, Suggestion, clashes};
 use crate::core::scratch::clamp_column;
@@ -260,6 +261,14 @@ fn key_binding(press: KeyPress, editable: bool, reviewing: bool) -> Option<Bindi
         }
         _ => Binding::from_key_press(press),
     }
+}
+
+/// `edits` with their text borrowed, the form `TextModel::amend` takes.
+fn borrowed(edits: &[(Range<usize>, String)]) -> Vec<(Range<usize>, &str)> {
+    edits
+        .iter()
+        .map(|(range, text)| (range.clone(), text.as_str()))
+        .collect()
 }
 
 /// Whether a key press is Ctrl+Enter, or Ctrl+Backspace with or without Shift, which accept and
@@ -818,8 +827,8 @@ impl Pane {
     /// Shift+Tab: removes up to one indent (`tab_spaces` spaces) from the start of the caret's
     /// line, or of each line the selection is on. Returns whether the text changed, or why it
     /// can't.
-    pub fn unindent(&mut self, tab_spaces: usize) -> Result<bool, String> {
-        self.reindent(tab_spaces, false, false)
+    pub fn unindent(&mut self, tab_spaces: usize, markdown: bool) -> Result<bool, String> {
+        self.reindent(tab_spaces, false, markdown)
     }
 
     /// Enter (and Shift+Enter): a new line in place of any selection, indented like the caret's
@@ -871,10 +880,14 @@ impl Pane {
         match list_enter(self.model.text(), range.start) {
             Some(ListEnter::Continue(prefix)) => {
                 let typed = Edit::Paste(Arc::new(format!("\n{prefix}")));
-                self.perform(Action::Edit(typed))
+                let edited = self.perform(Action::Edit(typed))?;
+                // The new item may be in the middle of a numbered list: the ones below close up.
+                let (caret, _) = self.caret_and_anchor();
+                self.renumber_below(self.model.text()[..caret].matches('\n').count());
+                Ok(edited)
             }
             // With text selected, an empty item gets a plain new line in place of it.
-            Some(ListEnter::Unindent) if range.is_empty() => self.unindent(tab_spaces),
+            Some(ListEnter::Unindent) if range.is_empty() => self.unindent(tab_spaces, true),
             Some(ListEnter::Delete(peeled)) if range.is_empty() => {
                 self.select(peeled);
                 self.perform_or_put_back(Edit::Delete, cursor)
@@ -1121,15 +1134,42 @@ impl Pane {
         }
         let (first, last) = selected_lines(text, start, end);
         self.lines_free(first, last)?;
-        let changes = match add {
+        let mut changes = match add {
             true => self.model.indent(first..=last, tab_spaces),
             false => self.model.unindent(first..=last, tab_spaces),
         };
+        // In Markdown the numbers of the lists these lines are in follow their new levels, in
+        // the same undo step.
+        if markdown && !changes.is_empty() {
+            let fixes = self.list_fixes(first);
+            changes.extend(self.model.amend(&borrowed(&fixes)));
+        }
         if !self.replay(&changes) {
             return Ok(false);
         }
         self.follow(&changes, caret, cursor.selection.map(|_| anchor), nest);
         Ok(true)
+    }
+
+    /// The edits that number the Markdown list again from line `first` down (see
+    /// `markdown::renumber`), less any on a line with a suggestion on it.
+    fn list_fixes(&self, first: usize) -> Vec<(Range<usize>, String)> {
+        let text = self.model.text();
+        let mut fixes = renumber(text, first);
+        fixes.retain(|(digits, _)| !self.suggestions().iter().any(|s| clashes(&s.range, digits)));
+        fixes
+    }
+
+    /// After a new list item on line `first`: numbers the list from there down again, as part of
+    /// the step that made the item, and keeps the caret where it was.
+    fn renumber_below(&mut self, first: usize) {
+        let (caret, anchor) = self.caret_and_anchor();
+        let selection = self.content.cursor().selection.map(|_| anchor);
+        let fixes = self.list_fixes(first);
+        let changes = self.model.amend(&borrowed(&fixes));
+        if self.replay(&changes) {
+            self.follow(&changes, caret, selection, false);
+        }
     }
 
     /// Ctrl+/ in a script or config file: comments out the caret's line, or every line the
@@ -1185,7 +1225,7 @@ impl Pane {
     fn follow(&mut self, changes: &[Change], caret: usize, anchor: Option<usize>, whole: bool) {
         let moved = |mut at: usize| {
             for change in changes {
-                if at > change.at || whole {
+                if at > change.at || (whole && at == change.at) {
                     let removed_end = change.at + change.removed.len();
                     at = at.max(removed_end) - change.removed.len() + change.inserted.len();
                 }
@@ -1367,7 +1407,11 @@ mod tests {
         pane.perform(Action::Move(Motion::Right)).unwrap();
         assert_eq!(pane.content.cursor().position.column, 4);
         assert_eq!(pane.model.text(), "Be quick. Stay calm.");
-        assert_eq!(pane.unindent(4), refused, "the line has a suggestion on it");
+        assert_eq!(
+            pane.unindent(4, false),
+            refused,
+            "the line has a suggestion on it"
+        );
     }
 
     #[test]
@@ -1437,12 +1481,12 @@ mod tests {
         let mut pane = Pane::new("    one\n    two");
         pane.suggest(12..15, "2").unwrap();
         pane.put_caret(5);
-        assert_eq!(pane.unindent(4), Ok(true));
+        assert_eq!(pane.unindent(4, false), Ok(true));
         assert_eq!(pane.model.text(), "one\n    two");
         assert_eq!(pane.suggestions()[0].range, 8..11);
         assert_eq!(pane.caret(), 1, "the caret stays after the \"o\"");
         pane.put_caret(10);
-        assert_eq!(pane.unindent(4), Err(IN_A_SUGGESTION.to_string()));
+        assert_eq!(pane.unindent(4, false), Err(IN_A_SUGGESTION.to_string()));
     }
 
     #[test]
@@ -1622,7 +1666,7 @@ mod tests {
     fn unindent_removes_one_indent_of_tab_spaces() {
         let mut pane = Pane::new("        two levels\n  x");
         pane.content.move_to(cursor_at(0, 10));
-        assert_eq!(pane.unindent(4), Ok(true));
+        assert_eq!(pane.unindent(4, false), Ok(true));
         assert_eq!(pane.content.text(), "    two levels\n  x");
         assert_eq!(
             pane.content.cursor().position,
@@ -1631,7 +1675,7 @@ mod tests {
 
         // A selection unindents every line it touches, each by what it has (up to 4).
         select_from(&mut pane, (0, 4), (1, 3));
-        assert_eq!(pane.unindent(4), Ok(true));
+        assert_eq!(pane.unindent(4, false), Ok(true));
         assert_eq!(pane.content.text(), "two levels\nx");
         assert_eq!(
             pane.content.cursor().position,
@@ -1688,7 +1732,7 @@ mod tests {
     fn shift_tab_leaves_a_line_the_selection_only_reaches_the_start_of() {
         let mut pane = Pane::new("    alpha\n    beta\n    gamma\n");
         select_two_lines(&mut pane);
-        assert_eq!(pane.unindent(4), Ok(true));
+        assert_eq!(pane.unindent(4, false), Ok(true));
         assert_eq!(pane.content.text(), "alpha\nbeta\n    gamma\n");
     }
 
@@ -2064,11 +2108,11 @@ mod tests {
         );
         pane.undo();
         assert_eq!(pane.content.text(), "- café");
-        // A selection is replaced, and the numbers after aren't changed.
+        // A selection is replaced, and the numbers after follow on.
         let mut pane = Pane::new("1. one two\n2. three");
         pane.select(6..10);
         assert_eq!(pane.markdown_new_line(4), Ok(true));
-        assert_eq!(pane.content.text(), "1. one\n2. \n2. three");
+        assert_eq!(pane.content.text(), "1. one\n2. \n3. three");
         assert_eq!(pane.content.cursor(), cursor_at(1, 3));
     }
 
@@ -2153,6 +2197,53 @@ mod tests {
         assert_eq!(pane.model.text(), pane.content.text());
         pane.undo();
         assert_eq!(pane.content.text(), "  - one\n    - café", "one undo step");
+    }
+
+    #[test]
+    fn markdown_tab_and_shift_tab_renumber_the_list_in_one_undo_step() {
+        let start = "1. one\n2. two\n3. three\n4. four";
+        let mut pane = Pane::new(start);
+        pane.content.move_to(cursor_at(2, 8));
+        assert_eq!(pane.indent(4, true), Ok(true));
+        assert_eq!(pane.content.text(), "1. one\n2. two\n    1. three\n3. four");
+        assert_eq!(
+            pane.content.cursor(),
+            cursor_at(2, 12),
+            "the caret stays after 'three'"
+        );
+        assert_eq!(pane.model.text(), pane.content.text());
+        // Back out: it is the next number of the level it returns to, and what follows moves on.
+        assert_eq!(pane.unindent(4, true), Ok(true));
+        assert_eq!(pane.content.text(), "1. one\n2. two\n3. three\n4. four");
+        pane.undo();
+        assert_eq!(pane.content.text(), "1. one\n2. two\n    1. three\n3. four");
+        pane.undo();
+        assert_eq!(
+            pane.content.text(),
+            start,
+            "the nesting and renumbering were one step"
+        );
+        // Outside Markdown the numbers are left alone.
+        pane.content.move_to(cursor_at(2, 8));
+        assert_eq!(pane.unindent(4, false), Ok(false));
+        assert_eq!(pane.indent(4, false), Ok(true));
+        assert_eq!(pane.content.text(), "1. one\n2. two\n3. three    \n4. four");
+    }
+
+    #[test]
+    fn markdown_enter_in_a_numbered_list_closes_up_what_follows_in_one_undo_step() {
+        let mut pane = Pane::new("1. one\n2. two\n3. three");
+        pane.content.move_to(cursor_at(0, 6));
+        assert_eq!(pane.markdown_new_line(4), Ok(true));
+        assert_eq!(pane.content.text(), "1. one\n2. \n3. two\n4. three");
+        assert_eq!(
+            pane.content.cursor(),
+            cursor_at(1, 3),
+            "the caret is in the new item"
+        );
+        assert_eq!(pane.model.text(), pane.content.text());
+        pane.undo();
+        assert_eq!(pane.content.text(), "1. one\n2. two\n3. three");
     }
 
     #[test]
