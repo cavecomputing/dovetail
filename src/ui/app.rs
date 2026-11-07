@@ -1172,7 +1172,11 @@ impl App {
             syntax,
             paint,
             EDITOR_ID,
-            window_controls::resize_edge(self.settings.window_controls),
+            // With the assistant open, the pane (beside or over the text) is at the window's edge.
+            match self.assistant.open {
+                true => 0.0,
+                false => window_controls::resize_edge(self.settings.window_controls),
+            },
         );
         let Some(original) = &self.original else {
             return draft;
