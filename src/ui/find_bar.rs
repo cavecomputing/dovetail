@@ -283,6 +283,11 @@ pub fn view(app: &App) -> Element<'_, Message> {
         (Some(current), total) => format!("{} of {total}", current + 1),
         (None, total) => format!("{total} matches"),
     };
+    // A search that finds nothing is a warning, in orange like the status bar's.
+    let count = match find.matches.is_empty() && !find.query.is_empty() {
+        true => small(count).color(Roles::of(&app.theme).accent_warm),
+        false => small(count),
+    };
     let input = bar_input("Find", &find.query)
         .id(FIND_ID)
         .on_input(|query| Message::Find(FindAction::Query(query)));
@@ -291,7 +296,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
         |glyph, on, action, words| hint(glyph_toggle(glyph, on, Message::Find(action)), words);
     let find_row = bar_row(row![
         input,
-        small(count),
+        count,
         toggle(
             GLYPH_CASE,
             find.match_case,
