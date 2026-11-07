@@ -353,6 +353,8 @@ pub fn menu(app: &App) -> Element<'_, Message> {
         false => "show line numbers",
     };
     items = items
+        .push(menu_item("undo", "Ctrl+Z", Message::Undo))
+        .push(menu_item("redo", "Ctrl+Shift+Z", Message::Redo))
         .push(menu_item("find", "Ctrl+F", Message::Find(FindAction::Open)))
         .push(menu_item(
             "replace",

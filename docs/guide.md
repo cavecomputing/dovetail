@@ -127,8 +127,8 @@ a `.`). Enter, Tab, → or a click on a folder goes into it, and Enter or a clic
 it in this window. ← goes up a folder, with the one you left highlighted, and with nothing typed
 after the last `/` the first row is `../`, which does the same.
 
-**The status bar**, left to right: the ☰ menu (New file, Open, Open recent, Save as, Find,
-Replace, Go to line, Line numbers, Settings, Scratch, then the six most recent files; Ctrl+P has
+**The status bar**, left to right: the ☰ menu (New file, Open, Open recent, Save as, Undo,
+Redo, Find, Replace, Go to line, Line numbers, Settings, Scratch, then the six most recent files; Ctrl+P has
 the rest), the save dot, any problem
 in orange (a failed save, a file that isn't valid JSON, say), and the file's path (or Scratch); on
 the right, words and tokens, the line and column if switched on, then the assistant button. Tokens are counted with OpenAI's o200k tokenizer (hover to
@@ -233,8 +233,8 @@ Shortcuts are written with Ctrl; on macOS use ⌘ (the app's menu and hints show
 | Ctrl+D | Select the word at the cursor; press again to also select the next place it appears (matching case and whole words; with part of a word selected, anywhere), going round to the top after the end. Typing, pasting, Backspace, Delete and Enter then change every selected place at once, each press its own Ctrl+Z. Moving the cursor or Esc lets the extra places go |
 | Ctrl+B and Ctrl+I | In a Markdown file, bold (`**`) or italic (`_`, or `*` inside a word): put the markers around the selection, or with nothing selected a pair with the cursor between. Pressed again, they come off |
 | Ctrl+/ | In a shell script or a YAML, TOML, INI or SSH config file, comment out the line, or every selected line, with `# ` at their shared indent. When they are all comments already, it takes the `#` off instead |
-| Ctrl+Z | Undo |
-| Ctrl+Shift+Z or Ctrl+Y | Redo |
+| Ctrl+Z | Undo (also in the ☰ menu) |
+| Ctrl+Shift+Z or Ctrl+Y | Redo (also in the ☰ menu) |
 | Ctrl+A, C, X, V | Select all, copy, cut, paste |
 | Ctrl+Enter and Ctrl+Backspace | Accept or reject the assistant's suggestion the cursor is on, or else the first one; with Shift, all of them. While suggestions wait these keys do only this |
 | Enter, in the assistant's box | Send (Shift+Enter starts a new line) |
@@ -282,7 +282,8 @@ previous match), ⌘M (minimise) and ⌘Q (closes the window, waiting for the sa
 - **Scratch keeps its Ctrl+Z history across restarts**: closing and reopening scratch (or saving
   it to a file) leaves the undo steps as they were, up to the last 1000 steps or about a megabyte
   of changed text. If `scratch.txt` was changed outside Dovetail in between, the history no
-  longer fits it and is dropped. It is kept in `scratch-undo.json` beside `scratch.txt`.
+  longer fits it and is dropped. It is kept in `scratch-undo.json` beside `scratch.txt`. Redo steps are not kept: after a restart
+  Ctrl+Z works, but there is nothing to redo.
 - **Save as** (Ctrl+Shift+S) moves the text to a new file and keeps editing there, undo history and
   all. Typing that hasn't autosaved yet is written to the old file first, so the old file keeps the
   text as it was at that moment; later edits go only to the new file.

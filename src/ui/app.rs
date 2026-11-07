@@ -536,6 +536,8 @@ impl App {
                 self.after_edit(edited);
             }
             Message::Undo | Message::Redo => {
+                // Also the menu's undo and redo, which close it.
+                self.menu_open = false;
                 if !self.editable() {
                     return Task::none();
                 }
@@ -1893,6 +1895,20 @@ mod tests {
         // The original only scrolls and selects.
         let _ = app.update(Message::Original(Action::Edit(Edit::Insert('x'))));
         assert_eq!(app.original.as_ref().unwrap().model.text(), "12# notes\n");
+    }
+
+    #[test]
+    fn the_menus_undo_and_redo_change_the_text_and_close_the_menu() {
+        let (_dir, _paths, mut app, _notes) = scratch_window("");
+        type_in(&mut app, "ab");
+        app.menu_open = true;
+        let _ = app.update(Message::Undo);
+        assert!(!app.menu_open);
+        assert_eq!(app.pane.model.text(), "");
+        app.menu_open = true;
+        let _ = app.update(Message::Redo);
+        assert!(!app.menu_open);
+        assert_eq!(app.pane.model.text(), "ab");
     }
 
     #[test]
