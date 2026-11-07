@@ -304,7 +304,11 @@ const SHORTCUTS: [(&str, &[Shortcut]); 5] = [
             ),
             ("Ctrl+,", "", "open or close settings"),
             ("Ctrl+Shift+L", "", "line numbers on or off"),
-            ("Ctrl+= / Ctrl+-", "", "bigger or smaller text"),
+            (
+                "Ctrl+= / Ctrl+-",
+                "",
+                "bigger or smaller text (Ctrl+wheel too)",
+            ),
             (
                 "Esc",
                 "",

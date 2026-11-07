@@ -438,6 +438,12 @@ impl App {
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
+            // Ctrl+wheel (⌘ on macOS) zooms the text instead of scrolling it, like Ctrl+= and Ctrl+-.
+            Message::Edit(Action::Scroll { lines }) if self.modifiers.command() => {
+                if lines != 0 {
+                    return self.update(Message::Zoom(-lines.signum() as f32));
+                }
+            }
             // A read-only window still scrolls, selects and copies, but never changes the text.
             Message::Edit(action) if action.is_edit() && !self.editable() => {}
             // In code, brackets and quotes close themselves.
@@ -1974,6 +1980,19 @@ mod tests {
         assert!(!app.paused_draft);
         assert_eq!(app.pane.model.text(), "draft # notes\n");
         assert_eq!(app.original.as_ref().unwrap().model.text(), "# notes\n");
+    }
+
+    #[test]
+    fn ctrl_wheel_zooms_instead_of_scrolling() {
+        let (_dir, _paths, mut app, _scratch) = scratch_window("");
+        let size = app.settings.font_size;
+        let _ = app.update(Message::Edit(Action::Scroll { lines: -4 }));
+        assert_eq!(app.settings.font_size, size, "a plain wheel scrolls");
+        let _ = app.update(Message::Modifiers(keyboard::Modifiers::COMMAND));
+        let _ = app.update(Message::Edit(Action::Scroll { lines: -4 }));
+        assert_eq!(app.settings.font_size, size + 1.0, "wheel up is bigger");
+        let _ = app.update(Message::Edit(Action::Scroll { lines: 4 }));
+        assert_eq!(app.settings.font_size, size);
     }
 
     #[test]

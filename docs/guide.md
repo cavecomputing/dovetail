@@ -220,7 +220,7 @@ Shortcuts are written with Ctrl; on macOS use ⌘ (the app's menu and hints show
 | F3 and Shift+F3 | Select the next or previous match of the last search, with the find bar open or closed (⌘G and ⇧⌘G on macOS); with nothing searched yet, open the find bar |
 | Ctrl+Shift+F | Find and replace: the find bar with a Replace box under it (Tab moves between the two). In the Replace box, Enter replaces the selected match and goes to the next one, and Ctrl+Enter replaces them all, as one Ctrl+Z |
 | Ctrl+G | Go to line: type a line number and the text jumps there as you type; Enter goes back to the text with the caret at the start of that line, Esc closes the box. On macOS it's ⌃G, since ⌘G is the next find match |
-| Ctrl+= and Ctrl+- | Bigger or smaller text. This is the Font size setting (9 to 40), so every window follows and it is remembered |
+| Ctrl+= and Ctrl+- | Bigger or smaller text; Ctrl and the mouse wheel do the same. This is the Font size setting (9 to 40), so every window follows and it is remembered |
 | Ctrl+, | Settings |
 | Ctrl+L | Open or close the assistant pane |
 | Ctrl+Shift+L | Line numbers on or off. This is the Line numbers setting, so every window follows and it is remembered |
