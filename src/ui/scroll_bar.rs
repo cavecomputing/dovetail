@@ -13,8 +13,8 @@ use crate::ui::text_editor::ScrollRows;
 
 /// As wide as Settings' bar (iced's default).
 const WIDTH: f32 = 10.0;
-/// How wide the bar can be grabbed, drawn at its right: as wide as the editor's right padding, so
-/// it never covers text, and more than what is left of the bar beside the window's resize edge.
+/// How wide the bar can be grabbed, drawn at its right: as wide as the editor's right padding
+/// (less any resize edge, which the bar sits left of), so it never covers text.
 const GRAB: f32 = 16.0;
 /// The shortest the handle gets, so a long text still leaves something to grab.
 const MIN_HANDLE: f32 = 24.0;

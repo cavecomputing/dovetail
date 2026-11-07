@@ -58,8 +58,8 @@ pub const PADDING: Padding = Padding {
 /// find matches and Ctrl+D's other places) drawn under the text, coloured for its `syntax`
 /// (Markdown, a data file's keys and values, a shell script). Without `editable` the text is
 /// dimmed; it can still be scrolled, selected and copied, and `App::update` drops any change to
-/// it. `right_edge` is how much of the pane's right side is the window's resize edge, which the
-/// scroll bar keeps clear of.
+/// it. `right_edge` is how much of the pane's right side is the window's resize edge: the scroll
+/// bar keeps clear of it, and the text moves in by as much so the bar never covers it.
 pub fn view<'a>(
     pane: &'a Pane,
     settings: &Settings,
@@ -82,6 +82,7 @@ pub fn view<'a>(
     };
     let padding = Padding {
         left: PADDING.left + gutter,
+        right: PADDING.right + right_edge,
         ..PADDING
     };
     let editor = TextEditor::new(&pane.content)
@@ -118,7 +119,8 @@ pub fn view<'a>(
         ReadingMode::FullWidth => container(editor),
     };
     // The scroll bar sits at the right edge, over the editor's right padding (or beside a
-    // comfort-width column), and shows only when the text is taller than the view.
+    // comfort-width column), left of any resize edge, and shows only when the text is taller
+    // than the view.
     let bar = scroll_bar(pane.content.scroll_rows(), |lines| {
         Message::Edit(Action::Scroll { lines })
     });
