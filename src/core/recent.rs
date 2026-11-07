@@ -4,11 +4,56 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use serde::{Deserialize, Serialize};
+
 use crate::brand::PROJECT_EXT;
 use crate::core::save::atomic_write;
+use crate::core::scratch::ScratchView;
 
 const RECENT_FILE: &str = "recent.txt";
 const MAX_RECENT: usize = 10;
+const PLACES_FILE: &str = "places.json";
+const MAX_PLACES: usize = 50;
+
+/// Where the cursor and the view were when a file was last left.
+#[derive(Serialize, Deserialize)]
+struct Place {
+    path: PathBuf,
+    view: ScratchView,
+}
+
+/// The saved places, newest first. A missing or broken file is just empty.
+fn places(data_dir: &Path) -> Vec<Place> {
+    fs::read_to_string(data_dir.join(PLACES_FILE))
+        .ok()
+        .and_then(|json| serde_json::from_str(&json).ok())
+        .unwrap_or_default()
+}
+
+/// A file's name for the places list, the same however it is spelled.
+fn place_key(path: &Path) -> PathBuf {
+    fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+/// Where the cursor and the view were when `path` was last left, if that was kept.
+pub fn saved_view(data_dir: &Path, path: &Path) -> Option<ScratchView> {
+    let key = place_key(path);
+    places(data_dir)
+        .into_iter()
+        .find(|place| place.path == key)
+        .map(|place| place.view)
+}
+
+/// Keeps `view` as where `path` was left, for the next time it opens; the latest 50 files are kept.
+pub fn remember_view(data_dir: &Path, path: &Path, view: ScratchView) -> io::Result<()> {
+    let key = place_key(path);
+    let mut list = places(data_dir);
+    list.retain(|place| place.path != key);
+    list.insert(0, Place { path: key, view });
+    list.truncate(MAX_PLACES);
+    let json = serde_json::to_string(&list).map_err(io::Error::other)?;
+    atomic_write(&data_dir.join(PLACES_FILE), json.as_bytes())
+}
 
 /// The recent files, newest first. A missing or unreadable list is just empty.
 pub fn recent_files(data_dir: &Path) -> Vec<PathBuf> {
@@ -77,6 +122,41 @@ pub fn match_score(query: &str, label: &str) -> Option<i32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_file_comes_back_to_where_it_was_left() {
+        let dir = tempfile::tempdir().unwrap();
+        let notes = dir.path().join("notes.txt");
+        fs::write(&notes, "hi").unwrap();
+        assert_eq!(saved_view(dir.path(), &notes), None);
+        let view = ScratchView {
+            cursor_line: 3,
+            cursor_column: 2,
+            scroll_line: Some(1),
+        };
+        remember_view(dir.path(), &notes, view).unwrap();
+        let again = ScratchView {
+            cursor_line: 9,
+            ..view
+        };
+        remember_view(dir.path(), &notes, again).unwrap();
+        assert_eq!(saved_view(dir.path(), &notes), Some(again));
+        // Spelled another way, it is the same file.
+        let other_spelling = dir.path().join(".").join("notes.txt");
+        assert_eq!(saved_view(dir.path(), &other_spelling), Some(again));
+    }
+
+    #[test]
+    fn keeps_the_places_of_only_the_latest_fifty_files() {
+        let dir = tempfile::tempdir().unwrap();
+        for n in 0..60 {
+            let path = PathBuf::from(format!("/{n}.txt"));
+            remember_view(dir.path(), &path, ScratchView::default()).unwrap();
+        }
+        assert_eq!(places(dir.path()).len(), MAX_PLACES);
+        assert!(saved_view(dir.path(), Path::new("/59.txt")).is_some());
+        assert!(saved_view(dir.path(), Path::new("/0.txt")).is_none());
+    }
 
     #[test]
     fn empty_when_nothing_saved() {

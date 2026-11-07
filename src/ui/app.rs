@@ -15,7 +15,7 @@ use crate::core::lock::Lock;
 use crate::core::markdown::fence_language;
 use crate::core::opened::{Doc, OpenedDoc, open_doc, write_doc};
 use crate::core::paths::Paths;
-use crate::core::recent::existing_recent_files;
+use crate::core::recent::{existing_recent_files, remember_view};
 use crate::core::rewrite::{Changes, draft_path};
 use crate::core::save::{Autosaver, SaveState};
 use crate::core::scratch::ScratchView;
@@ -409,6 +409,7 @@ impl App {
     /// and save state. The find bar closes, and the assistant starts a new chat (its pane stays as
     /// it was), since both were about the old text.
     pub fn show(&mut self, opened: OpenedDoc) -> Task<Message> {
+        self.remember_place();
         self.document += 1;
         self.pane = pane_for(&opened);
         self.counts = Counts::of(&opened.text);
@@ -711,6 +712,7 @@ impl App {
                 if matches!(self.doc, Doc::Scratch) && self.editable() {
                     let _ = self.scratch_view().save(&self.paths.data_dir);
                 }
+                self.remember_place();
                 return self.continue_closing();
             }
             Message::WindowClosed => return iced::exit(),
@@ -1070,6 +1072,16 @@ impl App {
         match self.doc {
             Doc::Scratch => self.pane.model.history(),
             Doc::File { .. } => Vec::new(),
+        }
+    }
+
+    /// Keeps where the cursor and the view are in a file, so opening it again comes back to the
+    /// same place. Not while rewriting, when the pane shows the draft.
+    fn remember_place(&self) {
+        if let Doc::File { path, .. } = &self.doc
+            && self.original.is_none()
+        {
+            let _ = remember_view(&self.paths.data_dir, path, self.scratch_view());
         }
     }
 
@@ -2030,6 +2042,24 @@ mod tests {
             None,
             "no selection, no counts"
         );
+    }
+
+    #[test]
+    fn a_file_reopens_where_it_was_left() {
+        let (dir, _paths, mut app, notes) = scratch_window("");
+        let long = dir.path().join("long.txt");
+        std::fs::write(&long, "one\ntwo\nthree\nfour\n").unwrap();
+        let _ = app.update(Message::OpenPath(long.clone()));
+        let _ = app.update(Message::Edit(Action::Move(Motion::DocumentEnd)));
+        let _ = app.update(Message::Edit(Action::Move(Motion::Up)));
+        let _ = app.update(Message::Edit(Action::Move(Motion::Right)));
+        let left = app.pane.content.cursor().position;
+        assert_eq!((left.line, left.column), (3, 1));
+        // Leaving for another file keeps the place, and opening it again goes back there.
+        let _ = app.update(Message::OpenPath(notes));
+        assert!(app.doc.path().is_some_and(|path| path != long));
+        let _ = app.update(Message::OpenPath(long));
+        assert_eq!(app.pane.content.cursor().position, left);
     }
 
     #[test]

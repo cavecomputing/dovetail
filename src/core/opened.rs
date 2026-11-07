@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use crate::core::lock::{Lock, claim_lock, file_lock_path, locked_elsewhere};
 use crate::core::paths::Paths;
-use crate::core::recent::{remember, same_file};
+use crate::core::recent::{remember, same_file, saved_view};
 use crate::core::save::{atomic_write, check_writable, failure_reason};
 use crate::core::scratch::{
     ScratchState, ScratchView, claim_scratch, load_history, save_history, scratch_lock_path,
@@ -114,6 +114,12 @@ pub fn open_doc(doc: Doc, paths: &Paths) -> OpenedDoc {
                     line_ending = file.line_ending;
                     bom = file.bom;
                     opened.read_only_reason = writable_reason(&path);
+                    // Back to where it was left, if the text still has that place.
+                    if let Some(view) = saved_view(&paths.data_dir, &path) {
+                        opened.cursor = Some(view.cursor_in(&opened.text));
+                        let last_line = opened.text.matches('\n').count();
+                        opened.scroll_line = view.scroll_line.map(|line| line.min(last_line));
+                    }
                 }
                 Err(error) if error.kind() == ErrorKind::NotFound => {
                     if atomic_write(&path, b"").is_err() {

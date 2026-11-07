@@ -278,7 +278,8 @@ src/
     json.rs              which parts of a .json line to colour, whether the text is valid JSON,
                          and Format and Minify (whitespace only, so key order and digits are kept)
     text_file.rs         reading and saving text files: line endings, outside-change check
-    recent.rs            the recently opened files (data folder), fuzzy matching
+    recent.rs            the recently opened files and where each was left (data folder), fuzzy
+                         matching
     text_model.rs        a pane's text and its undo/redo history, in byte offsets
     uri_list.rs          the files in a `text/uri-list`, the form Wayland hands dropped files over in
     typing.rs            typing in shell scripts, JSON and YAML: pairs that close themselves, and

@@ -121,6 +121,8 @@ you're leaving is saved first, and if that save fails, or the new one can't be o
 stays as it was and the status bar says why. A document is edited in one window at a time: a second window on the same file, or on scratch, opens
 read-only and says why, and opening one that another window has open is refused.
 
+**A file reopens where you left it**: the cursor and the view come back as they were, for the last 50 files (kept in `places.json` in the data folder). If the file got shorter in between, the cursor goes to the nearest spot that still exists.
+
 **Opening** (Ctrl+O) shows a box holding a path, starting at the open file's folder, with
 what's in that folder below it. Type to narrow the list by name (hidden files show once you type
 a `.`). Enter, Tab, → or a click on a folder goes into it, and Enter or a click on a file opens
@@ -194,7 +196,7 @@ most) and any byte order mark, the invisible character some Windows programs put
 
 Where things live:
 
-| | `settings.toml` | Scratch, recent files, and locks (small files that stop two windows editing one document) |
+| | `settings.toml` | Scratch, recent files, where each file was left, and locks (small files that stop two windows editing one document) |
 |---|---|---|
 | Linux | `~/.config/dovetail/` | `~/.local/share/dovetail/` |
 | macOS | `~/Library/Application Support/dovetail/` | the same folder |

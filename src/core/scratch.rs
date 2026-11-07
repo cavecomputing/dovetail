@@ -69,9 +69,7 @@ impl ScratchState {
 
     /// The saved cursor as (line, byte column), kept inside the text and on a character boundary.
     pub fn cursor(&self) -> (usize, usize) {
-        let lines: Vec<&str> = self.text.split('\n').collect();
-        let line = self.view.cursor_line.min(lines.len() - 1);
-        (line, clamp_column(lines[line], self.view.cursor_column))
+        self.view.cursor_in(&self.text)
     }
 }
 
@@ -87,6 +85,14 @@ pub fn clamp_column(line: &str, column: usize) -> usize {
 }
 
 impl ScratchView {
+    /// The saved cursor as (line, byte column) in `text`, kept inside it and on a character
+    /// boundary.
+    pub fn cursor_in(&self, text: &str) -> (usize, usize) {
+        let lines: Vec<&str> = text.split('\n').collect();
+        let line = self.cursor_line.min(lines.len() - 1);
+        (line, clamp_column(lines[line], self.cursor_column))
+    }
+
     /// Saves only the cursor, for when they move but the text hasn't changed.
     pub fn save(&self, data_dir: &Path) -> io::Result<()> {
         let json = serde_json::to_string(self).map_err(io::Error::other)?;
