@@ -184,8 +184,11 @@ stop typing, the script is checked with `bash -n` (which reads it without runnin
 the status bar shows the first error, such as ``Shell syntax error at line 4: syntax error near
 unexpected token `fi'``. On Windows scripts aren't checked, since `bash` there usually starts WSL.
 
-Files must be UTF-8, which almost every editor writes today. Any other file opens empty and
-read-only, and the status bar says why; the file itself is never touched. A file keeps its line
+Files should be UTF-8, which almost every editor writes today. Any other text file (Latin-1, or
+UTF-16 with a byte order mark) opens read-only, so you can read it: the status bar says "Read-only:
+not UTF-8", and bytes that aren't text show as �. Nothing is saved back, so the file is never
+touched; Save as writes a UTF-8 copy. A binary file (a program, an image) has nothing to read, so it
+isn't opened, and the status bar says "binary file, not text". A file keeps its line
 endings (Unix, Windows or old Mac style; a file that mixes them is saved with whichever it uses
 most) and any byte order mark, the invisible character some Windows programs put at the start.
 

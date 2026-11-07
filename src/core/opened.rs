@@ -13,7 +13,7 @@ use crate::core::scratch::{
     ScratchState, ScratchView, claim_scratch, load_history, save_history, scratch_lock_path,
     scratch_open_elsewhere, scratch_text_path,
 };
-use crate::core::text_file::{DiskStamp, LineEnding, read_text, save_text};
+use crate::core::text_file::{DiskStamp, LineEnding, read_lossy, read_text, save_text};
 use crate::core::text_model::Change;
 
 /// What a window is showing.
@@ -68,7 +68,8 @@ pub struct OpenedDoc {
 }
 
 /// Opens `doc`: claims it so no second window edits it, reads it, and decides whether it can be
-/// edited. A file that doesn't exist yet is created empty.
+/// edited. A file that doesn't exist yet is created empty, and one that isn't UTF-8 is shown
+/// read-only.
 pub fn open_doc(doc: Doc, paths: &Paths) -> OpenedDoc {
     let mut opened = OpenedDoc {
         doc: doc.clone(),
@@ -119,6 +120,17 @@ pub fn open_doc(doc: Doc, paths: &Paths) -> OpenedDoc {
                         opened.read_only_reason = Some(NO_PERMISSION.to_string());
                     }
                 }
+                // Not UTF-8: look, but never save, so the file's bytes can't be overwritten with
+                // replacement characters. A binary file or a non-file can't even be looked at.
+                Err(error) if error.kind() == ErrorKind::InvalidData => match read_lossy(&path) {
+                    Ok(text) => {
+                        opened.text = text;
+                        opened.read_only_reason = Some(NOT_UTF8.to_string());
+                    }
+                    Err(error) => {
+                        opened.read_only_reason = Some(format!("Couldn't open: {error}"));
+                    }
+                },
                 Err(error) => opened.read_only_reason = Some(format!("Couldn't open: {error}")),
             }
             opened.disk_stamp = DiskStamp::of(&path);
@@ -145,9 +157,9 @@ pub fn open_doc(doc: Doc, paths: &Paths) -> OpenedDoc {
 }
 
 /// Opens `doc` in the window showing `own`, in its place, as a launch on it would. A document the
-/// window couldn't edit or even show, being open in another window or not readable as text, is
-/// refused with the reason, so the window keeps `own`. A file the user can't write still opens,
-/// read-only.
+/// window couldn't even show, being open in another window or a binary file, is refused with the
+/// reason, so the window keeps `own`. A file the user can't write, or that isn't UTF-8, still
+/// opens, read-only.
 pub fn open_in_place(own: &Doc, doc: Doc, paths: &Paths) -> Result<OpenedDoc, String> {
     let data_dir = &paths.data_dir;
     match &doc {
@@ -164,7 +176,7 @@ pub fn open_in_place(own: &Doc, doc: Doc, paths: &Paths) -> Result<OpenedDoc, St
     }
     let opened = open_doc(doc, paths);
     if let Some(reason) = &opened.read_only_reason
-        && reason != NO_PERMISSION
+        && ![NO_PERMISSION, NOT_UTF8].contains(&reason.as_str())
     {
         return Err(reason.clone());
     }
@@ -220,6 +232,7 @@ pub fn empty_file(data_dir: &Path, own: &Doc, path: &Path) -> Result<(), String>
 const OPEN_ELSEWHERE: &str = "That file is open in another window";
 const OPEN_HERE: &str = "That file is open in this window";
 const NO_PERMISSION: &str = "Read-only: no permission to save here";
+const NOT_UTF8: &str = "Read-only: not UTF-8 (bad bytes show as \u{fffd}), file untouched";
 
 /// True when `path` is where the window showing `own` keeps its text (scratch's file, for
 /// scratch). The window's own claim on it would otherwise read as another window's.
@@ -483,15 +496,28 @@ mod tests {
     }
 
     #[test]
-    fn unreadable_file_is_read_only() {
+    fn a_file_that_isnt_utf8_opens_read_only_and_is_left_alone() {
         let dir = tempfile::tempdir().unwrap();
         let paths = Paths::under(dir.path());
-        let path = dir.path().join("binary.txt");
-        fs::write(&path, [0xff, 0xfe]).unwrap();
+        let path = dir.path().join("latin1.txt");
+        fs::write(&path, b"caf\xe9").unwrap();
         let opened = open_doc(file_doc(&path), &paths);
+        assert_eq!(opened.text, "caf\u{fffd}");
+        assert_eq!(opened.read_only_reason.as_deref(), Some(NOT_UTF8));
+        assert_eq!(fs::read(&path).unwrap(), b"caf\xe9");
+    }
+
+    #[test]
+    fn a_binary_file_opens_empty_and_says_why() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::under(dir.path());
+        let path = dir.path().join("program");
+        fs::write(&path, b"\x7fELF\x00\xff").unwrap();
+        let opened = open_doc(file_doc(&path), &paths);
+        assert_eq!(opened.text, "");
         assert_eq!(
             opened.read_only_reason.as_deref(),
-            Some("Couldn't open: not a UTF-8 text file")
+            Some("Couldn't open: binary file, not text")
         );
     }
 
@@ -551,9 +577,9 @@ mod tests {
         let refused = open_in_place(&Doc::Scratch, file_doc(&taken), &paths);
         assert_eq!(refused.unwrap_err(), OPEN_ELSEWHERE);
         let binary = dir.path().join("binary.txt");
-        fs::write(&binary, [0xff, 0xfe]).unwrap();
+        fs::write(&binary, [0x7f, 0x00, 0xff]).unwrap();
         let refused = open_in_place(&Doc::Scratch, file_doc(&binary), &paths);
-        assert_eq!(refused.unwrap_err(), "Couldn't open: not a UTF-8 text file");
+        assert_eq!(refused.unwrap_err(), "Couldn't open: binary file, not text");
         let scratch = open_doc(Doc::Scratch, &paths);
         let scratch_file = file_doc(&scratch_text_path(&paths.data_dir));
         let refused = open_in_place(&scratch.doc, scratch_file, &paths);
@@ -564,6 +590,17 @@ mod tests {
             refused.unwrap_err(),
             "Scratch is already open in another window"
         );
+    }
+
+    #[test]
+    fn open_in_place_shows_a_file_that_isnt_utf8_read_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::under(dir.path());
+        let path = dir.path().join("latin1.txt");
+        fs::write(&path, b"caf\xe9").unwrap();
+        let opened = open_in_place(&Doc::Scratch, file_doc(&path), &paths).unwrap();
+        assert_eq!(opened.text, "caf\u{fffd}");
+        assert_eq!(opened.read_only_reason.as_deref(), Some(NOT_UTF8));
     }
 
     #[cfg(unix)]

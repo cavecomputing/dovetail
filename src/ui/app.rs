@@ -2145,11 +2145,23 @@ mod tests {
     fn a_file_that_cant_be_opened_leaves_scratch_as_it_was() {
         let (dir, _paths, mut app, _notes) = scratch_window("mine");
         let binary = dir.path().join("binary.txt");
-        std::fs::write(&binary, [0xff, 0xfe]).unwrap();
+        std::fs::write(&binary, [0x7f, 0x00, 0xff]).unwrap();
         let _ = app.update(Message::OpenPath(binary));
         assert!(matches!(app.doc, Doc::Scratch));
         assert_eq!(app.pane.model.text(), "mine");
         let notice = app.notice.as_ref().map(|(words, _)| words.as_str());
-        assert_eq!(notice, Some("Couldn't open: not a UTF-8 text file"));
+        assert_eq!(notice, Some("Couldn't open: binary file, not text"));
+    }
+
+    #[test]
+    fn a_file_that_isnt_utf8_opens_here_read_only() {
+        let (dir, _paths, mut app, _notes) = scratch_window("mine");
+        let latin1 = dir.path().join("latin1.txt");
+        std::fs::write(&latin1, b"caf\xe9").unwrap();
+        let _ = app.update(Message::OpenPath(latin1.clone()));
+        assert!(matches!(app.doc, Doc::File { .. }));
+        assert_eq!(app.pane.model.text(), "caf\u{fffd}");
+        assert!(!app.editable());
+        assert_eq!(std::fs::read(&latin1).unwrap(), b"caf\xe9");
     }
 }

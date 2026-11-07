@@ -59,12 +59,7 @@ const BOM: char = '\u{feff}';
 /// Reads a UTF-8 text file. A file that isn't UTF-8 is refused with a readable error, rather than
 /// opened with replacement characters that the next autosave would write back.
 pub fn read_text(path: &Path) -> io::Result<TextFile> {
-    // Only a regular file: reading a pipe or a device such as /dev/zero would block or grow
-    // forever, with no window to close.
-    if !fs::metadata(path)?.is_file() {
-        return Err(io::Error::new(ErrorKind::InvalidData, "not a regular file"));
-    }
-    let bytes = fs::read(path)?;
+    let bytes = read_regular_file(path)?;
     let text = String::from_utf8(bytes)
         .map_err(|_| io::Error::new(ErrorKind::InvalidData, "not a UTF-8 text file"))?;
     // Left in the text, the mark would be an invisible character that typing at the very start
@@ -78,6 +73,44 @@ pub fn read_text(path: &Path) -> io::Result<TextFile> {
         line_ending: LineEnding::detect(text),
         bom,
     })
+}
+
+/// What a file that `read_text` refused as not UTF-8 holds, to look at and never to save back:
+/// UTF-16 with a byte order mark is decoded, anything else as UTF-8 with U+FFFD where a byte isn't
+/// text. A binary file (a NUL byte in its first 8000, as git decides) is refused, since showing it
+/// would only be a wall of replacement characters.
+pub fn read_lossy(path: &Path) -> io::Result<String> {
+    let bytes = read_regular_file(path)?;
+    let text = match bytes.as_slice() {
+        [0xff, 0xfe, rest @ ..] => utf16(rest, u16::from_le_bytes),
+        [0xfe, 0xff, rest @ ..] => utf16(rest, u16::from_be_bytes),
+        _ if bytes.iter().take(8000).any(|&byte| byte == 0) => {
+            return Err(io::Error::new(
+                ErrorKind::InvalidData,
+                "binary file, not text",
+            ));
+        }
+        _ => String::from_utf8_lossy(&bytes).into_owned(),
+    };
+    Ok(newlines_only(&text))
+}
+
+/// UTF-16 text from `bytes`, two to a unit, `unit` saying which byte comes first.
+fn utf16(bytes: &[u8], unit: fn([u8; 2]) -> u16) -> String {
+    let units: Vec<u16> = bytes
+        .chunks_exact(2)
+        .map(|pair| unit([pair[0], pair[1]]))
+        .collect();
+    String::from_utf16_lossy(&units)
+}
+
+/// The bytes of the file at `path`, which must be a regular file: reading a pipe or a device such
+/// as /dev/zero would block or grow forever, with no window to close.
+fn read_regular_file(path: &Path) -> io::Result<Vec<u8>> {
+    if !fs::metadata(path)?.is_file() {
+        return Err(io::Error::new(ErrorKind::InvalidData, "not a regular file"));
+    }
+    fs::read(path)
 }
 
 /// `text` with every line ending (`\r\n`, or a lone `\r` from an old Mac file or a terminal) as
@@ -244,6 +277,33 @@ mod tests {
         let error = read_text(&path).unwrap_err();
         assert_eq!(error.kind(), ErrorKind::InvalidData);
         assert_eq!(error.to_string(), "not a UTF-8 text file");
+    }
+
+    #[test]
+    fn lossy_reading_shows_what_it_can_of_a_file_that_isnt_utf8() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("latin1.txt");
+        fs::write(&path, b"caf\xe9 au lait\r\n").unwrap();
+        assert_eq!(read_lossy(&path).unwrap(), "caf\u{fffd} au lait\n");
+    }
+
+    #[test]
+    fn lossy_reading_decodes_utf16_with_a_byte_order_mark() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("utf16.txt");
+        fs::write(&path, [0xff, 0xfe, b'h', 0, b'i', 0, b'\r', 0, b'\n', 0]).unwrap();
+        assert_eq!(read_lossy(&path).unwrap(), "hi\n");
+        fs::write(&path, [0xfe, 0xff, 0, b'h', 0, b'i']).unwrap();
+        assert_eq!(read_lossy(&path).unwrap(), "hi");
+    }
+
+    #[test]
+    fn lossy_reading_refuses_a_binary_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("program");
+        fs::write(&path, b"\x7fELF\x02\x01\x01\x00").unwrap();
+        let error = read_lossy(&path).unwrap_err();
+        assert_eq!(error.to_string(), "binary file, not text");
     }
 
     #[test]
