@@ -2017,6 +2017,22 @@ mod tests {
     }
 
     #[test]
+    fn the_status_bar_counts_the_selection_when_there_is_one() {
+        let (_dir, _paths, mut app, _scratch) = scratch_window("");
+        type_in(&mut app, "one two three");
+        assert_eq!(status_bar::selected_counts(&app), None);
+        let _ = app.update(Message::Edit(Action::SelectAll));
+        let chosen = status_bar::selected_counts(&app).expect("everything is selected");
+        assert_eq!(chosen.words, 3);
+        let _ = app.update(Message::Edit(Action::Move(Motion::Left)));
+        assert_eq!(
+            status_bar::selected_counts(&app),
+            None,
+            "no selection, no counts"
+        );
+    }
+
+    #[test]
     fn ctrl_wheel_zooms_instead_of_scrolling() {
         let (_dir, _paths, mut app, _scratch) = scratch_window("");
         let size = app.settings.font_size;

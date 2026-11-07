@@ -131,7 +131,7 @@ after the last `/` the first row is `../`, which does the same.
 Redo, Find, Replace, Go to line, Line numbers, Word wrap, Settings, Scratch, then the six most recent files; Ctrl+P has
 the rest), the save dot, any problem
 in orange (a failed save, a file that isn't valid JSON, say), and the file's path (or Scratch); on
-the right, words and tokens, the line and column if switched on, then the assistant button. Tokens are counted with OpenAI's o200k tokenizer (hover to
+the right, words and tokens (of the selection while some text is selected: `12 of 44 words`), the line and column if switched on, then the assistant button. Tokens are counted with OpenAI's o200k tokenizer (hover to
 see it), a close enough guide for other models.
 
 **Markdown** files (`.md` and `.markdown`) open like `.txt` files: type `notes.md` as the name in New file or Save as to make one. Those two save

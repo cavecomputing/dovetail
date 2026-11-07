@@ -7,6 +7,7 @@ use iced::widget::text::Wrapping;
 use iced::widget::{button, column, container, mouse_area, row, space, text, tooltip};
 use iced::{Background, Border, Color, Element, Fill, Theme};
 
+use crate::core::counts::Counts;
 use crate::core::opened::Doc;
 use crate::core::paths::display_path;
 use crate::core::save::SaveState;
@@ -90,8 +91,12 @@ pub fn view(app: &App, width: f32) -> Element<'_, Message> {
     }
 
     // While rewriting, the original's counts come first: "108 → 120 words".
-    let (words, tokens) = match (&app.original, &app.original_counts) {
-        (Some(_), Some(original)) => (
+    let (words, tokens) = match (selected_counts(app), &app.original, &app.original_counts) {
+        (Some(chosen), _, _) => (
+            format!("{} of {} words · ", chosen.words, app.counts.words),
+            format!("~{} of ~{} tokens", chosen.tokens, app.counts.tokens),
+        ),
+        (_, Some(_), Some(original)) => (
             format!("{} → {} words · ", original.words, app.counts.words),
             format!("~{} → ~{} tokens", original.tokens, app.counts.tokens),
         ),
@@ -160,6 +165,21 @@ pub fn bar(content: Element<'_, Message>) -> Element<'_, Message> {
             }),
     ]
     .into()
+}
+
+/// The longest selection counted each frame; a bigger one leaves the whole text's counts showing.
+const SELECTION_COUNT_LIMIT: usize = 2_000_000;
+
+/// The counts of the selected text, shown as "12 of 44 words". Not while rewriting, where the bar
+/// already shows two sets of counts.
+pub fn selected_counts(app: &App) -> Option<Counts> {
+    let range = app
+        .pane
+        .selection()
+        .filter(|range| range.len() <= SELECTION_COUNT_LIMIT)?;
+    app.original
+        .is_none()
+        .then(|| Counts::of(&app.pane.model.text()[range]))
 }
 
 /// `label` cut from the front to fit `room` characters, keeping its end: `…/folder/name.txt`.
