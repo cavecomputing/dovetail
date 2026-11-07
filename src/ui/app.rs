@@ -1111,27 +1111,31 @@ impl App {
 
     fn view(&self, _window: window::Id) -> Element<'_, Message> {
         let show_controls = window_controls::visible(self.settings.window_controls);
-        // Always inside `responsive`, so opening the pane keeps the editor's state.
-        let document = responsive(move |size| assistant_view::beside(self, size.width));
-        let mut text_area = column![document];
-        if self.find.open || self.find.line.is_some() {
-            text_area = text_area.push(find_bar::view(self));
-        }
-        // Settings covers the text area, between the window controls and the status bar, which
-        // then says where the settings are saved.
-        let (settings, status) = match self.settings_open {
-            true => (settings_panel::view(self), settings_panel::status(self)),
-            false => (space().into(), status_bar::view(self)),
-        };
-        let body = column![stack![text_area, settings], status];
-        // Everything that comes and goes keeps its place, left empty while it's hidden: iced keeps
-        // a widget's state (focus, selection, scroll offsets) only while the widget tree keeps its
-        // shape. So opening Settings or a panel, or hiding the window controls, resets nothing.
-        let strip = match show_controls {
-            true => window_controls::strip(),
-            false => space().into(),
-        };
-        let page = column![strip, body];
+        // The page is always inside `responsive`: the status bar fits its path to the width, and
+        // the document one inside keeps the editor's state when the pane opens.
+        let page = responsive(move |size| {
+            let document = responsive(move |size| assistant_view::beside(self, size.width));
+            let mut text_area = column![document];
+            if self.find.open || self.find.line.is_some() {
+                text_area = text_area.push(find_bar::view(self));
+            }
+            // Settings covers the text area, between the window controls and the status bar,
+            // which then says where the settings are saved.
+            let (settings, status) = match self.settings_open {
+                true => (settings_panel::view(self), settings_panel::status(self)),
+                false => (space().into(), status_bar::view(self, size.width)),
+            };
+            let body = column![stack![text_area, settings], status];
+            // Everything that comes and goes keeps its place, left empty while it's hidden: iced
+            // keeps a widget's state (focus, selection, scroll offsets) only while the widget
+            // tree keeps its shape. So opening Settings or a panel, or hiding the window
+            // controls, resets nothing.
+            let strip = match show_controls {
+                true => window_controls::strip(),
+                false => space().into(),
+            };
+            column![strip, body].into()
+        });
 
         // Each overlay has its own layer over the page.
         let layers = [

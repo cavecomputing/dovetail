@@ -15,7 +15,9 @@ use crate::ui::assistant_actions::AssistantAction;
 use crate::ui::assistant_view::{LINE, SIZE, line, subtle};
 use crate::ui::find_bar::{FindAction, LINE_KEYS};
 use crate::ui::switcher::row_style;
-use crate::ui::theme::{self, GLYPH_CLAUDE, GLYPH_MENU, GLYPH_PEN, Roles, icon_button, raised_box};
+use crate::ui::theme::{
+    self, CHAR_WIDTH_RATIO, GLYPH_CLAUDE, GLYPH_MENU, GLYPH_PEN, Roles, icon_button, raised_box,
+};
 
 pub const HEIGHT: f32 = 29.0 + HIDDEN_BELOW;
 const TEXT_SIZE: f32 = 11.0;
@@ -33,13 +35,19 @@ const SIDE_PADDING: f32 = if cfg!(target_os = "macos") {
 /// so the buttons looked 2px from the edge where the sides had 4px. Nothing is hidden elsewhere.
 const HIDDEN_BELOW: f32 = if cfg!(windows) { 2.0 } else { 0.0 };
 
-pub fn view(app: &App) -> Element<'_, Message> {
+pub fn view(app: &App, width: f32) -> Element<'_, Message> {
     let roles = Roles::of(&app.theme);
     let mut left = row![glyph_button(GLYPH_MENU, Some(Message::ToggleMenu))]
         .spacing(16)
         .align_y(iced::Center);
+    // Room already taken in pixels, to fit the path in what's left: the menu button and its gap,
+    // the dot and its gap, the 16px gaps between and around the two halves, the right-hand
+    // buttons, and a few characters of slack.
+    let letter = TEXT_SIZE * CHAR_WIDTH_RATIO;
+    let mut used = 2.0 * SIDE_PADDING + 22.0 + 16.0 + 16.0 + 16.0 + 3.0 * 22.0 + 4.0 * letter;
     if app.editable() {
         left = left.push(save_status(app, roles));
+        used += 7.0 + 16.0;
     }
     // A save refused because the file changed on disk: never leave the window stuck. The buttons
     // sit right after the reason, short enough to fit a 640px window.
@@ -51,6 +59,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
             "Keep mine".to_string(),
             Some(Message::KeepMine),
         ));
+        used += 2.0 * 16.0 + 20.0 * letter;
     }
     // Warnings in orange, each in words: why the text is read-only, anything a menu action
     // couldn't do, where a data file (JSON, YAML, TOML, INI) stops being valid, a rewrite's file
@@ -64,18 +73,21 @@ pub fn view(app: &App) -> Element<'_, Message> {
     ];
     for warning in warnings.into_iter().flatten() {
         left = left.push(small(warning).color(roles.accent_warm));
+        used += 16.0 + warning.chars().count() as f32 * letter;
     }
     if let Some(reason) = &app.settings_error {
         let label = small("Settings problem").color(roles.accent_warm);
         left = left.push(hint(label, reason.as_str()));
+        used += 16.0 + 16.0 * letter;
     }
     match app.pane.suggestions().len() {
         0 => {}
         1 => left = left.push(small("1 suggestion")),
         waiting => left = left.push(small(format!("{waiting} suggestions"))),
     }
-    // The path comes last, so in a narrow window a long one is what gets cut.
-    left = left.push(small(doc_label(&app.doc)));
+    if !app.pane.suggestions().is_empty() {
+        used += 16.0 + 14.0 * letter;
+    }
 
     // While rewriting, the original's counts come first: "108 → 120 words".
     let (words, tokens) = match (&app.original, &app.original_counts) {
@@ -88,6 +100,14 @@ pub fn view(app: &App) -> Element<'_, Message> {
             format!("~{} tokens", app.counts.tokens),
         ),
     };
+    used += (words.chars().count() + tokens.chars().count()) as f32 * letter;
+    if app.settings.show_line_col {
+        used += 14.0 * letter;
+    }
+    // The path comes last. A long one loses the front of its folders, never the file's name; the
+    // clip below is only the fallback for what the guess above gets wrong.
+    let room = ((width - used) / letter).max(10.0) as usize;
+    left = left.push(small(shorten_path(&doc_label(&app.doc), room)));
     let mut right = row![
         small(words),
         hint(small(tokens), "about 4 bytes a token · UTF-8"),
@@ -140,6 +160,20 @@ pub fn bar(content: Element<'_, Message>) -> Element<'_, Message> {
             }),
     ]
     .into()
+}
+
+/// `label` cut from the front to fit `room` characters, keeping its end: `…/folder/name.txt`.
+/// It starts at a folder boundary when it can, so no name is cut in half.
+fn shorten_path(label: &str, room: usize) -> String {
+    let count = label.chars().count();
+    if count <= room {
+        return label.to_string();
+    }
+    let tail: String = label.chars().skip(count - (room - 1)).collect();
+    match tail.find(['/', '\\']) {
+        Some(at) if at + 1 < tail.len() => format!("…{}", &tail[at..]),
+        _ => format!("…{tail}"),
+    }
 }
 
 /// What the window shows: scratch, or the file's path.
@@ -468,5 +502,18 @@ mod tests {
             true => assert_eq!(written, ["⇧ ⌘ S", "Previous (⇧ ↩)"]),
             false => assert_eq!(written, ["Ctrl+Shift+S", "Previous (Shift+Enter)"]),
         }
+    }
+
+    #[test]
+    fn a_long_path_loses_its_folders_before_its_file_name() {
+        let path = "~/projects/client/2026/reports/final-final/the-long-file-name.txt";
+        assert_eq!(shorten_path(path, 100), path);
+        assert_eq!(
+            shorten_path(path, 46),
+            "…/reports/final-final/the-long-file-name.txt"
+        );
+        // A name too long on its own is cut from the front too, with the end kept.
+        assert_eq!(shorten_path(path, 12), "…le-name.txt");
+        assert_eq!(shorten_path("Scratch", 10), "Scratch");
     }
 }
