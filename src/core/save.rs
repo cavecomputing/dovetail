@@ -21,13 +21,17 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
     fs::create_dir_all(&dir)?;
 
     let result = (|| {
-        let mut file = File::create(&temp)?;
-        // Before writing, so a private file's text is never readable in the temp file.
-        if let Ok(old) = fs::metadata(&path) {
-            file.set_permissions(old.permissions())?;
+        {
+            let mut file = File::create(&temp)?;
+            // Before writing, so a private file's text is never readable in the temp file.
+            if let Ok(old) = fs::metadata(&path) {
+                file.set_permissions(old.permissions())?;
+            }
+            file.write_all(bytes)?;
+            file.sync_all()?;
+            // The block ends here, closing the temp file before the rename, so a sync client
+            // (Google Drive for desktop) never sees a file renamed while still open.
         }
-        file.write_all(bytes)?;
-        file.sync_all()?;
         // On Windows a virus scanner, the search indexer or a sync client can hold the file for a
         // moment, which refuses the rename, so try again for a little while.
         let mut renamed = fs::rename(&temp, &path);
