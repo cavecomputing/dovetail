@@ -243,8 +243,8 @@ vendor/smithay-clipboard/  the Wayland clipboard iced uses, patched to hear drop
                          tells only an app's first data device, the clipboard's, about a drag);
                          its README says what changed and how to update it
 vendor/iced_graphics/    iced's text drawing layer, patched so the editor colours every line in view
-                         (it forgot the rows of a wrapped line scrolled off the top); its README
-                         says what changed and how to update it
+                         on every draw (iced coloured each line once, and a line it missed stayed
+                         wrong); its README says what changed and how to update it
 scripts/                 per-OS installers: install.sh (Linux: binary, icon, .desktop file),
                          install-macos.sh (an app bundle in ~/Applications), install-windows.ps1
                          (Start Menu and Open with entries)

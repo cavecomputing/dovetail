@@ -640,32 +640,25 @@ impl editor::Editor for Editor {
         let internal = self.internal();
         let buffer = buffer_from_editor(&internal.editor);
 
-        let scroll = buffer.scroll();
-        // ours: the view starts `scroll.vertical` pixels into the first line, so those rows
-        // (scrolled off the top) are counted by the window too. Without them the last lines in
-        // view were never coloured, and kept whatever look a split or an edit left them.
-        let mut window = ((internal.bounds.height + scroll.vertical)
-            / buffer.metrics().line_height)
-            .ceil() as i32;
+        // ours: this function, from here to its end. iced coloured each line once, from where it
+        // last stopped down to the bottom of the view, and trusted two things to stay right: its
+        // own count of the lines in view, and the highlighter's note of how far it had got. Each
+        // went wrong (the count when the view began inside a wrapped line, the note when another
+        // text was put in the editor), and the lines missed then stayed wrong, since nothing looked
+        // at them again. Now every line in view is coloured on every draw, so a wrong colour can't
+        // outlast a frame.
+        //
+        // The lines in view are the ones cosmic-text will draw.
+        let first_visible_line = buffer.scroll().line;
+        let Some(last_visible_line) =
+            buffer.layout_runs().last().map(|run| run.line_i)
+        else {
+            return;
+        };
 
-        let last_visible_line = buffer.lines[scroll.line..]
-            .iter()
-            .enumerate()
-            .find_map(|(i, line)| {
-                let visible_lines = line
-                    .layout_opt()
-                    .as_ref()
-                    .expect("Line layout should be cached")
-                    .len() as i32;
-
-                if window > visible_lines {
-                    window -= visible_lines;
-                    None
-                } else {
-                    Some(scroll.line + i)
-                }
-            })
-            .unwrap_or(buffer.lines.len().saturating_sub(1));
+        // Colouring starts again at the top of the view, or above it when the highlighter hasn't
+        // read that far (it reads every line on the way down, as a line may open a code block).
+        highlighter.change_line(first_visible_line);
 
         let current_line = highlighter.current_line();
 
@@ -673,23 +666,26 @@ impl editor::Editor for Editor {
             return;
         }
 
-        let editor =
-            self.0.take().expect("Editor should always be initialized");
-
-        let mut internal = Arc::try_unwrap(editor)
-            .expect("Editor cannot have multiple strong references");
-
-        let mut font_system =
-            text::font_system().write().expect("Write font system");
-
         let attributes = text::to_attributes(font);
 
-        for line in &mut buffer_mut_from_editor(&mut internal.editor).lines
-            [current_line..=last_visible_line]
+        let mut lists = Vec::new();
+
+        for (index, line) in buffer.lines[..=last_visible_line]
+            .iter()
+            .enumerate()
+            .skip(current_line)
         {
+            let highlights = highlighter.highlight_line(line.text());
+
+            // A line above the view is only read; it is coloured when it comes into view.
+            if index < first_visible_line {
+                highlights.for_each(drop);
+                continue;
+            }
+
             let mut list = cosmic_text::AttrsList::new(&attributes);
 
-            for (range, highlight) in highlighter.highlight_line(line.text()) {
+            for (range, highlight) in highlights {
                 let format = format_highlight(&highlight);
 
                 if format.color.is_some() || format.font.is_some() {
@@ -707,7 +703,30 @@ impl editor::Editor for Editor {
                 }
             }
 
-            let _ = line.set_attrs_list(list);
+            lists.push((index, list));
+        }
+
+        // Most draws change nothing (the caret blinking, the pointer moving). The editor is left
+        // as it is then: taking it apart below makes the renderer paint the whole text again.
+        lists.retain(|(index, list)| buffer.lines[*index].attrs_list() != list);
+
+        if lists.is_empty() {
+            return;
+        }
+
+        let editor =
+            self.0.take().expect("Editor should always be initialized");
+
+        let mut internal = Arc::try_unwrap(editor)
+            .expect("Editor cannot have multiple strong references");
+
+        let mut font_system =
+            text::font_system().write().expect("Write font system");
+
+        let buffer = buffer_mut_from_editor(&mut internal.editor);
+
+        for (index, list) in lists {
+            let _ = buffer.lines[index].set_attrs_list(list);
         }
 
         internal.editor.shape_as_needed(font_system.raw(), false);

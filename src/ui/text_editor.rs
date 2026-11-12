@@ -357,9 +357,11 @@ where
     editor: R::Editor,
     // ours: a top line to scroll to at the next layout, from `Content::scroll_to_line`.
     scroll_to: Option<usize>,
-    // ours: the first line any edit since the last layout changed. iced's editor keeps only the
-    // last edit's, but an undo or an indent can make several edits at once, and Markdown colours
-    // depend on the lines above, so colouring must start again from the first.
+    // ours: the first line any edit since the last layout changed, which the highlighter reads
+    // again from (a line may open or close a code block for the lines below it). iced's editor
+    // keeps only the last edit's, but an undo or an indent can make several edits at once. A new
+    // text starts at line 0: the widget's highlighter outlives the text it was reading, and would
+    // otherwise carry on from where it stopped in the old one.
     changed_from: Option<usize>,
     // ours: what a double or triple click selected, whole words or whole lines, kept while a drag
     // or Shift+arrow grows it. iced's `cursor()` reports such a selection as only the points
@@ -419,7 +421,7 @@ where
         Self(RefCell::new(Internal {
             editor,
             scroll_to: None,
-            changed_from: None,
+            changed_from: Some(0),
             whole: None,
         }))
     }
@@ -952,7 +954,8 @@ where
             state.highlighter_settings = self.highlighter_settings.clone();
         }
 
-        // ours: colour again from the first line edited since the last layout.
+        // ours: read again from the first line edited since the last layout (line 0 of a new
+        // text).
         if let Some(line) = internal.changed_from.take() {
             state.highlighter.borrow_mut().change_line(line);
         }
@@ -1738,6 +1741,9 @@ mod tests {
     fn several_edits_colour_again_from_the_first_line_they_changed() {
         let mut content = Content::with_text("a\nb\nc\nd");
         let changed_from = |content: &Content| content.0.borrow().changed_from;
+        assert_eq!(changed_from(&content), Some(0), "a new text, from its top");
+        // The widget's layout takes it.
+        content.0.get_mut().changed_from = None;
         content.perform(Action::Move(Motion::Down));
         assert_eq!(changed_from(&content), None, "moving changes nothing");
         // An indent of lines 1 and 3, top line first: iced would only say line 3.
@@ -1753,60 +1759,146 @@ mod tests {
         assert_eq!(changed_from(&content), Some(0));
     }
 
-    /// iced colours the lines in view, counting rows from the line the view starts in. A view
-    /// that starts partway into a wrapped line has rows scrolled off its top; they must count too
-    /// (the patch in `vendor/iced_graphics`), or the last lines in view stay uncoloured.
-    #[test]
-    fn the_last_line_in_view_is_coloured_when_the_view_starts_inside_a_wrapped_line() {
+    /// A Markdown text in an editor `rows` rows high and 200 wide, laid out, with the highlighter
+    /// the widget would keep for it, and a closure that draws it as the widget's `draw` does.
+    fn markdown_editor(
+        text: &str,
+        rows: f32,
+    ) -> (
+        Content,
+        crate::ui::highlighter::MarkupHighlighter,
+        impl Fn(&mut Content, &mut crate::ui::highlighter::MarkupHighlighter),
+    ) {
         use crate::core::syntax::Syntax;
         use crate::ui::highlighter::{Colouring, MarkupHighlighter, highlight_format};
         let font = iced::Font::default();
-        let theme = iced::Theme::Dark;
         let colouring = Colouring {
             syntax: Syntax::Markdown,
             markup: false,
             review: Vec::new(),
         };
-        let mut highlighter = MarkupHighlighter::new(&colouring);
-        // Eight lines of 4 rows, then a heading: the view fits 10 rows, of which the first two
-        // belong to a line scrolled off (a row and a half of it).
-        let mut text = "word ".repeat(40);
-        text = format!("{text}\n").repeat(8);
-        text.push_str("# heading");
-        let mut content: Content = Content::with_text(&text);
-        let internal = content.0.get_mut();
-        let size = Pixels(10.0);
-        let height = 10.0 * size.0 * 1.3;
-        let update = |editor: &mut <iced::Renderer as text::Renderer>::Editor,
-                      highlighter: &mut MarkupHighlighter| {
-            editor.update(
-                Size::new(200.0, height),
+        let draw = move |content: &mut Content, highlighter: &mut MarkupHighlighter| {
+            let internal = content.0.get_mut();
+            if let Some(line) = internal.changed_from.take() {
+                highlighter.change_line(line);
+            }
+            let size = Pixels(10.0);
+            internal.editor.update(
+                Size::new(200.0, rows * size.0 * 1.3),
                 font,
                 size,
                 LineHeight::Relative(1.3),
                 Wrapping::WordOrGlyph,
                 highlighter,
             );
-        };
-        update(&mut internal.editor, &mut highlighter);
-        internal.editor.perform(Action::Move(Motion::DocumentEnd));
-        update(&mut internal.editor, &mut highlighter);
-        internal.editor.perform(Action::Scroll { lines: 1_000 });
-        update(&mut internal.editor, &mut highlighter);
-        internal
-            .editor
-            .highlight(font, &mut highlighter, |highlight| {
-                highlight_format(highlight, &theme)
+            internal.editor.highlight(font, highlighter, |highlight| {
+                highlight_format(highlight, &iced::Theme::Dark)
             });
-        let buffer = internal.editor.buffer();
-        let heading = buffer.lines.last().expect("the heading line");
+        };
+        let mut content = Content::with_text(text);
+        let mut highlighter = MarkupHighlighter::new(&colouring);
+        draw(&mut content, &mut highlighter);
+        (content, highlighter, draw)
+    }
+
+    /// Whether each line of `content` has any colour or font of its own.
+    fn coloured(content: &Content) -> Vec<bool> {
+        let internal = content.0.borrow();
+        let lines = internal.editor.buffer().lines.iter();
+        lines
+            .map(|line| !line.attrs_list().spans().is_empty())
+            .collect()
+    }
+
+    /// A view that starts partway into a wrapped line has rows scrolled off its top. iced counted
+    /// the rows in view from that line's first row, so the last lines in view stayed uncoloured.
+    #[test]
+    fn the_last_line_in_view_is_coloured_when_the_view_starts_inside_a_wrapped_line() {
+        // Eight lines of 4 rows, then a heading: the view fits 10 rows, of which the first two
+        // belong to a line scrolled off (a row and a half of it).
+        let mut text = "word ".repeat(40);
+        text = format!("{text}\n").repeat(8);
+        text.push_str("# heading");
+        let (mut content, mut highlighter, draw) = markdown_editor(&text, 10.0);
+        content.perform(Action::Move(Motion::DocumentEnd));
+        draw(&mut content, &mut highlighter);
+        content.perform(Action::Scroll { lines: 1_000 });
+        draw(&mut content, &mut highlighter);
         assert!(
-            buffer.scroll().vertical > 0.0,
+            content.0.borrow().editor.buffer().scroll().vertical > 0.0,
             "the view starts inside a line"
         );
+        assert_eq!(coloured(&content).last(), Some(&true), "the heading");
+    }
+
+    /// The widget keeps one highlighter while the app puts another document in the editor. It
+    /// had read the old text down to the bottom of the view, and iced reports a text of 100
+    /// lines or more as changed only from its last hundred, so the top of the new one stayed
+    /// plain.
+    #[test]
+    fn a_new_text_in_the_same_editor_is_coloured_from_its_top() {
+        let text = "# heading\n".repeat(250);
+        let (_, mut highlighter, draw) = markdown_editor(&text, 10.0);
+        assert!(highlighter.current_line() >= 10, "read down the view");
+        let mut next = Content::with_text(&text);
+        draw(&mut next, &mut highlighter);
+        assert!(coloured(&next)[..10].iter().all(|coloured| *coloured));
+    }
+
+    /// Lines in view are coloured on every draw, whatever the highlighter was or wasn't told:
+    /// here a line changes without a word to it, and still gets its colour, and loses it again.
+    #[test]
+    fn every_line_in_view_is_coloured_again_on_each_draw() {
+        let (mut content, mut highlighter, draw) = markdown_editor("plain\ntext\nhere", 10.0);
+        assert_eq!(coloured(&content), [false, false, false]);
+        let forget = |content: &mut Content| {
+            let internal = content.0.get_mut();
+            internal.changed_from = None;
+            internal.editor.update(
+                Size::new(200.0, 130.0),
+                iced::Font::default(),
+                Pixels(10.0),
+                LineHeight::Relative(1.3),
+                Wrapping::WordOrGlyph,
+                &mut highlighter::PlainText::new(&()),
+            );
+        };
+        content.move_to(caret(1, 0));
+        content.perform(Action::Edit(Edit::Paste(Arc::new("# ".to_string()))));
+        forget(&mut content);
+        draw(&mut content, &mut highlighter);
+        assert_eq!(coloured(&content), [false, true, false]);
+        // Enter at the heading's end hands its look to the new line, which must not keep it.
+        content.perform(Action::Move(Motion::End));
+        content.perform(Action::Edit(Edit::Enter));
+        content.perform(Action::Edit(Edit::Insert('x')));
+        forget(&mut content);
+        draw(&mut content, &mut highlighter);
+        assert_eq!(coloured(&content), [false, true, false, false]);
+    }
+
+    /// A line above the view still opens a code block for the lines in it, also after an edit up
+    /// there that the view never showed.
+    #[test]
+    fn a_fence_above_the_view_colours_the_lines_in_view_as_code() {
+        let mut text = "intro\n".to_string();
+        text.push_str(&"line\n".repeat(60));
+        let (mut content, mut highlighter, draw) = markdown_editor(&text, 10.0);
+        content.perform(Action::Move(Motion::DocumentEnd));
+        draw(&mut content, &mut highlighter);
+        assert!(coloured(&content).iter().all(|coloured| !coloured));
+        // As a suggested edit or a replace does: the caret goes up, the edit is made, and the
+        // caret comes back, all before the next draw.
+        content.move_to(caret(0, 0));
+        content.perform(Action::Edit(Edit::Paste(Arc::new("```\n".to_string()))));
+        content.perform(Action::Move(Motion::DocumentEnd));
+        draw(&mut content, &mut highlighter);
+        let top = content.scroll_line();
+        assert!(top > 40, "still at the end");
         assert!(
-            !heading.attrs_list().spans().is_empty(),
-            "the heading in the last row is coloured"
+            coloured(&content)[top..top + 9]
+                .iter()
+                .all(|coloured| *coloured)
         );
     }
 

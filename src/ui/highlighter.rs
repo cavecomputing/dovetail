@@ -88,8 +88,10 @@ pub fn dimmed_format(highlight: &Highlight, theme: &Theme) -> highlighter::Forma
     }
 }
 
-/// iced asks for colours one line at a time, from `current_line` down to the last line in view,
-/// and says which line an edit changed first; `line` tracks how far it has got.
+/// The editor asks for colours one line at a time, from `current_line` down to the last line in
+/// view, on every draw: it first calls `change_line` with the top line in view, so each line in
+/// view is coloured afresh, and the lines above are read only once (`carried` remembers what they
+/// lead to) until an edit changes one. `line` is the next line to read.
 pub struct MarkupHighlighter {
     line: usize,
     /// What each line up to `line` starts inside, so colouring can carry on from any of them.
@@ -134,8 +136,9 @@ impl Highlighter for MarkupHighlighter {
         self.colouring = colouring.clone();
     }
 
-    /// An edit changed `line`: colouring starts again from there, if it had got that far, and
-    /// what it knew about the lines after it is dropped, as the edit may open or close a fence.
+    /// Reading starts again from `line`, if it had got that far: an edit changed it, or it is
+    /// the top of the view. What was known about the lines after it is dropped, as an edit may
+    /// open or close a fence.
     fn change_line(&mut self, line: usize) {
         self.line = self.line.min(line);
         self.carried.truncate(self.line + 1);
@@ -214,8 +217,8 @@ mod tests {
         }
     }
 
-    /// Colours `lines` as iced's editor does when it draws: from the highlighter's current line
-    /// down to `last_in_view`. Returns each line it coloured, with the looks it got.
+    /// Reads `lines` from the highlighter's current line down to `last_in_view`, as the editor
+    /// does for a view that has just come to show them. Returns each line read, with its looks.
     fn draw(
         highlighter: &mut MarkupHighlighter,
         lines: &[&str],
