@@ -1753,6 +1753,63 @@ mod tests {
         assert_eq!(changed_from(&content), Some(0));
     }
 
+    /// iced colours the lines in view, counting rows from the line the view starts in. A view
+    /// that starts partway into a wrapped line has rows scrolled off its top; they must count too
+    /// (the patch in `vendor/iced_graphics`), or the last lines in view stay uncoloured.
+    #[test]
+    fn the_last_line_in_view_is_coloured_when_the_view_starts_inside_a_wrapped_line() {
+        use crate::core::syntax::Syntax;
+        use crate::ui::highlighter::{Colouring, MarkupHighlighter, highlight_format};
+        let font = iced::Font::default();
+        let theme = iced::Theme::Dark;
+        let colouring = Colouring {
+            syntax: Syntax::Markdown,
+            markup: false,
+            review: Vec::new(),
+        };
+        let mut highlighter = MarkupHighlighter::new(&colouring);
+        // Eight lines of 4 rows, then a heading: the view fits 10 rows, of which the first two
+        // belong to a line scrolled off (a row and a half of it).
+        let mut text = "word ".repeat(40);
+        text = format!("{text}\n").repeat(8);
+        text.push_str("# heading");
+        let mut content: Content = Content::with_text(&text);
+        let internal = content.0.get_mut();
+        let size = Pixels(10.0);
+        let height = 10.0 * size.0 * 1.3;
+        let update = |editor: &mut <iced::Renderer as text::Renderer>::Editor,
+                      highlighter: &mut MarkupHighlighter| {
+            editor.update(
+                Size::new(200.0, height),
+                font,
+                size,
+                LineHeight::Relative(1.3),
+                Wrapping::WordOrGlyph,
+                highlighter,
+            );
+        };
+        update(&mut internal.editor, &mut highlighter);
+        internal.editor.perform(Action::Move(Motion::DocumentEnd));
+        update(&mut internal.editor, &mut highlighter);
+        internal.editor.perform(Action::Scroll { lines: 1_000 });
+        update(&mut internal.editor, &mut highlighter);
+        internal
+            .editor
+            .highlight(font, &mut highlighter, |highlight| {
+                highlight_format(highlight, &theme)
+            });
+        let buffer = internal.editor.buffer();
+        let heading = buffer.lines.last().expect("the heading line");
+        assert!(
+            buffer.scroll().vertical > 0.0,
+            "the view starts inside a line"
+        );
+        assert!(
+            !heading.attrs_list().spans().is_empty(),
+            "the heading in the last row is coloured"
+        );
+    }
+
     #[test]
     fn a_line_not_laid_out_yet_counts_its_wrapped_rows() {
         assert_eq!(estimated_rows("", Some(10)), 1);

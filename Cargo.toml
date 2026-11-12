@@ -56,3 +56,6 @@ tokio = { version = "1", features = ["macros", "rt", "net", "io-util"] }
 # vendor/smithay-clipboard/README.md).
 [patch.crates-io]
 smithay-clipboard = { path = "vendor/smithay-clipboard" }
+# iced's editor colours too few lines when the view starts partway into a wrapped line (see
+# vendor/iced_graphics/README.md).
+iced_graphics = { path = "vendor/iced_graphics" }
