@@ -511,6 +511,13 @@ fn inline_ranges(line: &str, from: usize) -> Vec<(Range<usize>, Markdown)> {
     let mut found = Vec::new();
     // Runs of `*`, `_` or `~` that may still be closed: (character, start, length).
     let mut openers: Vec<(u8, usize, usize)> = Vec::new();
+    // The first `]` at or after `at`, found once for every `[` before it rather than once each
+    // (a long line of `[` took seconds); the line's length when there are no more.
+    let first_close = |at: usize| {
+        let found = bytes[at..].iter().position(|&b| b == b']');
+        found.map_or(bytes.len(), |found| at + found)
+    };
+    let mut close = first_close(from);
     let mut at = from;
     while at < bytes.len() {
         let byte = bytes[at];
@@ -518,7 +525,10 @@ fn inline_ranges(line: &str, from: usize) -> Vec<(Range<usize>, Markdown)> {
             at += 2;
             continue;
         }
-        if let Some((text, url)) = link(bytes, at) {
+        if close < at {
+            close = first_close(at);
+        }
+        if let Some((text, url)) = link(bytes, at, close) {
             at = url.end;
             found.push((text, Markdown::LinkText));
             found.push((url, Markdown::LinkUrl));
@@ -548,10 +558,12 @@ fn inline_ranges(line: &str, from: usize) -> Vec<(Range<usize>, Markdown)> {
             // A closer pairs with the latest opener of its length. A run of three also pairs with
             // one of one or two, and the rest of it closes or stays open on its own, so
             // `**a *b***` and `***a** b*` are each bold and italic. `left` is what hasn't closed.
-            let mut left = run;
-            while let Some(index) = openers.iter().rposition(|&(b, _, length)| {
-                closes && left > 0 && b == byte && (length == left || length.max(left) == 3)
-            }) {
+            let mut left = if closes { run } else { 0 };
+            while left > 0
+                && let Some(index) = openers.iter().rposition(|&(b, _, length)| {
+                    b == byte && (length == left || length.max(left) == 3)
+                })
+            {
                 let (_, start, length) = openers[index];
                 let used = length.min(left);
                 openers.truncate(index);
@@ -568,7 +580,7 @@ fn inline_ranges(line: &str, from: usize) -> Vec<(Range<usize>, Markdown)> {
                 found.push((start + length - used..closer + used, markdown));
                 left -= used;
             }
-            if left == run && opens {
+            if (left == run || !closes) && opens {
                 openers.push((byte, at, run));
             }
         }
@@ -592,15 +604,11 @@ fn closing_run(bytes: &[u8], mut at: usize, length: usize) -> Option<usize> {
 }
 
 /// A link `[text](url)` or an image `![alt](url)` at byte `at`: its bracketed part and its
-/// `(url)`, which may hold balanced brackets of its own.
-fn link(bytes: &[u8], at: usize) -> Option<(Range<usize>, Range<usize>)> {
-    let open = match &bytes[at..] {
-        [b'!', b'[', ..] => at + 1,
-        [b'[', ..] => at,
-        _ => return None,
-    };
-    let close = open + bytes[open..].iter().position(|&b| b == b']')?;
-    if bytes.get(close + 1) != Some(&b'(') {
+/// `(url)`, which may hold balanced brackets of its own. `close` is where the first `]` after
+/// `at` is.
+fn link(bytes: &[u8], at: usize, close: usize) -> Option<(Range<usize>, Range<usize>)> {
+    if !matches!(&bytes[at..], [b'[', ..] | [b'!', b'[', ..]) || bytes.get(close + 1) != Some(&b'(')
+    {
         return None;
     }
     let mut depth = 0;
