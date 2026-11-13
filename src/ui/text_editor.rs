@@ -1141,8 +1141,25 @@ where
                     shell.publish(on_edit(Action::Drag(position + scrolled)));
                 }
                 Update::Release => {
-                    state.drag_click = None;
+                    // ours: what the mouse just selected goes to the primary selection, which
+                    // a middle click pastes from on Linux (other OSes have none, and the write
+                    // does nothing there). Only for a click that began in this editor.
+                    if state.drag_click.take().is_some()
+                        && let Some(selection) = self.content.selection()
+                    {
+                        clipboard.write(clipboard::Kind::Primary, selection);
+                    }
                     state.edge_drag = None;
+                }
+                // ours: a middle click puts the caret where it lands and pastes the primary
+                // selection there, as Linux apps do. Elsewhere there is nothing to read.
+                Update::PastePrimary(position) => {
+                    if let Some(contents) = clipboard.read(clipboard::Kind::Primary) {
+                        state.focus = Some(Focus::now());
+                        shell.publish(on_edit(Action::Click(position + scrolled)));
+                        shell.publish(on_edit(Action::Edit(Edit::Paste(Arc::new(contents)))));
+                        shell.capture_event();
+                    }
                 }
                 Update::Scroll(lines) => {
                     let bounds = self.content.0.borrow().editor.bounds();
@@ -1573,6 +1590,7 @@ enum Update<Message> {
     Click(mouse::Click),
     Drag(Point),
     Release,
+    PastePrimary(Point),
     Scroll(f32),
     InputMethod(Ime),
     Binding(Binding<Message>),
@@ -1619,6 +1637,12 @@ impl<Message> Update<Message> {
                     }
                 }
                 mouse::Event::ButtonReleased(mouse::Button::Left) => Some(Update::Release),
+                mouse::Event::ButtonPressed(mouse::Button::Middle) => {
+                    let position = cursor.position_in(bounds)?;
+                    Some(Update::PastePrimary(
+                        position - Vector::new(padding.left, padding.top),
+                    ))
+                }
                 mouse::Event::CursorMoved { .. } => match state.drag_click {
                     Some(mouse::click::Kind::Single) => {
                         // ours: also when the pointer has left the editor, for edge scrolling.

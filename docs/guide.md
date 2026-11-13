@@ -250,6 +250,7 @@ Shortcuts are written with Ctrl; on macOS use ⌘ (the app's menu and hints show
 | Ctrl+A, C, X, V | Select all, copy, cut, paste |
 | Mouse drag | Select text. Held past the top or bottom of the editor, the view scrolls (faster the further out) and the selection keeps growing |
 | Shift+click | Select from the caret, or from where the selection began, to the click |
+| Middle click | On Linux, paste the text last selected with the mouse, in this window or another app, where you click |
 | Ctrl+Enter and Ctrl+Backspace | Accept or reject the assistant's suggestion the cursor is on, or else the first one; with Shift, all of them. While suggestions wait these keys do only this |
 | Enter, in the assistant's box | Send (Shift+Enter starts a new line) |
 
