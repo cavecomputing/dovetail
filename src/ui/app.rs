@@ -224,6 +224,9 @@ pub enum Message {
     SaveAs,
     /// The Save as dialog's answer, for the document with this number (`App::document`).
     SaveAsPicked(u64, PathBuf),
+    /// The Save selection dialog's answer, for the document with this number: the file, then
+    /// where the selected text started in scratch (a byte offset) and the text itself.
+    SelectionPicked(u64, PathBuf, usize, String),
     OpenPath(PathBuf),
     OpenSettings,
     OpenScratch,
@@ -749,7 +752,9 @@ impl App {
             }
             Message::NewFile => return self.new_file(),
             // A dialog answered after the window moved on would act on the wrong document.
-            Message::NewFilePicked(document, _) | Message::SaveAsPicked(document, _)
+            Message::NewFilePicked(document, _)
+            | Message::SaveAsPicked(document, _)
+            | Message::SelectionPicked(document, ..)
                 if document != self.document =>
             {
                 let words = "That dialog was for the document this window showed before";
@@ -757,8 +762,17 @@ impl App {
             }
             Message::NewFilePicked(_, path) => return self.start_new_file(path),
             Message::Save => return self.save_now(),
-            Message::SaveAs => return self.pick_save_path(),
+            // Scratch has no file to move, so there Ctrl+Shift+S saves the selected text alone.
+            Message::SaveAs => {
+                return match self.doc {
+                    Doc::Scratch if self.editable() => self.pick_selection_path(),
+                    _ => self.pick_save_path(),
+                };
+            }
             Message::SaveAsPicked(_, path) => return self.save_as(path),
+            Message::SelectionPicked(_, path, start, text) => {
+                return self.save_selection(path, start, text);
+            }
             Message::OpenDialog => return self.open_picker(),
             Message::Picker(action) => return self.update_picker(action),
             Message::SwitcherMove(step) if self.picker.is_some() => {
@@ -1710,6 +1724,67 @@ mod tests {
         // The typing autosave hadn't written yet went to the file, so the end of the app has
         // nothing left to write back into scratch.
         assert!(!shutdown::remembers(&paths.data_dir));
+    }
+
+    #[test]
+    fn saving_a_selection_takes_only_that_text_out_of_scratch() {
+        let (dir, paths, mut app, _notes) = scratch_window("one two three");
+        let saved = dir.path().join("two.md");
+        let picked = Message::SelectionPicked(0, saved.clone(), 4, "two ".to_string());
+        let _ = app.update(picked);
+        assert_eq!(std::fs::read_to_string(&saved).unwrap(), "two ");
+        assert_eq!(app.pane.model.text(), "one three");
+        assert!(
+            matches!(app.doc, Doc::Scratch),
+            "the window stays on scratch"
+        );
+        assert_eq!(app.autosaver.state(), SaveState::Saving);
+        // The new file is nobody's: another window can edit it, and it is the latest recent file.
+        assert!(
+            open_doc(file_doc(&saved), &paths)
+                .read_only_reason
+                .is_none()
+        );
+        assert_eq!(existing_recent_files(&paths.data_dir)[0], saved);
+        // One undo step, which the next scratch window still has.
+        assert!(app.save_before_leaving());
+        let mut pane = pane_for(&open_doc(Doc::Scratch, &paths));
+        assert_eq!(pane.model.text(), "one three");
+        assert!(pane.undo());
+        assert_eq!(pane.model.text(), "one two three");
+    }
+
+    #[test]
+    fn a_selection_stays_in_scratch_unless_its_file_was_written() {
+        let (dir, paths, mut app, notes) = scratch_window("one two three");
+        // Typing while the dialog was open moved the text that was selected.
+        let saved = dir.path().join("two.md");
+        let _ = app.update(Message::SelectionPicked(
+            0,
+            saved.clone(),
+            5,
+            "two ".to_string(),
+        ));
+        assert!(!saved.exists());
+        // A file open in another window isn't written over.
+        let _other = open_doc(file_doc(&notes), &paths);
+        let _ = app.update(Message::SelectionPicked(
+            0,
+            notes.clone(),
+            4,
+            "two ".to_string(),
+        ));
+        assert_eq!(std::fs::read_to_string(&notes).unwrap(), "# notes\r\n");
+        assert_eq!(app.pane.model.text(), "one two three");
+        // With nothing selected, Ctrl+Shift+S says so rather than saving all of scratch.
+        let _ = app.update(Message::SaveAs);
+        assert!(
+            app.notice
+                .as_ref()
+                .unwrap()
+                .0
+                .starts_with("Select the text")
+        );
     }
 
     #[test]

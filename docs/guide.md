@@ -129,7 +129,7 @@ a `.`). Enter, Tab, → or a click on a folder goes into it, and Enter or a clic
 it in this window. ← goes up a folder, with the one you left highlighted, and with nothing typed
 after the last `/` the first row is `../`, which does the same.
 
-**The status bar**, left to right: the ☰ menu (New file, Open, Open recent, Save as, Undo,
+**The status bar**, left to right: the ☰ menu (New file, Open, Open recent, Save as (in scratch, Save to a file and Save selection as), Undo,
 Redo, Find, Replace, Go to line, Line numbers, Word wrap, Settings, Scratch, then the six most recent files; Ctrl+P has
 the rest), the save dot, any problem
 in orange (a failed save, a file that isn't valid JSON, say), and the file's path (or Scratch); on
@@ -214,7 +214,7 @@ Shortcuts are written with Ctrl; on macOS use ⌘ (the app's menu and hints show
 | Ctrl+Shift+P | The command palette: the tools for the kind of file open (Format JSON and Minify JSON in a `.json` file, New Host block in an SSH config). Type part of a name, ↑ and ↓ to choose, Enter to run |
 | Ctrl+0 | Back to scratch in this window (if another window has it, the status bar says so instead) |
 | Ctrl+S | Save now; in scratch, save to a file |
-| Ctrl+Shift+S | Save as |
+| Ctrl+Shift+S | Save as; in scratch, save the selected text to a file of its own |
 | Ctrl+R | Rewrite: edit a copy beside the original (see [Rewriting](#rewriting)); again to pause it |
 | Ctrl+Shift+R | Reset the rewrite's copy to the file as last saved |
 | Ctrl+W | Close the window, once the latest save is written |
@@ -287,6 +287,12 @@ F3's next and previous match), ⌘M (minimise) and ⌘Q (closes the window, wait
   save one, suggesting a name from the first words (ending in `.md` while scratch follows
   Markdown, so the file keeps its colours, or `.txt`): the window becomes that file and scratch is
   emptied. The next scratch window opens empty, and Ctrl+Z there brings the text back.
+- **Save selection as** (Ctrl+Shift+S in scratch, or the menu) saves only the selected text to a
+  new file, for notes that have turned into their own thing. It suggests a name from the
+  selection's first words, writes the file, then takes that text out of scratch; the rest stays,
+  and the window stays on scratch. Ctrl+Z puts the text back (the file is left as it is). The new
+  file isn't opened: it is first in Ctrl+P and the menu's recent files. With nothing selected,
+  nothing is saved and the status bar says so.
 - **Scratch keeps its Ctrl+Z history across restarts**: closing and reopening scratch (or saving
   it to a file) leaves the undo steps as they were, up to the last 1000 steps or about a megabyte
   of changed text. If `scratch.txt` was changed outside Dovetail in between, the history no

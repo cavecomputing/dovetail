@@ -388,11 +388,17 @@ pub fn menu(app: &App) -> Element<'_, Message> {
         menu_item("open", "Ctrl+O", Message::OpenDialog),
         menu_item("open recent", "Ctrl+P", Message::OpenSwitcher),
     ];
-    // Scratch has no file, so Ctrl+S saves it to one; a file can move to another.
+    // Scratch has no file, so Ctrl+S saves it to one, and Ctrl+Shift+S saves the selected text
+    // alone (not while scratch is read-only, since the text couldn't leave it); a file can move
+    // to another.
     items = match &app.doc {
-        Doc::Scratch => items.push(menu_item("save to a file", "Ctrl+S", Message::SaveAs)),
+        Doc::Scratch => items.push(menu_item("save to a file", "Ctrl+S", Message::Save)),
         Doc::File { .. } => items.push(menu_item("save as", "Ctrl+Shift+S", Message::SaveAs)),
     };
+    if matches!(app.doc, Doc::Scratch) && app.editable() {
+        let save = Message::SaveAs;
+        items = items.push(menu_item("save selection as", "Ctrl+Shift+S", save));
+    }
     if app.can_rewrite() {
         let rewrite = match (&app.original, app.paused_draft) {
             (Some(_), _) => "pause rewrite",

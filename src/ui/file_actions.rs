@@ -1,10 +1,12 @@
 //! App's handlers for the file shortcuts: opening a document in this window (Ctrl+O, Ctrl+P,
-//! Recent and Ctrl+0), New file (Ctrl+N), Save (Ctrl+S) and Save as (Ctrl+Shift+S).
+//! Recent and Ctrl+0), New file (Ctrl+N), Save (Ctrl+S), Save as (Ctrl+Shift+S) and, in scratch,
+//! Save selection (Ctrl+Shift+S there).
 
 use std::path::PathBuf;
 use std::time::Instant;
 
 use iced::Task;
+use iced::widget::operation::focus;
 
 use crate::core::opened::{Doc, empty_file, open_in_place, save_as};
 use crate::core::recent::same_file;
@@ -15,6 +17,8 @@ use crate::core::settings::ScratchSyntax;
 use crate::core::shutdown;
 use crate::core::text_file::{LineEnding, save_text, suggested_file_name};
 use crate::ui::app::{App, Message};
+use crate::ui::editor;
+use crate::ui::status_bar::{file_name, keys};
 
 impl App {
     /// Opens the file at `path` in this window (`open_here`).
@@ -124,14 +128,7 @@ impl App {
     pub fn pick_save_path(&mut self) -> Task<Message> {
         self.menu_open = false;
         let name = match &self.doc {
-            // Scratch coloured as Markdown is saved as `.md`, so the file keeps its colours.
-            Doc::Scratch => {
-                let extension = match self.settings.scratch_syntax {
-                    ScratchSyntax::Markdown => "md",
-                    ScratchSyntax::Plain => "txt",
-                };
-                suggested_file_name(self.pane.model.text(), extension)
-            }
+            Doc::Scratch => suggested_file_name(self.pane.model.text(), self.scratch_extension()),
             Doc::File { path, .. } => path.file_name().map_or_else(
                 || "untitled.txt".to_string(),
                 |name| name.to_string_lossy().into_owned(),
@@ -221,6 +218,69 @@ impl App {
             }
         }
         Task::none()
+    }
+
+    /// Save selection (Ctrl+Shift+S in scratch): asks where the selected text goes;
+    /// `SelectionPicked` brings the answer, with the text as it is selected now.
+    pub fn pick_selection_path(&mut self) -> Task<Message> {
+        self.menu_open = false;
+        let Some(range) = self.pane.selection() else {
+            let words = keys("Select the text to save first (Ctrl+S saves all of scratch)");
+            self.set_notice(Some(words));
+            return Task::none();
+        };
+        let text = self.pane.model.text()[range.clone()].to_string();
+        let name = suggested_file_name(&text, self.scratch_extension());
+        let dialog = self.save_dialog("Save selection as", name);
+        let document = self.document;
+        Task::perform(dialog.save_file(), |picked| picked).and_then(move |file| {
+            let path = file.path().to_path_buf();
+            let picked = Message::SelectionPicked(document, path, range.start, text.clone());
+            Task::done(picked)
+        })
+    }
+
+    /// Writes `text`, which was selected at byte `start` of scratch when the dialog opened, to
+    /// `path` as a file of its own, then takes it out of scratch as one undo step, so Ctrl+Z
+    /// puts it back. The window stays on scratch, and the file joins the recent ones. The text
+    /// leaves scratch only once the file holds it, and nothing is written if scratch no longer
+    /// has that text there.
+    pub fn save_selection(&mut self, path: PathBuf, start: usize, text: String) -> Task<Message> {
+        let range = start..start + text.len();
+        let unchanged = self.pane.model.text().get(range.clone()) == Some(text.as_str());
+        if !matches!(self.doc, Doc::Scratch) || !self.editable() || !unchanged {
+            let words = "That text changed while the dialog was open, so nothing was saved";
+            self.set_notice(Some(words.to_string()));
+            return Task::none();
+        }
+        let data_dir = &self.paths.data_dir;
+        match save_as(
+            data_dir,
+            &self.doc,
+            &path,
+            &text,
+            LineEnding::default(),
+            false,
+        ) {
+            Err(reason) => self.set_notice(Some(reason)),
+            // The claim on the new file is let go at once: this window stays on scratch.
+            Ok(_) => {
+                self.pane.replace(range, "");
+                self.text_changed();
+                // Only the name: the status bar cuts a long notice off at its end.
+                self.set_notice(Some(format!("Selection saved to {}", file_name(&path))));
+            }
+        }
+        focus(editor::EDITOR_ID)
+    }
+
+    /// The extension offered for a file saved from scratch: `md` while scratch is coloured as
+    /// Markdown, so the file keeps its colours.
+    fn scratch_extension(&self) -> &'static str {
+        match self.settings.scratch_syntax {
+            ScratchSyntax::Markdown => "md",
+            ScratchSyntax::Plain => "txt",
+        }
     }
 
     /// A save dialog titled `title`, offering `name`, starting beside the open file or in the

@@ -315,7 +315,8 @@ src/
     rewrite_actions.rs   App's handlers for a rewrite (Ctrl+R): the read-only original beside the
                          draft, Ctrl+S writing the draft over it, ending and resuming
     file_actions.rs      App's handlers for opening a document in the window's place (Ctrl+O,
-                         Ctrl+P, Ctrl+0), New file (Ctrl+N), Save (Ctrl+S) and Save as
+                         Ctrl+P, Ctrl+0), New file (Ctrl+N), Save (Ctrl+S), Save as, and scratch's
+                         Save selection (the selected text to a file of its own)
     wayland_drop.rs      files dropped on the window under Wayland, which winit doesn't hear: they
                          come from our patched clipboard crate (X11, macOS and Windows drops come
                          through iced's FileDropped)

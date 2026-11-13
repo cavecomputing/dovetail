@@ -273,7 +273,11 @@ const SHORTCUTS: [(&str, &[Shortcut]); 5] = [
             ("Ctrl+P", "", "scratch and the recent files"),
             ("Ctrl+0", "", "back to scratch"),
             ("Ctrl+S", "", "save now; in scratch, save to a file"),
-            ("Ctrl+Shift+S", "", "save as"),
+            (
+                "Ctrl+Shift+S",
+                "",
+                "save as; in scratch, save the selected text to a file",
+            ),
             (
                 "Ctrl+R",
                 "",
