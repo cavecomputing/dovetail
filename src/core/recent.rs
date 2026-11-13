@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::core::remote::Remote;
 use crate::core::save::atomic_write;
 use crate::core::scratch::ScratchView;
 
@@ -68,8 +69,9 @@ pub fn recent_files(data_dir: &Path) -> Vec<PathBuf> {
 pub fn existing_recent_files(data_dir: &Path) -> Vec<PathBuf> {
     recent_files(data_dir)
         .into_iter()
-        // Files only: a folder left from when folders could be opened is skipped.
-        .filter(|path| path.is_file())
+        // Files only: a folder left from when folders could be opened is skipped. A file on
+        // a host (kept as `alias:/path`) is listed without asking its host.
+        .filter(|path| path.is_file() || Remote::parse(&path.to_string_lossy()).is_some())
         .collect()
 }
 

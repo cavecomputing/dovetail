@@ -8,49 +8,79 @@ use std::time::Instant;
 use iced::Task;
 use iced::widget::operation::focus;
 
-use crate::core::opened::{Doc, empty_file, open_in_place, save_as};
+use crate::core::opened::{Doc, empty_file, open_in_place, opened_remote, save_as};
 use crate::core::recent::same_file;
+use crate::core::remote_file;
 use crate::core::rewrite::remove_draft;
 use crate::core::save::failure_reason;
 use crate::core::scratch::clear_scratch;
 use crate::core::settings::ScratchSyntax;
 use crate::core::shutdown;
 use crate::core::text_file::{LineEnding, save_text, suggested_file_name};
-use crate::ui::app::{App, Message};
+use crate::ui::app::{App, Message, Opening};
 use crate::ui::editor;
 use crate::ui::status_bar::keys;
 
 impl App {
-    /// Opens the file at `path` in this window (`open_here`).
+    /// Opens the file at `path` in this window (`open_here`). A file on a host comes as
+    /// `alias:/path`, as the picker and the recent list name one.
     pub fn open_file(&mut self, path: PathBuf) -> Task<Message> {
-        self.open_here(Doc::file(path))
+        self.open_here(Doc::recent(&path))
     }
 
     /// Shows `doc` in this window in place of the document it shows now (Ctrl+O, Ctrl+P, Recent,
     /// Ctrl+N's new file and Ctrl+0), once that one is saved. If the save fails, or `doc` can't
     /// be opened, the window stays as it is and the status bar says why. The document already
-    /// shown is left as it is.
+    /// shown is left as it is. A file on a host is fetched first (`open_remote`).
     pub fn open_here(&mut self, doc: Doc) -> Task<Message> {
         self.close_panels();
+        // Whatever was on its way to this window is called off: this is where it goes now.
+        self.opening = None;
+        self.call_off_fetch();
         let shown = match (&self.doc, &doc) {
             (Doc::Scratch, Doc::Scratch) => true,
             (Doc::File { path: current, .. }, Doc::File { path, .. }) => same_file(current, path),
+            (
+                Doc::Remote {
+                    remote: current, ..
+                },
+                Doc::Remote { remote, .. },
+            ) => current == remote,
             _ => false,
         };
-        if shown {
-            // Back to what the window shows: an open waiting on a save is called off.
-            self.opening = None;
-            return Task::none();
+        match doc {
+            _ if shown => Task::none(),
+            Doc::Remote { remote, .. } => self.open_remote(remote),
+            doc => self.leave_for(Opening::Doc(doc)),
+        }
+    }
+
+    /// Shows `next` in the window's place once the document it shows is saved (see
+    /// `open_here`).
+    pub fn leave_for(&mut self, next: Opening) -> Task<Message> {
+        // A file on a host is saved off the UI thread, as an autosave is: its `Saved` comes
+        // back here.
+        // Unless the host didn't take it a moment ago (`leave_unsent`): then it stays on this
+        // computer, written below as a file here is.
+        let unsaved = self.editable() && !self.autosaver.close_allowed() && !self.disk_conflict;
+        let send = matches!(self.doc, Doc::Remote { .. }) && unsaved && !self.leave_unsent;
+        if send && !self.autosaver.is_saving() {
+            self.opening = Some(next);
+            return self.save(Instant::now());
         }
         if !self.saved_for_leaving() {
             return Task::none();
         }
         // An autosave still running is waited for: its `Saved` comes back here.
         if self.autosaver.is_saving() {
-            self.opening = Some(doc);
+            self.opening = Some(next);
             return Task::none();
         }
-        match open_in_place(&self.doc, doc, &self.paths) {
+        let opened = match next {
+            Opening::Doc(doc) => open_in_place(&self.doc, doc, &self.paths),
+            Opening::Fetched(fetched) => opened_remote(&self.doc, fetched, &self.paths),
+        };
+        match opened {
             Ok(opened) => self.show(opened),
             Err(reason) => {
                 self.set_notice(Some(reason));
@@ -68,6 +98,18 @@ impl App {
         if self.disk_conflict {
             let words = "The file changed on disk: choose Reload or Keep mine first";
             self.set_notice(Some(words.to_string()));
+            return false;
+        }
+        // A file on a host can't be sent while the window waits, as one here is written below
+        // (`leave_for` sends it first; this is for Ctrl+N, whose dialog has given it time).
+        if let Doc::Remote { remote, .. } = &self.doc
+            && !self.leave_unsent
+            && self.editable()
+            && !self.autosaver.close_allowed()
+            && !self.autosaver.is_saving()
+        {
+            let words = format!("Not saved to {} yet: try again once it is", remote.host);
+            self.set_notice(Some(words));
             return false;
         }
         // Saved unless closing could skip it (so a failed last save is tried again). Scratch keeps
@@ -129,10 +171,10 @@ impl App {
         self.menu_open = false;
         let name = match &self.doc {
             Doc::Scratch => suggested_file_name(self.pane.model.text(), self.scratch_extension()),
-            Doc::File { path, .. } => path.file_name().map_or_else(
-                || "untitled.txt".to_string(),
-                |name| name.to_string_lossy().into_owned(),
-            ),
+            doc => doc
+                .name()
+                .and_then(|name| Some(name.file_name()?.to_string_lossy().into_owned()))
+                .unwrap_or_else(|| "untitled.txt".to_string()),
         };
         let dialog = self.save_dialog("Save as", name);
         let document = self.document;
@@ -169,7 +211,10 @@ impl App {
                 }
                 (*line_ending, *bom)
             }
-            _ => (LineEnding::default(), false),
+            Doc::Remote {
+                line_ending, bom, ..
+            } => (*line_ending, *bom),
+            Doc::Scratch => (LineEnding::default(), false),
         };
         let data_dir = &self.paths.data_dir;
         let text = self.pane.model.text();
@@ -200,6 +245,11 @@ impl App {
                     && let Some(current) = self.doc.path()
                 {
                     let _ = remove_draft(&self.paths.data_dir, current);
+                }
+                // A file on a host keeps its last save there. The text has a home in the new
+                // file now, so none of it waits on this computer to be sent.
+                if let Doc::Remote { remote, .. } = &self.doc {
+                    remote_file::forget(&self.paths.data_dir, remote, true);
                 }
                 self._doc_lock = lock;
                 self.doc = Doc::File {
@@ -285,7 +335,7 @@ impl App {
     fn save_dialog(&self, title: &str, name: String) -> rfd::AsyncFileDialog {
         let folder = match &self.doc {
             Doc::File { path, .. } => path.parent(),
-            Doc::Scratch => Some(self.paths.documents_dir.as_path()),
+            Doc::Scratch | Doc::Remote { .. } => Some(self.paths.documents_dir.as_path()),
         };
         let dialog = rfd::AsyncFileDialog::new()
             .set_title(title)

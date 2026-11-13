@@ -35,6 +35,10 @@ fn main() -> iced::Result {
             println!("{} {}", brand::BIN_NAME, env!("CARGO_PKG_VERSION"));
             return Ok(());
         }
+        // `alias:/path` is a file on an SSH host, unless this computer has a file by that name.
+        Some(path) if !path.exists() && matches!(Doc::recent(&path), Doc::Remote { .. }) => {
+            Doc::recent(&path)
+        }
         // An absolute path, so a window opened from here still finds it.
         Some(path) => Doc::file(std::path::absolute(&path).unwrap_or(path)),
         None => Doc::Scratch,

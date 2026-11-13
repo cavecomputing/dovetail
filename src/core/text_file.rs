@@ -6,10 +6,12 @@ use std::io::{self, ErrorKind};
 use std::path::Path;
 use std::time::SystemTime;
 
+use serde::{Deserialize, Serialize};
+
 use crate::core::save::atomic_write;
 
 /// The line ending a file used, so saving writes it back the same way.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 pub enum LineEnding {
     #[default]
     Lf,
@@ -59,7 +61,11 @@ const BOM: char = '\u{feff}';
 /// Reads a UTF-8 text file. A file that isn't UTF-8 is refused with a readable error, rather than
 /// opened with replacement characters that the next autosave would write back.
 pub fn read_text(path: &Path) -> io::Result<TextFile> {
-    let bytes = read_regular_file(path)?;
+    decode(read_regular_file(path)?)
+}
+
+/// The text in a file's `bytes`, as `read_text` gives it.
+pub fn decode(bytes: Vec<u8>) -> io::Result<TextFile> {
     let text = String::from_utf8(bytes)
         .map_err(|_| io::Error::new(ErrorKind::InvalidData, "not a UTF-8 text file"))?;
     // Left in the text, the mark would be an invisible character that typing at the very start
@@ -80,8 +86,12 @@ pub fn read_text(path: &Path) -> io::Result<TextFile> {
 /// text. A binary file (a NUL byte in its first 8000, as git decides) is refused, since showing it
 /// would only be a wall of replacement characters.
 pub fn read_lossy(path: &Path) -> io::Result<String> {
-    let bytes = read_regular_file(path)?;
-    let text = match bytes.as_slice() {
+    decode_lossy(&read_regular_file(path)?)
+}
+
+/// What a file's `bytes` hold, as `read_lossy` gives it.
+pub fn decode_lossy(bytes: &[u8]) -> io::Result<String> {
+    let text = match bytes {
         [0xff, 0xfe, rest @ ..] => utf16(rest, u16::from_le_bytes),
         [0xfe, 0xff, rest @ ..] => utf16(rest, u16::from_be_bytes),
         _ if bytes.iter().take(8000).any(|&byte| byte == 0) => {
@@ -90,7 +100,7 @@ pub fn read_lossy(path: &Path) -> io::Result<String> {
                 "binary file, not text",
             ));
         }
-        _ => String::from_utf8_lossy(&bytes).into_owned(),
+        _ => String::from_utf8_lossy(bytes).into_owned(),
     };
     Ok(newlines_only(&text))
 }
@@ -155,12 +165,17 @@ pub fn save_text(
     if changed_on_disk(path, expected) {
         return Err(io::Error::other("changed on disk"));
     }
+    atomic_write(path, encode(text, line_ending, bom).as_bytes())?;
+    Ok(DiskStamp::of(path))
+}
+
+/// Editor text as a file holds it: with `line_ending`, and a byte order mark first if `bom`.
+pub fn encode(text: &str, line_ending: LineEnding, bom: bool) -> String {
     let mut disk_text = line_ending.apply(text);
     if bom {
         disk_text.insert(0, BOM);
     }
-    atomic_write(path, disk_text.as_bytes())?;
-    Ok(DiskStamp::of(path))
+    disk_text
 }
 
 /// True when the file at `path` is not the one this window last read or wrote (`expected`).

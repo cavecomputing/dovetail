@@ -13,9 +13,11 @@ use crate::core::counts::Counts;
 use crate::core::json::reformat;
 use crate::core::lock::Lock;
 use crate::core::markdown::fence_language;
-use crate::core::opened::{Doc, OpenedDoc, open_doc, write_doc};
+use crate::core::opened::{Doc, OpenedDoc, open_doc, open_elsewhere, write_doc};
 use crate::core::paths::Paths;
 use crate::core::recent::{existing_recent_files, remember_view};
+use crate::core::remote::Ssh;
+use crate::core::remote_file::{self, CHANGED, Fetched};
 use crate::core::rewrite::{Changes, draft_path};
 use crate::core::save::{Autosaver, SaveState};
 use crate::core::scratch::ScratchView;
@@ -31,6 +33,7 @@ use crate::ui::editor::{Decision, EDITOR_ID, ORIGINAL_ID, Pane};
 use crate::ui::find_bar::{self, Find, FindAction};
 use crate::ui::palette::{self, Palette};
 use crate::ui::picker::{self, Picker, PickerAction};
+use crate::ui::remote_actions::off_thread;
 use crate::ui::settings_panel::{self, Connection, KeyField};
 use crate::ui::switcher::{self, Switcher};
 use crate::ui::text_editor::{Action, Cursor, Edit, Motion, PaintLook, PaintRun, Position};
@@ -100,8 +103,19 @@ pub struct App {
     pub saving_since: Option<Instant>,
     pub now: Instant,
     closing: bool,
-    /// A document to open in this one's place once the save running now ends (see `open_here`).
-    pub opening: Option<Doc>,
+    /// A document to show in this one's place once the save running now ends (see `leave_for`).
+    pub opening: Option<Opening>,
+    /// Counts the files asked of a host (`open_remote`), so one that arrives after the window
+    /// was pointed somewhere else is dropped.
+    pub fetches: u64,
+    /// What the status bar says while a file is on its way from a host.
+    pub fetching: Option<String>,
+    /// When a save to a host that just failed may be tried again (see `HOST_RETRY`).
+    host_retry: Option<Instant>,
+    /// Closing or leaving a file on a host waited on a save the host didn't take. The text is
+    /// kept on this computer, so the next try goes ahead and leaves it there, to be sent when
+    /// the file is opened again: a host that is away never holds a window on its file.
+    pub leave_unsent: bool,
     /// A Save as to make once the save running now ends (see `save_as`).
     pub saving_as: Option<PathBuf>,
 
@@ -124,6 +138,15 @@ pub struct App {
     /// The Settings panel's API key field, and how its last connection test went.
     pub key_field: KeyField,
     pub connection: Option<Connection>,
+}
+
+/// A document waiting to be shown in the window's place.
+#[derive(Debug)]
+pub enum Opening {
+    /// One on this computer, still to be read.
+    Doc(Doc),
+    /// A file on a host, already fetched.
+    Fetched(Fetched),
 }
 
 #[derive(Debug, Clone)]
@@ -228,6 +251,11 @@ pub enum Message {
     /// where the selected text started in scratch (a byte offset) and the text itself.
     SelectionPicked(u64, PathBuf, usize, String),
     OpenPath(PathBuf),
+    /// A file asked of its host (the request with this number, `App::fetches`) arrived, or why
+    /// it didn't.
+    Fetched(u64, Result<Fetched, String>),
+    /// Reload's answer for a file on a host, for the document with this number.
+    Reloaded(u64, Result<Fetched, String>),
     OpenSettings,
     OpenScratch,
     OpenSwitcher,
@@ -328,6 +356,11 @@ const COUNT_PAUSE: Duration = Duration::from_millis(300);
 /// suggestion, so they don't pull the eye from the text.
 const CHANGE_ALPHA: f32 = 0.75;
 
+/// How long a save to a host that failed waits before it is tried again by itself. A file here
+/// is tried again after each autosave delay; a host that is away would be asked several times a
+/// second. Ctrl+S and closing the window try at once.
+const HOST_RETRY: Duration = Duration::from_secs(5);
+
 /// How long a notice stays in the status bar: long enough to read, gone before it goes stale.
 const NOTICE_TIME: Duration = Duration::from_secs(6);
 
@@ -340,8 +373,13 @@ impl App {
     }
 
     /// `new` with its folders given, for tests.
-    fn with_paths(doc: Doc, paths: Paths) -> (App, Task<Message>) {
+    pub fn with_paths(doc: Doc, paths: Paths) -> (App, Task<Message>) {
         let (settings, settings_error) = Settings::load(&paths.settings_file());
+        // A file on a host has to be fetched: the window starts on scratch and asks for it.
+        let (doc, remote) = match doc {
+            Doc::Remote { remote, .. } => (Doc::Scratch, Some(remote)),
+            doc => (doc, None),
+        };
         let opened = open_doc(doc, &paths);
         let pane = pane_for(&opened);
 
@@ -389,6 +427,10 @@ impl App {
             now: Instant::now(),
             closing: false,
             opening: None,
+            fetches: 0,
+            fetching: None,
+            host_retry: None,
+            leave_unsent: false,
             saving_as: None,
             menu_open: false,
             find: Find::default(),
@@ -397,9 +439,19 @@ impl App {
             key_field: KeyField::default(),
             connection: None,
         };
+        // Only opening the file sends text that never reached its host, so say it waits.
+        let data_dir = &app.paths.data_dir;
+        if let Some(unsent) = (remote_file::unsent(data_dir).into_iter())
+            .find(|remote| !open_elsewhere(data_dir, &remote.as_path()))
+        {
+            let words = format!("Edits to {unsent} never reached it: open it to send them");
+            app.set_notice(Some(words));
+        }
         let resumed = app.resume_rewrite();
+        let fetch = remote.map_or_else(Task::none, |remote| app.open_remote(remote));
         let tasks = Task::batch([
             resumed,
+            fetch,
             app.check_syntax(),
             open.map(|_| Message::WindowOpened),
             iced::system::theme().map(Message::SystemTheme),
@@ -413,6 +465,7 @@ impl App {
     /// it was), since both were about the old text.
     pub fn show(&mut self, opened: OpenedDoc) -> Task<Message> {
         self.remember_place();
+        self.forget_host_file();
         self.document += 1;
         self.pane = pane_for(&opened);
         self.counts = Counts::of(&opened.text);
@@ -424,6 +477,17 @@ impl App {
         self.disk_conflict = false;
         self.autosaver = Autosaver::new(Duration::from_millis(self.settings.autosave_delay_ms));
         self.saving_since = None;
+        self.host_retry = None;
+        self.leave_unsent = false;
+        // Text that never reached its host is saved as soon as it shows.
+        if opened.unsent {
+            let now = Instant::now();
+            self.autosaver.edited(now);
+            self.saving_since = Some(now);
+        }
+        if opened.notice.is_some() {
+            self.set_notice(opened.notice);
+        }
         self.recent = existing_recent_files(&self.paths.data_dir);
         self.find = Find::default();
         self.assistant.new_chat();
@@ -587,8 +651,10 @@ impl App {
                     tasks.push(self.check_syntax());
                     tasks.push(self.find_changes());
                 }
-                // Over a file changed on disk, saves wait for Reload or Keep mine.
-                if !self.disk_conflict && self.autosaver.should_save_now(now) {
+                // Over a file changed on disk, saves wait for Reload or Keep mine; after a host
+                // didn't take one, for `HOST_RETRY`.
+                let retry = self.host_retry.is_none_or(|at| now >= at);
+                if !self.disk_conflict && retry && self.autosaver.should_save_now(now) {
                     tasks.push(self.save(now));
                 }
                 return Task::batch(tasks);
@@ -597,6 +663,18 @@ impl App {
             Message::Saved(document, ..) if document != self.document => {}
             Message::Saved(_, generation, result) => {
                 let failed = result.is_err();
+                let remote = matches!(self.doc, Doc::Remote { .. });
+                let changed_on_host = result.as_ref().err().map(String::as_str) == Some(CHANGED);
+                self.host_retry = (failed && remote).then(|| Instant::now() + HOST_RETRY);
+                let leaving = self.closing || self.opening.is_some();
+                // Said once, it holds while the host keeps failing: the retries don't unsay it.
+                let away = failed && remote && !changed_on_host;
+                self.leave_unsent = away && (leaving || self.leave_unsent);
+                if away && leaving {
+                    let again = if self.closing { "close" } else { "open" };
+                    let words = format!("Kept on this computer: {again} again to send it later");
+                    self.set_notice(Some(words));
+                }
                 // A rewrite's draft has a file of its own, not the document's.
                 let rewriting = self.original.is_some();
                 if let Ok(Some(stamp)) = result
@@ -616,6 +694,7 @@ impl App {
                     Doc::File { path, .. } if failed && !rewriting => {
                         changed_on_disk(path, self.disk_stamp)
                     }
+                    Doc::Remote { .. } => changed_on_host,
                     _ => false,
                 };
                 if self.closing && failed {
@@ -623,9 +702,13 @@ impl App {
                     self.closing = false;
                 } else if self.closing {
                     return self.continue_closing();
-                } else if let Some(doc) = self.opening.take() {
+                } else if let Some(next) = self.opening.take() {
                     self.saving_as = None;
-                    return self.open_here(doc);
+                    // A file here is saved once more as the window leaves it. One on a host
+                    // would be sent and waited for again, without end while its host is away.
+                    if !(failed && remote) {
+                        return self.leave_for(next);
+                    }
                 } else if let Some(path) = self.saving_as.take() {
                     return self.save_as(path);
                 } else if std::mem::take(&mut self.toggling_rewrite) {
@@ -704,10 +787,16 @@ impl App {
             }
             Message::CursorToMiddle(size) => return self.scroll_cursor_to_middle(size),
             Message::CloseRequested => {
+                // The host didn't take the save the last close waited on: the text stays on
+                // this computer, and the window goes.
+                if self.leave_unsent && !self.autosaver.is_saving() && !self.save_before_leaving() {
+                    return Task::none();
+                }
                 self.closing = true;
                 // Closing replaces a pending open or Save as; a close that fails doesn't bring
                 // them back.
                 self.opening = None;
+                self.call_off_fetch();
                 self.saving_as = None;
                 self.toggling_rewrite = false;
                 // A reply on its way is cancelled; it never holds the window open.
@@ -799,6 +888,13 @@ impl App {
                 );
                 return Task::batch([unfocus, self.load_key()]);
             }
+            // For a file since given up on: the window was pointed somewhere else.
+            Message::Fetched(fetch, _) if fetch != self.fetches => {}
+            Message::Fetched(_, fetched) => return self.show_fetched(fetched),
+            Message::Reloaded(document, fetched) if document == self.document => {
+                self.reloaded(fetched);
+            }
+            Message::Reloaded(..) => {}
             Message::OpenScratch => return self.open_here(Doc::Scratch),
             Message::SwitcherMove(_) if self.palette.is_some() => {
                 return self.update_palette(message);
@@ -812,6 +908,10 @@ impl App {
             | Message::SwitcherOpen
             | Message::SwitcherPick(_) => return self.update_switcher(message),
             Message::ReloadFromDisk => {
+                if let Doc::Remote { remote, .. } = &self.doc {
+                    let reload = self.reload_remote(remote.clone());
+                    return Task::batch([reload, iced::widget::operation::focus(EDITOR_ID)]);
+                }
                 if let Doc::File {
                     path,
                     line_ending,
@@ -825,14 +925,7 @@ impl App {
                             *line_ending = file.line_ending;
                             *bom = file.bom;
                             self.disk_stamp = stamp;
-                            // One undo step, so Ctrl+Z brings this window's text back.
-                            let length = self.pane.model.text().len();
-                            self.pane.replace(0..length, &file.text);
-                            self.text_changed();
-                            self.autosaver.mark_saved();
-                            shutdown::forget();
-                            self.saving_since = None;
-                            self.disk_conflict = false;
+                            self.take_reloaded(&file.text);
                         }
                         Err(error) => self.set_notice(Some(format!("Couldn't reload: {error}"))),
                     }
@@ -841,6 +934,9 @@ impl App {
                 return iced::widget::operation::focus(editor::EDITOR_ID);
             }
             Message::KeepMine => {
+                if let Doc::Remote { remote, .. } = &self.doc {
+                    return self.keep_mine_on_host(&remote.clone());
+                }
                 if let Doc::File { path, .. } = &self.doc {
                     // Take the file on disk as seen, so the next save writes over it.
                     self.disk_stamp = DiskStamp::of(path);
@@ -940,6 +1036,18 @@ impl App {
         ));
     }
 
+    /// Reload: puts `text`, the file as just read again, in place of this window's, as one undo
+    /// step, so Ctrl+Z brings this window's text back.
+    pub fn take_reloaded(&mut self, text: &str) {
+        let length = self.pane.model.text().len();
+        self.pane.replace(0..length, text);
+        self.text_changed();
+        self.autosaver.mark_saved();
+        shutdown::forget();
+        self.saving_since = None;
+        self.disk_conflict = false;
+    }
+
     /// Accepts or rejects suggestions (from the chat, Ctrl+Enter or Ctrl+Backspace, or new chat),
     /// and marks their cards.
     pub fn decide(&mut self, decision: Decision) {
@@ -1006,12 +1114,27 @@ impl App {
         let text = self.pane.model.text().to_string();
         let data_dir = self.paths.data_dir.clone();
         let view = self.scratch_view();
-        let history = self.scratch_history();
+        let history = self.kept_history();
         let (doc, disk_stamp) = self.saved_to();
         let document = self.document;
+        let saved = move |result| Message::Saved(document, generation, result);
+        // A file on a host is sent there on a thread of its own, however long its host takes.
+        if let Doc::Remote {
+            remote,
+            line_ending,
+            bom,
+        } = doc
+        {
+            let ssh = Ssh::of(&self.paths);
+            return off_thread(move || {
+                remote_file::save(&ssh, &data_dir, &remote, &text, line_ending, bom, &history)
+                    .map(|()| None)
+            })
+            .map(saved);
+        }
         Task::perform(
             async move { write_doc(&doc, text, view, &history, &data_dir, disk_stamp) },
-            move |result| Message::Saved(document, generation, result),
+            saved,
         )
     }
 
@@ -1022,7 +1145,7 @@ impl App {
         let text = self.pane.model.text().to_string();
         let view = self.scratch_view();
         let (doc, disk_stamp) = self.saved_to();
-        let history = self.scratch_history();
+        let history = self.kept_history();
         let result = write_doc(&doc, text, view, &history, &self.paths.data_dir, disk_stamp);
         let written = result.is_ok();
         let _ = self.update(Message::Saved(self.document, generation, result));
@@ -1033,6 +1156,7 @@ impl App {
     /// window stays open and the status bar shows why.
     fn continue_closing(&mut self) -> Task<Message> {
         if !self.editable() || self.autosaver.close_allowed() {
+            self.forget_host_file();
             // Let go of the document now: the app may end without dropping it (Lock's drop).
             self._doc_lock = None;
             return window::close(self.main_window);
@@ -1068,7 +1192,7 @@ impl App {
             doc,
             text: self.pane.model.text().to_string(),
             view: self.scratch_view(),
-            history: self.scratch_history(),
+            history: self.kept_history(),
             data_dir: self.paths.data_dir.clone(),
             disk_stamp,
         });
@@ -1083,10 +1207,11 @@ impl App {
         }
     }
 
-    /// Scratch's undo steps, to save beside its text; a file keeps none.
-    fn scratch_history(&self) -> Vec<Vec<Change>> {
+    /// The undo steps to save beside the text: scratch's, and those of a file on a host, kept
+    /// with its text for as long as that hasn't reached the host. A file here keeps none.
+    fn kept_history(&self) -> Vec<Vec<Change>> {
         match self.doc {
-            Doc::Scratch => self.pane.model.history(),
+            Doc::Scratch | Doc::Remote { .. } => self.pane.model.history(),
             Doc::File { .. } => Vec::new(),
         }
     }
@@ -1094,10 +1219,18 @@ impl App {
     /// Keeps where the cursor and the view are in a file, so opening it again comes back to the
     /// same place. Not while rewriting, when the pane shows the draft.
     fn remember_place(&self) {
-        if let Doc::File { path, .. } = &self.doc
+        if let Some(name) = self.doc.name()
             && self.original.is_none()
         {
-            let _ = remember_view(&self.paths.data_dir, path, self.scratch_view());
+            let _ = remember_view(&self.paths.data_dir, &name, self.scratch_view());
+        }
+    }
+
+    /// Lets go of what's kept on this computer about a file on a host, as the window leaves it
+    /// saved. Text that still hasn't reached the host stays.
+    fn forget_host_file(&self) {
+        if let Doc::Remote { remote, .. } = &self.doc {
+            remote_file::forget(&self.paths.data_dir, remote, false);
         }
     }
 
@@ -1257,6 +1390,7 @@ impl App {
     pub fn syntax(&self) -> Syntax {
         match &self.doc {
             Doc::File { path, .. } => Syntax::of(path, self.pane.model.text()),
+            Doc::Remote { remote, .. } => Syntax::of(&remote.as_path(), self.pane.model.text()),
             Doc::Scratch => match self.settings.scratch_syntax {
                 ScratchSyntax::Plain => Syntax::Plain,
                 ScratchSyntax::Markdown => Syntax::Markdown,

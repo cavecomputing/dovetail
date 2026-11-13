@@ -257,8 +257,8 @@ src/
     save.rs              atomic file writes and the save-state machine (saved/saving/failed)
     scratch.rs           the scratch space: text, cursor and undo steps, resumed on launch;
                          saving it to a file empties it as one more undo step
-    opened.rs            what a launch opens (scratch or a file): the text, the cursor, the lock,
-                         and whether it's editable
+    opened.rs            what a launch opens (scratch, a file, or a file on a host once it has
+                         been fetched): the text, the cursor, the lock, and whether it's editable
     lock.rs              OS file locks so two windows never edit the same document
     config.rs            YAML, TOML and INI: which parts of a line to colour, the checks, and
                          YAML's indent step
@@ -275,12 +275,20 @@ src/
     shell.rs             shell scripts: which parts of a line to colour, whether a `#!` line
                          names sh or bash, and the `bash -n` check
     ssh.rs               SSH config files (~/.ssh/config, /etc/ssh/*): known by their folders,
-                         which parts of a line to colour, the check, and the palette's Host block
+                         which parts of a line to colour, the check, the palette's Host block,
+                         and the hosts a config names (the picker's `ssh:` rows)
+    remote.rs            a file on an SSH host (`alias:/path`): running the system's `ssh` with a
+                         fixed `sh` script, why a run failed in plain words, `cksum`, and listing
+                         a folder there
+    remote_file.rs       reading a host's file whole and saving it so the host never holds half
+                         of one or loses another writer's change; the text and undo steps kept
+                         in the data folder until the host confirms
     shutdown.rs          the save when the app ends without closing its window: logout,
                          shutdown, signals, Dock Quit, a lost display, a panic
     json.rs              which parts of a .json line to colour, whether the text is valid JSON,
                          and Format and Minify (whitespace only, so key order and digits are kept)
-    text_file.rs         reading and saving text files: line endings, outside-change check
+    text_file.rs         reading and saving text files: line endings, the byte order mark,
+                         outside-change check
     recent.rs            the recently opened files and where each was left (data folder), fuzzy
                          matching
     text_model.rs        a pane's text and its undo/redo history, in byte offsets
@@ -308,7 +316,8 @@ src/
     switcher.rs          the Ctrl+P quick switcher: scratch and the recent files, numbered 0-9;
                          and the panel look it shares with the picker and the palette
     picker.rs            the Ctrl+O picker: a path box and the folder's entries; goes into a
-                         folder or opens a file here
+                         folder or opens a file here; `ssh:` lists the SSH config's hosts, and a
+                         host's folders are asked for off the UI thread
     palette.rs           the Ctrl+Shift+P command palette: the open file's tools (Format JSON,
                          New Host block...)
     find_bar.rs          the Ctrl+F find bar: its matches, stepping through them, how they're lit
@@ -317,6 +326,8 @@ src/
     file_actions.rs      App's handlers for opening a document in the window's place (Ctrl+O,
                          Ctrl+P, Ctrl+0), New file (Ctrl+N), Save (Ctrl+S), Save as, and scratch's
                          Save selection (the selected text to a file of its own)
+    remote_actions.rs    App's handlers for a file on a host: fetching it off the UI thread before
+                         the window shows it, and Reload and Keep mine when it changed there
     wayland_drop.rs      files dropped on the window under Wayland, which winit doesn't hear: they
                          come from our patched clipboard crate (X11, macOS and Windows drops come
                          through iced's FileDropped)
@@ -353,6 +364,13 @@ files (`pub mod save;`); keep that list current. Tests sit at the bottom of the 
   for the latest save; if it failed, the window stays open and the status bar says why. There is no
   "unsaved" state and no "save changes?" prompt. Ctrl+S only writes sooner, or in scratch (which has
   no file) asks where to save one.
+- **A file on a host is saved the same way, and kept here until the host says so.** The script in
+  `core/remote_file.rs` writes a temp file beside the target, checks its `cksum` against the one
+  sent with it, checks the target is still a file this window has seen, and only then renames. The
+  text and its undo steps are written to the data folder before each save and deleted when the
+  host confirms. Don't weaken either half: no writing the target in place, no deleting the local
+  copy on anything but the host's `saved`. The scripts use no single quotes and no `!` (the host's
+  login shell may be fish or csh), and take paths on their input, never in the command line.
 - **Startup must stay near-instant.** Anything slow (network, a long file's counts) happens
   off the UI thread after the first frame. The window shows text first and fills in counts later.
 - **Tab never writes a tab character.** It inserts N spaces (default 4, from settings).

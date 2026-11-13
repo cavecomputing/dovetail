@@ -8,6 +8,8 @@ use std::path::{Path, PathBuf};
 use crate::core::lock::{Lock, claim_lock, file_lock_path, locked_elsewhere};
 use crate::core::paths::Paths;
 use crate::core::recent::{remember, same_file, saved_view};
+use crate::core::remote::Remote;
+use crate::core::remote_file::{self, Fetched};
 use crate::core::save::{atomic_write, check_writable, failure_reason};
 use crate::core::scratch::{
     ScratchState, ScratchView, claim_scratch, load_history, save_history, scratch_lock_path,
@@ -26,6 +28,12 @@ pub enum Doc {
         /// Whether the file starts with a byte order mark, kept out of the text.
         bom: bool,
     },
+    /// A file on another machine, read and saved over ssh (`remote_file`).
+    Remote {
+        remote: Remote,
+        line_ending: LineEnding,
+        bom: bool,
+    },
 }
 
 impl Doc {
@@ -39,11 +47,34 @@ impl Doc {
         }
     }
 
-    /// The file's path; `None` for scratch.
+    /// The document a row of the recent list names: a file here, or one on a host, which the
+    /// list keeps as `alias:/path`.
+    pub fn recent(path: &Path) -> Doc {
+        match Remote::parse(&path.to_string_lossy()) {
+            Some(remote) => Doc::Remote {
+                remote,
+                line_ending: LineEnding::default(),
+                bom: false,
+            },
+            None => Doc::file(path.to_path_buf()),
+        }
+    }
+
+    /// The file's path on this computer; `None` for scratch and for a file on a host.
     pub fn path(&self) -> Option<&Path> {
         match self {
-            Doc::Scratch => None,
+            Doc::Scratch | Doc::Remote { .. } => None,
             Doc::File { path, .. } => Some(path),
+        }
+    }
+
+    /// The name the recent list, the saved places and the locks know the document's file by:
+    /// its path, or `alias:/path` for a file on a host. `None` for scratch.
+    pub fn name(&self) -> Option<PathBuf> {
+        match self {
+            Doc::Scratch => None,
+            Doc::File { path, .. } => Some(path.clone()),
+            Doc::Remote { remote, .. } => Some(remote.as_path()),
         }
     }
 }
@@ -63,8 +94,13 @@ pub struct OpenedDoc {
     pub lock: Option<Lock>,
     /// The file on disk as it was read, so a save can tell if someone else changed it.
     pub disk_stamp: Option<DiskStamp>,
-    /// Scratch's undo steps from the last run, oldest first.
+    /// Undo steps from an earlier run, oldest first: scratch's, or those of text that never
+    /// reached its host.
     pub history: Vec<Vec<Change>>,
+    /// Whether the text never reached its host: the window saves it as soon as it shows it.
+    pub unsent: bool,
+    /// Something for the status bar to say once the document shows.
+    pub notice: Option<String>,
 }
 
 /// Opens `doc`: claims it so no second window edits it, reads it, and decides whether it can be
@@ -80,6 +116,8 @@ pub fn open_doc(doc: Doc, paths: &Paths) -> OpenedDoc {
         lock: None,
         disk_stamp: None,
         history: Vec::new(),
+        unsent: false,
+        notice: None,
     };
     match doc {
         Doc::Scratch => {
@@ -150,6 +188,11 @@ pub fn open_doc(doc: Doc, paths: &Paths) -> OpenedDoc {
                 bom,
             };
         }
+        // A window never launches on a file on a host: it is fetched first, off the UI thread,
+        // and shown by `opened_remote`.
+        Doc::Remote { remote, .. } => {
+            opened.read_only_reason = Some(format!("{remote} hasn't been fetched"));
+        }
     }
     if let Doc::File { path, .. } = &opened.doc
         && opened.read_only_reason.is_none()
@@ -191,6 +234,49 @@ pub fn open_in_place(own: &Doc, doc: Doc, paths: &Paths) -> Result<OpenedDoc, St
         return Err(reason.clone());
     }
     Ok(opened)
+}
+
+/// Makes `fetched`, a file read from a host, ready for the window showing `own`, as
+/// `open_in_place` does a file here: claims it so no second window on this computer edits it,
+/// starts from it as the file a save may replace, remembers it as recent and puts the cursor
+/// back where it was left.
+pub fn opened_remote(own: &Doc, fetched: Fetched, paths: &Paths) -> Result<OpenedDoc, String> {
+    let data_dir = &paths.data_dir;
+    let name = fetched.remote.as_path();
+    if is_own_file(data_dir, own, &name) {
+        return Err(OPEN_HERE.to_string());
+    }
+    let lock = match claim_lock(&lock_for(data_dir, &name)) {
+        Err(TryLockError::WouldBlock) => return Err(OPEN_ELSEWHERE.to_string()),
+        Err(TryLockError::Error(_)) => None,
+        // A file that can't be edited needs no guard, as for one on this computer.
+        Ok(lock) => fetched.read_only_reason.is_none().then_some(lock),
+    };
+    remote_file::begin(data_dir, &fetched);
+    let _ = remember(data_dir, &name);
+    let view = saved_view(data_dir, &name);
+    let last_line = fetched.text.matches('\n').count();
+    Ok(OpenedDoc {
+        cursor: view.map(|view| view.cursor_in(&fetched.text)),
+        scroll_line: view.and_then(|view| view.scroll_line.map(|line| line.min(last_line))),
+        doc: Doc::Remote {
+            remote: fetched.remote,
+            line_ending: fetched.line_ending,
+            bom: fetched.bom,
+        },
+        text: fetched.text,
+        read_only_reason: fetched.read_only_reason,
+        lock,
+        disk_stamp: None,
+        history: fetched.history,
+        unsent: fetched.unsent,
+        notice: fetched.notice,
+    })
+}
+
+/// Whether another window on this computer has the file named `name` open to edit.
+pub fn open_elsewhere(data_dir: &Path, name: &Path) -> bool {
+    locked_elsewhere(&lock_for(data_dir, name))
 }
 
 /// Gives the text of the window showing `own` a new home at `path` (Save as): claims the file so
@@ -239,17 +325,17 @@ pub fn empty_file(data_dir: &Path, own: &Doc, path: &Path) -> Result<(), String>
     }
 }
 
-const OPEN_ELSEWHERE: &str = "That file is open in another window";
+pub const OPEN_ELSEWHERE: &str = "That file is open in another window";
 const OPEN_HERE: &str = "That file is open in this window";
-const NO_PERMISSION: &str = "Read-only: no permission to save here";
-const NOT_UTF8: &str = "Read-only: not UTF-8 (bad bytes show as \u{fffd}), file untouched";
+pub const NO_PERMISSION: &str = "Read-only: no permission to save here";
+pub const NOT_UTF8: &str = "Read-only: not UTF-8 (bad bytes show as \u{fffd}), file untouched";
 
 /// True when `path` is where the window showing `own` keeps its text (scratch's file, for
 /// scratch). The window's own claim on it would otherwise read as another window's.
 fn is_own_file(data_dir: &Path, own: &Doc, path: &Path) -> bool {
-    let own_lock = match own {
-        Doc::Scratch => scratch_lock_path(data_dir),
-        Doc::File { path, .. } => lock_for(data_dir, path),
+    let own_lock = match own.name() {
+        None => scratch_lock_path(data_dir),
+        Some(name) => lock_for(data_dir, &name),
     };
     lock_for(data_dir, path) == own_lock
 }
@@ -271,8 +357,11 @@ fn writable_reason(path: &Path) -> Option<String> {
     }
 }
 
-/// Writes `text` as `doc`'s (with `view`, scratch's cursor, and `history`, its undo steps, for scratch), as of the file on disk
-/// at `disk_stamp`. Returns the file as written, or the reason it failed.
+/// Writes `text` as `doc`'s (with `view`, scratch's cursor, and `history`, its undo steps, for
+/// scratch), as of the file on disk at `disk_stamp`. Returns the file as written, or the reason
+/// it failed. A file on a host is only kept on this computer, with its undo steps, for
+/// `remote_file::fetch` to bring back: this is also the save made as the app ends, with no time
+/// to reach a host. Sending it there is `remote_file::save`.
 pub fn write_doc(
     doc: &Doc,
     text: String,
@@ -291,6 +380,12 @@ pub fn write_doc(
             line_ending,
             bom,
         } => save_text(path, &text, *line_ending, *bom, disk_stamp),
+        Doc::Remote {
+            remote,
+            line_ending,
+            bom,
+        } => remote_file::keep_unsent(data_dir, remote, &text, *line_ending, *bom, history)
+            .map(|()| None),
     };
     result.map_err(|error| failure_reason(&error))
 }

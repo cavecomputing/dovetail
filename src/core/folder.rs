@@ -72,11 +72,17 @@ pub fn split_typed(typed: &str, home: &Path) -> (PathBuf, String) {
 /// is the top one) and then its entries; with a name, the entries matching it, best first.
 /// Hidden entries (a leading `.`) show only once the name starts with one.
 pub fn picker_rows(folder: &Path, name: &str) -> Vec<Entry> {
-    let shown = entries(folder)
+    rows_of(entries(folder), name, folder.parent().map(|_| folder))
+}
+
+/// `picker_rows` for a folder whose `entries` are already in hand, as a host's are: `above` is
+/// the folder itself when it has one above it, for the `..` row.
+pub fn rows_of(entries: Vec<Entry>, name: &str, above: Option<&Path>) -> Vec<Entry> {
+    let shown = entries
         .into_iter()
         .filter(|entry| name.starts_with('.') || !entry.name().starts_with('.'));
     if name.is_empty() {
-        let up = folder.parent().map(|_| Entry {
+        let up = above.map(|folder| Entry {
             path: folder.join(".."),
             is_dir: true,
         });

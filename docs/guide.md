@@ -108,6 +108,7 @@ clear its field in Settings first.
 ```sh
 dovetail              # opens scratch (or start it from your app launcher)
 dovetail notes.txt    # opens that file, creating it if it doesn't exist
+dovetail web1:/etc/hosts   # opens a file on an SSH host (see Files over SSH)
 ```
 
 **Scratch** is one continuous notepad that comes back exactly as you left it: text, cursor and
@@ -128,6 +129,8 @@ what's in that folder below it. Type to narrow the list by name (hidden files sh
 a `.`). Enter, Tab, → or a click on a folder goes into it, and Enter or a click on a file opens
 it in this window. ← goes up a folder, with the one you left highlighted, and with nothing typed
 after the last `/` the first row is `../`, which does the same.
+With hosts in your SSH config, the first row is `ssh:`, which lists them: see
+[Files over SSH](#files-over-ssh).
 
 **The status bar**, left to right: the ☰ menu (New file, Open, Open recent, Save as (in scratch, Save to a file and Save selection as), Undo,
 Redo, Find, Replace, Go to line, Line numbers, Word wrap, Settings, Scratch, then the six most recent files; Ctrl+P has
@@ -196,7 +199,7 @@ most) and any byte order mark, the invisible character some Windows programs put
 
 Where things live:
 
-| | `settings.toml` | Scratch, recent files, where each file was left, and locks (small files that stop two windows editing one document) |
+| | `settings.toml` | Scratch, recent files, where each file was left, locks (small files that stop two windows editing one document), and in `remote/` the edits that haven't reached an SSH host yet |
 |---|---|---|
 | Linux | `~/.config/dovetail/` | `~/.local/share/dovetail/` |
 | macOS | `~/Library/Application Support/dovetail/` | the same folder |
@@ -314,6 +317,59 @@ F3's next and previous match), ⌘M (minimise) and ⌘Q (closes the window, wait
 - **A file you can't write** opens read-only: the text is dimmed, the status bar says why, and you
   can still scroll, select and copy. Save as writes it to a file you can write and carries on
   editing there.
+
+## Files over SSH
+
+Dovetail opens files on the computers in your SSH config (`~/.ssh/config`, and the files it
+`Include`s) and saves them back, without mounting anything.
+
+- **Opening.** In the Ctrl+O picker the first row of any folder is `ssh:`. Go into it and the
+  rows are your hosts, by the names after `Host` (patterns like `*.lan` are left out). Go into
+  one and you are in your home folder there, written `web1:/home/you/` in the box; from there
+  folders and files work as they do on this computer, and Enter on a file opens it. You can also
+  type or paste `web1:/etc/hosts` into the box. Each folder is asked for over ssh, so its rows
+  take a moment; if the host can't be reached, the line under the box says why and Enter asks
+  again. The file is shown in the status bar, in Ctrl+P and in the recent files as
+  `web1:/path/to/file`, and reopens where you left it.
+- **How it connects.** It runs the `ssh` program your terminal does, so every setting in your
+  config applies: ports, users, jump hosts, keys, the agent. It never asks for anything, so the
+  host has to let you in with a key or the agent, with no password, and you must have connected
+  once before so its host key is known. Otherwise the status bar says which of those it was.
+  `ssh` comes with Linux and macOS; on Windows it is the OpenSSH client, usually installed
+  already on Windows 10 and 11 (if not: Settings, Optional features).
+- **Saving** works like any file: autosave after a pause, Ctrl+S to send now, and the dot says
+  how it went. Each save sends the whole file to a temporary file beside the real one on the
+  host. The host checks that all of it arrived, and only then renames it over the real file, so
+  the host holds the old file or the new one, never half of one. The file keeps its permissions,
+  and a link stays a link.
+- **A connection that drops** costs you nothing. Before a save is sent, the text and its Ctrl+Z
+  history are written on this computer, and deleted once the host confirms. If the host can't be
+  reached the dot turns orange with the reason, and Dovetail tries again every five seconds
+  while the window is open. Closing the window tries once more; if the host still doesn't take
+  it, the status bar says so, and closing a second time leaves the text on this computer. The
+  next launch says which file has edits that never arrived, and opening it brings them back,
+  Ctrl+Z history included, and sends them. The same holds if the app is killed or the computer
+  shuts down mid-save.
+- **A file changed on the host** since you opened it is not saved over. The status bar offers
+  Reload and Keep mine, as for a file changed on disk (see [Saving](#saving)). Files are compared
+  by a checksum of their contents, so this is exact, and a save whose answer got lost on the way
+  back is recognised as yours the next time.
+
+What it doesn't do, so you know:
+
+- No passwords or key passphrases typed into Dovetail: use a key and `ssh-agent`.
+- The host needs a Unix-like shell with `sh` and `cksum` (any Linux, macOS or BSD; not a Windows
+  host, and not some very small embedded systems).
+- Every folder listing, open and save is its own connection. To make them near instant, let ssh
+  reuse one connection: `ControlMaster auto`, `ControlPath ~/.ssh/cm-%C` and `ControlPersist
+  10m` under `Host *` in your config (Linux and macOS).
+- Files up to 32 MB, since each save sends the whole file. No `sudo`: you edit what your login
+  can write, and anything else opens read-only.
+- You can't create, rename or delete files on a host, or Save as to one (Save as to this computer
+  works). Rewriting (Ctrl+R) is for files on this computer.
+- If the network dies without a word (a laptop lid closed mid-save), the temporary file,
+  `.save-….tmp` beside yours, can stay on the host until the host notices the connection is
+  gone, and is deleted then. The real file is untouched either way.
 
 ## Rewriting
 

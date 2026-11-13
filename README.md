@@ -14,6 +14,9 @@ which suits a tiling window manager. There is no save prompt, because there is n
 It colours Markdown, JSON, YAML, TOML, INI, shell scripts and SSH config, and tells you in the
 status bar where a data or config file stops being valid. It never changes your text to do it.
 
+It opens files on your SSH hosts as well (`Ctrl+O`, then `ssh:`), and saves them back so that a
+dropped connection never costs you text.
+
 There is also an assistant pane (`Ctrl+L`) that reads your text and suggests edits you can accept
 or reject. It talks to any OpenAI-compatible server you point it at, and the editor works fine
 without it.

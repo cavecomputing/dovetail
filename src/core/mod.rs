@@ -11,6 +11,8 @@ pub mod markup;
 pub mod opened;
 pub mod paths;
 pub mod recent;
+pub mod remote;
+pub mod remote_file;
 pub mod review;
 pub mod rewrite;
 pub mod save;

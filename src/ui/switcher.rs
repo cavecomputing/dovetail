@@ -42,11 +42,7 @@ impl Switcher {
     /// The rows, top to bottom: scratch always first (row 0, whatever is typed), then the items
     /// matching the query, best first.
     pub fn rows(&self) -> Vec<Doc> {
-        let files = self.matches().into_iter().map(|path| Doc::File {
-            path: path.clone(),
-            line_ending: Default::default(),
-            bom: false,
-        });
+        let files = self.matches().into_iter().map(|path| Doc::recent(path));
         std::iter::once(Doc::Scratch).chain(files).collect()
     }
 
@@ -85,13 +81,10 @@ impl App {
                 if was_open {
                     return iced::widget::operation::focus(editor::EDITOR_ID);
                 }
-                let current = match &self.doc {
-                    Doc::File { path, .. } => Some(path),
-                    Doc::Scratch => None,
-                };
+                let current = self.doc.name();
                 let items = existing_recent_files(&self.paths.data_dir)
                     .into_iter()
-                    .filter(|path| Some(path) != current)
+                    .filter(|path| Some(path) != current.as_ref())
                     .collect();
                 self.switcher = Some(Switcher::new(items));
                 return iced::widget::operation::focus(SWITCHER_ID);
@@ -223,6 +216,7 @@ pub fn list_row<'a>(
 fn match_row<'a>(doc: Doc, index: usize, selected: bool) -> Element<'a, Message> {
     let folder = match &doc {
         Doc::File { path, .. } => path.parent().map(display_path).unwrap_or_default(),
+        Doc::Remote { remote, .. } => remote.typed_folder(),
         Doc::Scratch => String::new(),
     };
     let number = match index {

@@ -39,9 +39,10 @@ impl App {
         self.menu_open = false;
         if !self.can_rewrite() {
             // Scratch has no file to rewrite; a file another window holds can be, there.
-            let words = match self.doc.path() {
-                Some(_) => "Rewrite needs a file this window can edit",
-                None => "Rewrite needs a saved file: Ctrl+S saves scratch to one",
+            let words = match &self.doc {
+                Doc::File { .. } => "Rewrite needs a file this window can edit",
+                Doc::Remote { .. } => "Rewrite needs a file on this computer",
+                Doc::Scratch => "Rewrite needs a saved file: Ctrl+S saves scratch to one",
             };
             self.set_notice(Some(words.to_string()));
             return Task::none();

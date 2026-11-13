@@ -10,6 +10,7 @@ pub mod highlighter;
 pub mod key_guard;
 pub mod palette;
 pub mod picker;
+pub mod remote_actions;
 pub mod rewrite_actions;
 pub mod scroll_bar;
 pub mod settings_panel;

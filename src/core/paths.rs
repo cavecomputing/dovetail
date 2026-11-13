@@ -19,6 +19,9 @@ pub struct Paths {
     /// `~/Documents`: where the save dialogs (Save as, New file) start when there is no open file
     /// to start beside.
     pub documents_dir: PathBuf,
+    /// The SSH config to use in place of ssh's own (`~/.ssh/config`): only set when the folders
+    /// are moved for a test run, so one never reaches a real host.
+    pub ssh_config_override: Option<PathBuf>,
 }
 
 impl Paths {
@@ -37,16 +40,26 @@ impl Paths {
             config_dir: base.config_dir().join(CONFIG_DIR_NAME),
             data_dir: base.data_local_dir().join(CONFIG_DIR_NAME),
             documents_dir,
+            ssh_config_override: None,
         }
     }
 
-    /// All three folders inside `root`, for tests and the `<APP>_HOME` override.
+    /// All three folders inside `root`, and the SSH config at `ssh/config` there, for tests and
+    /// the `<APP>_HOME` override.
     pub fn under(root: &Path) -> Paths {
         Paths {
             config_dir: root.join("config"),
             data_dir: root.join("data"),
             documents_dir: root.join("documents"),
+            ssh_config_override: Some(root.join("ssh").join("config")),
         }
+    }
+
+    /// The SSH config file whose hosts the Ctrl+O picker offers: the user's own, in `.ssh` in
+    /// the home folder on every OS.
+    pub fn ssh_config(&self) -> PathBuf {
+        let own = || BaseDirs::new().map(|base| base.home_dir().join(".ssh").join("config"));
+        (self.ssh_config_override.clone().or_else(own)).unwrap_or_default()
     }
 
     pub fn settings_file(&self) -> PathBuf {

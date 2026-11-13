@@ -57,7 +57,13 @@ pub fn view(app: &App, width: f32) -> Element<'_, Message> {
     // sit right after the reason, short enough to fit a 640px window.
     if app.disk_conflict {
         let reload = word_button("Reload".to_string(), Some(Message::ReloadFromDisk));
-        let words = keys("Replace this text with the file on disk (Ctrl+Z brings it back)");
+        let words = match app.doc {
+            Doc::Remote { .. } => {
+                "Replace this text with the file on the host (Ctrl+Z brings it back)"
+            }
+            _ => "Replace this text with the file on disk (Ctrl+Z brings it back)",
+        };
+        let words = keys(words);
         left = left.push(hint(reload, words));
         left = left.push(word_button(
             "Keep mine".to_string(),
@@ -71,6 +77,7 @@ pub fn view(app: &App, width: f32) -> Element<'_, Message> {
     let notice = app.notice.as_ref().map(|(words, _)| words.as_str());
     let warnings = [
         app.read_only_reason.as_deref(),
+        app.fetching.as_deref(),
         notice,
         app.syntax_problem.as_deref(),
         app.stale_draft,
@@ -204,6 +211,7 @@ fn doc_label(doc: &Doc) -> String {
     match doc {
         Doc::Scratch => "Scratch".to_string(),
         Doc::File { path, .. } => display_path(path),
+        Doc::Remote { remote, .. } => remote.to_string(),
     }
 }
 
@@ -393,7 +401,7 @@ pub fn menu(app: &App) -> Element<'_, Message> {
     // to another.
     items = match &app.doc {
         Doc::Scratch => items.push(menu_item("save to a file", "Ctrl+S", Message::Save)),
-        Doc::File { .. } => items.push(menu_item("save as", "Ctrl+Shift+S", Message::SaveAs)),
+        _ => items.push(menu_item("save as", "Ctrl+Shift+S", Message::SaveAs)),
     };
     if matches!(app.doc, Doc::Scratch) && app.editable() {
         let save = Message::SaveAs;
@@ -446,14 +454,11 @@ pub fn menu(app: &App) -> Element<'_, Message> {
         .push(menu_item("settings", "Ctrl+,", Message::OpenSettings))
         .push(menu_item("scratch", "Ctrl+0", Message::OpenScratch));
     // The recent files come last, so the commands above stay put however many there are.
-    let current = match &app.doc {
-        Doc::File { path, .. } => Some(path),
-        Doc::Scratch => None,
-    };
+    let current = app.doc.name();
     let recent: Vec<_> = app
         .recent
         .iter()
-        .filter(|path| Some(*path) != current)
+        .filter(|path| Some(*path) != current.as_ref())
         .take(MENU_RECENT)
         .collect();
     let mut files = column![menu_heading(match recent.is_empty() {
@@ -518,6 +523,7 @@ pub fn title(doc: &Doc) -> String {
     match doc {
         Doc::Scratch => "Scratch".to_string(),
         Doc::File { path, .. } => file_name(path),
+        Doc::Remote { remote, .. } => file_name(&remote.as_path()),
     }
 }
 
