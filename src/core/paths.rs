@@ -22,6 +22,10 @@ pub struct Paths {
     /// The SSH config to use in place of ssh's own (`~/.ssh/config`): only set when the folders
     /// are moved for a test run, so one never reaches a real host.
     pub ssh_config_override: Option<PathBuf>,
+    /// `$XDG_RUNTIME_DIR/<app>` on Linux, a folder only this user can open that is emptied at
+    /// logout: holds the sockets of the ssh connections kept open between requests
+    /// (`core/remote.rs`). macOS and Windows have no such folder, so none are kept there.
+    pub runtime_dir: Option<PathBuf>,
 }
 
 impl Paths {
@@ -41,17 +45,20 @@ impl Paths {
             data_dir: base.data_local_dir().join(CONFIG_DIR_NAME),
             documents_dir,
             ssh_config_override: None,
+            runtime_dir: base.runtime_dir().map(|dir| dir.join(CONFIG_DIR_NAME)),
         }
     }
 
-    /// All three folders inside `root`, and the SSH config at `ssh/config` there, for tests and
-    /// the `<APP>_HOME` override.
+    /// Every folder inside `root`, and the SSH config at `ssh/config` there, for tests and the
+    /// `<APP>_HOME` override.
     pub fn under(root: &Path) -> Paths {
         Paths {
             config_dir: root.join("config"),
             data_dir: root.join("data"),
             documents_dir: root.join("documents"),
             ssh_config_override: Some(root.join("ssh").join("config")),
+            // Only Linux has the real one (see `runtime_dir`).
+            runtime_dir: cfg!(target_os = "linux").then(|| root.join("run")),
         }
     }
 

@@ -278,8 +278,8 @@ src/
                          which parts of a line to colour, the check, and the palette's Host block
     remote.rs            a file on an SSH host (`alias:path`, as rclone writes one; from the home
                          folder unless the path starts at `/`): running the system's `ssh` with a
-                         fixed `sh` script, why a run failed in plain words, `cksum`, and listing
-                         a folder there
+                         fixed `sh` script (on Linux over one connection kept open), why a run
+                         failed in plain words, `cksum`, and listing a folder there
     remote_file.rs       reading a host's file whole and saving it so the host never holds half
                          of one or loses another writer's change; the text and undo steps kept
                          in the data folder until the host confirms

@@ -361,6 +361,11 @@ colon is what says it is on a host. Without a colon, a path is on this computer.
   once before so its host key is known. Otherwise the status bar says which of those it was.
   `ssh` comes with Linux and macOS; on Windows it is the OpenSSH client, usually installed
   already on Windows 10 and 11 (if not: Settings, Optional features).
+- **One connection, kept open** (Linux). The first folder listing, open or save on a host
+  connects and logs in. The ones after it go over that same connection, which stays open until
+  two minutes after its last use, so they are near instant, in every Dovetail window. If it
+  drops, the next request connects again. If your ssh config already shares connections for a
+  host (a `ControlPath`), yours is used and Dovetail adds nothing of its own.
 - **Saving** works like any file: autosave after a pause, Ctrl+S to send now, and the dot says
   how it went. Each save sends the whole file to a temporary file beside the real one on the
   host. The host checks that all of it arrived, and only then renames it over the real file, so
@@ -384,9 +389,9 @@ What it doesn't do, so you know:
 - No passwords or key passphrases typed into Dovetail: use a key and `ssh-agent`.
 - The host needs a Unix-like shell with `sh` and `cksum` (any Linux, macOS or BSD; not a Windows
   host, and not some very small embedded systems).
-- Every folder listing, open and save is its own connection. To make them near instant, let ssh
-  reuse one connection: `ControlMaster auto`, `ControlPath ~/.ssh/cm-%C` and `ControlPersist
-  10m` under `Host *` in your config (Linux and macOS).
+- On macOS and Windows every folder listing, open and save is its own connection. On macOS you
+  can have ssh reuse one: `ControlMaster auto`, `ControlPath ~/.ssh/cm-%C` and `ControlPersist
+  10m` under `Host *` in your config.
 - Files up to 32 MB, since each save sends the whole file. No `sudo`: you edit what your login
   can write, and anything else opens read-only.
 - You can't create, rename or delete files on a host, or Save as to one (Save as to this computer

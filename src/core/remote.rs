@@ -4,12 +4,14 @@
 //! a host, why that failed in plain words, and what's in a folder there.
 //!
 //! Every request is one `ssh` run, which starts `sh` on the host with one of the scripts below
-//! and talks to it through its input and output. `ssh` runs in batch mode: there is nowhere to
+//! and talks to it through its input and output. On Linux the connection the first run makes
+//! is kept open a while for the next ones (`Ssh::shared`). `ssh` runs in batch mode: there is nowhere to
 //! type a password, so a host that asks for one fails with the reason instead of hanging. The
 //! host needs a POSIX `sh` and, for files, `cksum`: any Linux, macOS or BSD.
 
 use std::ffi::OsString;
 use std::fmt;
+use std::fs;
 use std::io::{ErrorKind, Read, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -123,6 +125,9 @@ pub struct Ssh {
     /// How long a run may go without a byte moving either way before it is given up on. `ssh`
     /// itself drops a dead connection sooner (`OPTIONS`); this is for whatever that misses.
     pub quiet: Duration,
+    /// The folder for the sockets of connections kept open between runs (`shared`); `None`
+    /// where every run makes its own connection.
+    pub sockets: Option<PathBuf>,
 }
 
 /// What every run of `ssh` is told: never ask anything (`BatchMode`), give up on a connect after
@@ -161,6 +166,46 @@ impl Ssh {
             program: "ssh".into(),
             first: config.flat_map(|file| ["-F".into(), file.into()]).collect(),
             quiet: Duration::from_secs(45),
+            sockets: paths.runtime_dir.clone(),
+        }
+    }
+
+    /// The options that let a run use the connection to `host` an earlier run left open, and
+    /// leave its own open for two minutes after its last use, so that only the first of a row
+    /// of requests has to connect and log in. ssh does the sharing (its `ControlMaster`): a
+    /// connection that has died is replaced by a new one, and a run on a shared connection
+    /// that drops fails as a run of its own would.
+    ///
+    /// None when there is no folder for the socket (macOS, Windows), and none when the user's
+    /// own config already shares connections to this host: theirs is used as it is, since it
+    /// may be one they logged in to by hand.
+    fn shared(&self, host: &str) -> Vec<OsString> {
+        let Some(sockets) = &self.sockets else {
+            return Vec::new();
+        };
+        // ssh refuses a socket path of about 100 bytes: `%C` is 40 of them, and it adds 18 of
+        // its own while it connects.
+        if sockets.as_os_str().len() > 40 || fs::create_dir_all(sockets).is_err() {
+            return Vec::new();
+        }
+        // `-G` prints the settings ssh would use for the host, without connecting.
+        let settings = Command::new(&self.program)
+            .args(&self.first)
+            .args(["-G", "--", host])
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .output();
+        match settings {
+            Ok(settings) if settings.status.success() && !shares(&settings.stdout) => {
+                let mut path = OsString::from("-oControlPath=");
+                path.push(sockets.join("%C"));
+                vec![
+                    "-oControlMaster=auto".into(),
+                    path,
+                    "-oControlPersist=120".into(),
+                ]
+            }
+            _ => Vec::new(),
         }
     }
 
@@ -171,6 +216,7 @@ impl Ssh {
         command
             .args(&self.first)
             .args(OPTIONS)
+            .args(self.shared(host))
             .arg("--")
             .arg(host)
             // One argument in single quotes, which the scripts never use, so the host's login
@@ -212,6 +258,11 @@ impl Ssh {
             if since(&moved) > self.quiet {
                 let _ = child.kill();
                 let _ = child.wait();
+                // A connection kept open that passes nothing would stall the next runs too:
+                // without its socket, the next one connects afresh.
+                if let Some(sockets) = &self.sockets {
+                    let _ = fs::remove_dir_all(sockets);
+                }
                 return Err(format!("{host} stopped answering"));
             }
             thread::sleep(Duration::from_millis(10));
@@ -227,6 +278,16 @@ impl Ssh {
             errors: String::from_utf8_lossy(&errors.take()).into_owned(),
         })
     }
+}
+
+/// Whether the settings `ssh -G` printed for a host name a socket for sharing connections
+/// (`controlpath`, which it leaves out when there is none).
+fn shares(settings: &[u8]) -> bool {
+    let settings = String::from_utf8_lossy(settings);
+    settings.lines().any(|line| {
+        let (keyword, value) = line.split_once(' ').unwrap_or((line, ""));
+        keyword == "controlpath" && value != "none"
+    })
 }
 
 /// What one of ssh's pipes has given so far, and whether it has ended.
@@ -336,9 +397,11 @@ pub fn why(host: &str, errors: &str) -> String {
     } else if says(&["no such file or directory", "nonexistent"]) {
         "the folder is missing on the host".to_string()
     } else {
+        // Nothing said at all is a connection that dropped under a run sharing it: the ssh
+        // that holds the connection is the one that hears why.
         let last = errors.lines().rev().find(|line| !line.trim().is_empty());
         last.map_or_else(
-            || format!("{host} ended the connection without saying why"),
+            || format!("lost the connection to {host}"),
             |line| line.trim().to_string(),
         )
     }
@@ -497,6 +560,7 @@ pub mod tests {
             first: vec![script.into()],
             // Long enough for a slow disk: a save's `sync` moves no bytes while it runs.
             quiet: Duration::from_secs(30),
+            sockets: None,
         }
     }
 
@@ -601,7 +665,7 @@ pub mod tests {
             "no permission on the host"
         );
         assert_eq!(said("something odd\n\n"), "something odd");
-        assert_eq!(said(""), "web1 ended the connection without saying why");
+        assert_eq!(said(""), "lost the connection to web1");
     }
 
     #[test]
@@ -682,6 +746,59 @@ pub mod tests {
             list(&ssh, "web1", "none").unwrap_err(),
             "web1 has no folder none"
         );
+    }
+
+    #[cfg(unix)] // The stand-in for ssh is a shell script.
+    #[test]
+    fn a_connection_is_kept_open_unless_the_users_config_already_keeps_one() {
+        let dir = tempfile::tempdir().unwrap();
+        // A stand-in that answers `-G` with the settings in the file `settings`.
+        let script = dir.path().join("ssh.sh");
+        let settings = dir.path().join("settings");
+        let answer = format!("[ \"$1\" = -G ] && cat \"{}\"", settings.display());
+        std::fs::write(&script, answer).unwrap();
+        let sockets = dir.path().join("run");
+        let ssh = Ssh {
+            program: "sh".into(),
+            first: vec![script.into()],
+            quiet: Duration::from_secs(30),
+            sockets: Some(sockets.clone()),
+        };
+        let options = |ssh: &Ssh| -> Vec<String> {
+            let options = ssh.shared("web1").into_iter();
+            options
+                .map(|option| option.into_string().unwrap())
+                .collect()
+        };
+        std::fs::write(
+            &settings,
+            "host web1\ncontrolmaster false\ncontrolpersist no\n",
+        )
+        .unwrap();
+        if sockets.as_os_str().len() <= 40 {
+            let path = format!("-oControlPath={}/%C", sockets.display());
+            let kept = ["-oControlMaster=auto", &path, "-oControlPersist=120"];
+            assert_eq!(options(&ssh), kept);
+            assert!(sockets.is_dir());
+        }
+        // Their own config shares connections: nothing is added to it.
+        std::fs::write(&settings, "host web1\ncontrolpath /home/me/.ssh/cm-1f\n").unwrap();
+        assert!(options(&ssh).is_empty());
+        // No settings (an ssh too old for `-G`, a config it can't read), a folder whose path is
+        // too long for a socket, and no folder at all.
+        std::fs::remove_file(&settings).unwrap();
+        assert!(options(&ssh).is_empty());
+        std::fs::write(&settings, "host web1\n").unwrap();
+        let long = Ssh {
+            sockets: Some(dir.path().join("a".repeat(41))),
+            ..ssh.clone()
+        };
+        assert!(options(&long).is_empty());
+        let none = Ssh {
+            sockets: None,
+            ..ssh
+        };
+        assert!(options(&none).is_empty());
     }
 
     #[cfg(unix)] // The stand-in for ssh needs `sh` (see `fake_ssh`).
