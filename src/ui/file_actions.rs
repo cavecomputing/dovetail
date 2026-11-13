@@ -38,22 +38,12 @@ impl App {
             self.opening = None;
             return Task::none();
         }
-        // Leaving would drop the text the save refused, without the status bar's choice.
-        if self.disk_conflict {
-            let words = "The file changed on disk: choose Reload or Keep mine first";
-            self.set_notice(Some(words.to_string()));
+        if !self.saved_for_leaving() {
             return Task::none();
         }
-        // An autosave still running would land after the save below, over newer text, so wait
-        // for it: its `Saved` comes back here.
+        // An autosave still running is waited for: its `Saved` comes back here.
         if self.autosaver.is_saving() {
             self.opening = Some(doc);
-            return Task::none();
-        }
-        // Saved unless closing could skip it (so a failed last save is tried again). Scratch keeps
-        // its cursor too, so it is written even then. A read-only window has nothing to save.
-        let unsaved = !self.autosaver.close_allowed() || matches!(self.doc, Doc::Scratch);
-        if self.editable() && unsaved && !self.save_before_leaving() {
             return Task::none();
         }
         match open_in_place(&self.doc, doc, &self.paths) {
@@ -63,6 +53,24 @@ impl App {
                 Task::none()
             }
         }
+    }
+
+    /// Saves the document shown so the window can leave it, and says whether it may: not over a
+    /// disk conflict, and not when the save fails (the status bar says why). An autosave still
+    /// running is left to finish, since a save started now would land before it, under older
+    /// text.
+    fn saved_for_leaving(&mut self) -> bool {
+        // Leaving would drop the text the save refused, without the status bar's choice.
+        if self.disk_conflict {
+            let words = "The file changed on disk: choose Reload or Keep mine first";
+            self.set_notice(Some(words.to_string()));
+            return false;
+        }
+        // Saved unless closing could skip it (so a failed last save is tried again). Scratch keeps
+        // its cursor too, so it is written even then. A read-only window has nothing to save.
+        let unsaved = !self.autosaver.close_allowed() || matches!(self.doc, Doc::Scratch);
+        let saving = self.autosaver.is_saving();
+        !self.editable() || saving || !unsaved || self.save_before_leaving()
     }
 
     /// Ctrl+N: asks where the new file goes; `NewFilePicked` brings the answer.
@@ -76,8 +84,12 @@ impl App {
     }
 
     /// Starts the new file at `path` empty (the dialog has already agreed to replace anything
-    /// there) and opens it (`open_file`).
+    /// there) and opens it (`open_file`). Nothing is emptied while the window can't leave the
+    /// document it shows, since it would then stay on that one beside a file emptied for nothing.
     pub fn start_new_file(&mut self, path: PathBuf) -> Task<Message> {
+        if !self.saved_for_leaving() {
+            return Task::none();
+        }
         match empty_file(&self.paths.data_dir, &self.doc, &path) {
             Ok(()) => self.open_file(path),
             Err(reason) => {

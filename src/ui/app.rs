@@ -1750,6 +1750,12 @@ mod tests {
         assert_eq!(app.pane.model.text(), "!# notes\n");
         assert_eq!(std::fs::read_to_string(&notes).unwrap(), "theirs");
         assert!(app.notice.is_some());
+        // Nor does a new file empty the one picked for it while the window can't leave.
+        let picked = dir.path().join("picked.txt");
+        std::fs::write(&picked, "kept").unwrap();
+        let _ = app.update(Message::NewFilePicked(app.document, picked.clone()));
+        assert_eq!(std::fs::read_to_string(&picked).unwrap(), "kept");
+        assert!(matches!(&app.doc, Doc::File { path, .. } if *path == notes));
     }
 
     #[test]
