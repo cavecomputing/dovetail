@@ -215,7 +215,7 @@ Shortcuts are written with Ctrl; on macOS use ⌘ (the app's menu and hints show
 |---|---|
 | Ctrl+N | New file: asks where, then opens it, empty, as Ctrl+O would. Choosing an existing file empties it (the dialog asks first); a file open in any window is refused |
 | Ctrl+O | Open a file in this window: Enter or → goes into a folder, ← goes up one, Enter opens a file |
-| Ctrl+P | Scratch and the recent files, numbered 0 (scratch) to 9: type part of a name, ↑ and ↓ to choose, Enter to open. With nothing typed a row's number opens it; Ctrl+number does at any time |
+| Ctrl+P | Scratch and the most recent files, numbered 0 (scratch) to 9: type part of a name or its folder to find any of the last 50 files opened, ↑ and ↓ to choose, Enter to open. With nothing typed a row's number opens it; Ctrl+number does at any time |
 | Ctrl+Shift+P | The command palette: the tools for the kind of file open (Format JSON and Minify JSON in a `.json` file, New Host block in an SSH config). Type part of a name, ↑ and ↓ to choose, Enter to run |
 | Ctrl+0 | Back to scratch in this window (if another window has it, the status bar says so instead) |
 | Ctrl+S | Save now; in scratch, save to a file |

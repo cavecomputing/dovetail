@@ -1,6 +1,7 @@
-//! The Ctrl+P quick switcher: scratch, then the recent files, numbered 0 to 9. Type a few letters
-//! of a file's name, Enter opens the highlighted row in this window, a row's number (Ctrl+number
-//! once something is typed) opens that row, Esc closes.
+//! The Ctrl+P quick switcher: scratch, then the most recent files, numbered 0 to 9. Type a few
+//! letters of a file's name or folder to find any of the recent files, Enter opens the
+//! highlighted row in this window, a row's number (Ctrl+number once something is typed) opens
+//! that row, Esc closes.
 
 use std::path::PathBuf;
 
@@ -18,6 +19,8 @@ use crate::ui::status_bar::{file_name, keys, title};
 use crate::ui::theme::{Roles, raised_box};
 
 pub const SWITCHER_ID: &str = "switcher";
+/// The file rows the panel shows under scratch.
+const FILE_ROWS: usize = 11;
 
 pub struct Switcher {
     pub query: String,
@@ -40,10 +43,12 @@ impl Switcher {
     }
 
     /// The rows, top to bottom: scratch always first (row 0, whatever is typed), then the items
-    /// matching the query, best first.
+    /// matching the query, best first, as many as the panel shows. Typing finds the rest.
     pub fn rows(&self) -> Vec<Doc> {
         let files = self.matches().into_iter().map(|path| Doc::recent(path));
-        std::iter::once(Doc::Scratch).chain(files).collect()
+        std::iter::once(Doc::Scratch)
+            .chain(files.take(FILE_ROWS))
+            .collect()
     }
 
     /// The row highlighted when the list changes: the best match, or scratch when nothing
@@ -52,12 +57,19 @@ impl Switcher {
         usize::from(!self.matches().is_empty())
     }
 
-    /// The items matching the query, best first (newest first among equals).
+    /// The items matching the query, best first (newest first among equals). A match in the
+    /// file's name comes before one that needs its folder's letters too.
     pub fn matches(&self) -> Vec<&PathBuf> {
         let mut scored: Vec<(i32, &PathBuf)> = self
             .items
             .iter()
-            .filter_map(|path| Some((match_score(&self.query, &file_name(path))?, path)))
+            .filter_map(|path| {
+                let score = match match_score(&self.query, &file_name(path)) {
+                    Some(in_name) => in_name + 1_000,
+                    None => match_score(&self.query, &path.to_string_lossy())?,
+                };
+                Some((score, path))
+            })
             .collect();
         // A stable sort keeps the newest first among equal scores.
         scored.sort_by_key(|(score, _)| -score);
@@ -134,7 +146,7 @@ impl App {
 
 /// The switcher panel near the top of the window: what it lists, the `>` prompt, then the rows.
 pub fn view(switcher: &Switcher) -> Element<'_, Message> {
-    let search = text_input("type part of a name", &switcher.query)
+    let search = text_input("type part of a name or folder", &switcher.query)
         .id(SWITCHER_ID)
         .on_input(Message::SwitcherQuery)
         .on_submit(Message::SwitcherOpen);
@@ -142,7 +154,7 @@ pub fn view(switcher: &Switcher) -> Element<'_, Message> {
     let mut rows = column![];
     let docs = switcher.rows();
     let nothing = docs.len() == 1;
-    for (index, doc) in docs.into_iter().enumerate().take(12) {
+    for (index, doc) in docs.into_iter().enumerate() {
         rows = rows.push(match_row(doc, index, index == switcher.selected));
     }
     let foot = match (nothing, switcher.items.is_empty()) {
@@ -293,6 +305,30 @@ mod tests {
         assert_eq!(names(&switcher("")), ["Scratch", "notes.md", "todo.txt"]);
         assert_eq!(names(&switcher("todo")), ["Scratch", "todo.txt"]);
         assert_eq!(names(&switcher("zzz")), ["Scratch"]);
+    }
+
+    #[test]
+    fn letters_of_the_folder_match_after_the_names_that_do() {
+        let mut switcher = Switcher::new(vec![
+            PathBuf::from("/work/plan.md"),
+            "/home/working.txt".into(),
+            "/home/other.txt".into(),
+        ]);
+        switcher.query = "work".to_string();
+        assert_eq!(names(&switcher), ["Scratch", "working.txt", "plan.md"]);
+        switcher.query = "work/plan".to_string();
+        assert_eq!(names(&switcher), ["Scratch", "plan.md"]);
+    }
+
+    #[test]
+    fn only_the_newest_files_are_listed_until_something_is_typed() {
+        let files = (0..50).map(|n| PathBuf::from(format!("/notes/file-{n}.txt")));
+        let mut switcher = Switcher::new(files.collect());
+        assert_eq!(switcher.rows().len(), 1 + FILE_ROWS);
+        switcher.move_selection(100);
+        assert_eq!(switcher.selected, FILE_ROWS, "the last row shown");
+        switcher.query = "file-49".to_string();
+        assert_eq!(names(&switcher), ["Scratch", "file-49.txt"]);
     }
 
     #[test]

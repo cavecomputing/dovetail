@@ -11,7 +11,8 @@ use crate::core::save::atomic_write;
 use crate::core::scratch::ScratchView;
 
 const RECENT_FILE: &str = "recent.txt";
-const MAX_RECENT: usize = 10;
+/// The files kept: the menu lists the newest few, and Ctrl+P finds any of them by name or folder.
+const MAX_RECENT: usize = 50;
 const PLACES_FILE: &str = "places.json";
 const MAX_PLACES: usize = 50;
 
@@ -189,14 +190,14 @@ mod tests {
     }
 
     #[test]
-    fn keeps_only_the_latest_ten() {
+    fn keeps_only_the_latest_fifty() {
         let dir = tempfile::tempdir().unwrap();
-        for n in 0..15 {
+        for n in 0..55 {
             remember(dir.path(), Path::new(&format!("/{n}.txt"))).unwrap();
         }
         let list = recent_files(dir.path());
-        assert_eq!(list.len(), MAX_RECENT);
-        assert_eq!(list[0], PathBuf::from("/14.txt"));
+        assert_eq!(list.len(), 50);
+        assert_eq!(list[0], PathBuf::from("/54.txt"));
     }
 
     #[test]
