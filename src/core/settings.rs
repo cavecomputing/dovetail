@@ -5,6 +5,7 @@ use std::io::{self, ErrorKind};
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
+use toml_edit::{DocumentMut, Item, Table, Value};
 
 use crate::core::save::{atomic_write, failure_reason};
 
@@ -189,10 +190,23 @@ impl Settings {
         self.autosave_delay_ms = self.autosave_delay_ms.min(10_000);
     }
 
-    /// Writes the settings file atomically, creating its folder if needed. When it holds the
-    /// API key, the file is made readable by its owner only before the key goes in.
+    /// Writes the settings file atomically, creating its folder if needed. A file already there
+    /// keeps what was written into it by hand: its comments, its layout, and keys this version
+    /// doesn't know. Only the values that changed are written over. When it holds the API key,
+    /// the file is made readable by its owner only before the key goes in.
     pub fn save(&self, path: &Path) -> io::Result<()> {
-        let text = toml::to_string_pretty(self).map_err(io::Error::other)?;
+        let mut text = toml::to_string_pretty(self).map_err(io::Error::other)?;
+        let on_disk = fs::read_to_string(path).ok();
+        if let Some(Ok(mut kept)) = on_disk.map(|old| old.parse::<DocumentMut>())
+            && let Ok(fresh) = text.parse::<DocumentMut>()
+        {
+            write_over(&mut kept, &fresh);
+            // The one setting that is written only when set: unset, its old line goes too.
+            if self.api_key_fallback.is_none() {
+                kept.remove("api_key_fallback");
+            }
+            text = kept.to_string();
+        }
         #[cfg(unix)]
         if self.api_key_fallback.is_some() {
             owner_only(path)?;
@@ -207,6 +221,34 @@ impl Settings {
             return Err(format!("{warning} · not saving until it's fixed"));
         }
         self.save(path).map_err(|error| failure_reason(&error))
+    }
+}
+
+/// Puts each of `fresh`'s values into `kept` where it differs, table by table. A value keeps the
+/// spaces and comment written around the one it replaces, and everything else in `kept` is left
+/// as it was.
+fn write_over(kept: &mut Table, fresh: &Table) {
+    for (key, item) in fresh.iter() {
+        match (kept.get_mut(key), item) {
+            (Some(Item::Table(kept)), Item::Table(fresh)) => write_over(kept, fresh),
+            (Some(Item::Value(kept)), Item::Value(fresh)) => {
+                // Strings by what they say, so 'light' isn't rewritten as "light"; the rest by
+                // how they are written.
+                let bare = |value: &Value| value.clone().decorated("", "").to_string();
+                let same = match (kept.as_str(), fresh.as_str()) {
+                    (Some(kept), Some(fresh)) => kept == fresh,
+                    _ => bare(kept) == bare(fresh),
+                };
+                if !same {
+                    let decor = kept.decor().clone();
+                    *kept = fresh.clone();
+                    *kept.decor_mut() = decor;
+                }
+            }
+            _ => {
+                kept.insert(key, item.clone());
+            }
+        }
     }
 }
 
@@ -272,6 +314,39 @@ mod tests {
             ..Settings::default()
         };
         settings.save(&path).unwrap();
+        assert_eq!(Settings::load(&path), (settings, None));
+    }
+
+    #[test]
+    fn saving_keeps_comments_layout_and_unknown_keys() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.toml");
+        let written = "# my settings\ntheme = 'light'   # easier in daylight\ntab_spaces = 2\n\
+                       from_a_newer_version = [1, 2]\napi_key_fallback = \"sk-old\"\n\n\
+                       # how wide\n[reading_mode]\nmode = \"comfort\"\nchars = 100 # roomy\n";
+        fs::write(&path, written).unwrap();
+        let (mut settings, warning) = Settings::load(&path);
+        assert_eq!(warning, None);
+        // Nothing changed: the file's own settings are written back as they were, and the ones
+        // it left out join them.
+        settings.save(&path).unwrap();
+        let saved = fs::read_to_string(&path).unwrap();
+        assert!(saved.starts_with("# my settings\ntheme = 'light'   # easier in daylight\n"));
+        assert!(saved.contains("from_a_newer_version = [1, 2]\n"));
+        assert!(saved.contains("word_wrap = true\n"));
+        assert!(
+            saved
+                .ends_with("# how wide\n[reading_mode]\nmode = \"comfort\"\nchars = 100 # roomy\n")
+        );
+        // Changed values go in where the old ones were, and a deleted key's line goes.
+        settings.theme = Theme::Dark;
+        settings.reading_mode = ReadingMode::FullWidth;
+        settings.api_key_fallback = None;
+        settings.save(&path).unwrap();
+        let saved = fs::read_to_string(&path).unwrap();
+        assert!(saved.starts_with("# my settings\ntheme = \"dark\"   # easier in daylight\n"));
+        assert!(saved.contains("mode = \"full_width\"\nchars = 100 # roomy\n"));
+        assert!(!saved.contains("api_key_fallback"));
         assert_eq!(Settings::load(&path), (settings, None));
     }
 
@@ -378,8 +453,6 @@ mod tests {
         let (settings, warning) = Settings::load(&path);
         assert!(warning.is_none());
         assert_eq!(settings.model, "");
-        settings.save(&path).unwrap();
-        assert!(!fs::read_to_string(&path).unwrap().contains("claude_model"));
     }
 
     #[test]

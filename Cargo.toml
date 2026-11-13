@@ -21,6 +21,9 @@ serde_json = "1.0.154"
 # pair of texts can't run away.
 similar = "3.2.0"
 toml = "1.2.1"
+# Saves a changed setting into settings.toml as written, so comments and unknown keys stay (already
+# in the build, under a build tool of the keyring's).
+toml_edit = "0.25"
 # Word bounds as cosmic-text finds them for a double click's selection (iced already uses it).
 unicode-segmentation = "1.13.3"
 
