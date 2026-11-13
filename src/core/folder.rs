@@ -1,5 +1,6 @@
 //! Folders for the Ctrl+O picker: what's in one, and how the picker reads the path typed into it.
 
+use std::cmp::Ordering;
 use std::fs;
 use std::path::{MAIN_SEPARATOR, Path, PathBuf};
 
@@ -29,7 +30,43 @@ impl Entry {
     }
 }
 
-/// What's in `dir`, folders first, then by name ignoring case. An unreadable folder is empty.
+/// Puts a folder's entries in the picker's order: folders first, then by name, ignoring case
+/// and reading a run of digits as its number, so `log-2` comes before `log-10`.
+pub fn sort(entries: &mut [Entry]) {
+    entries.sort_by(|a, b| {
+        let by_kind = b.is_dir.cmp(&a.is_dir);
+        by_kind.then_with(|| name_order(&a.name().to_lowercase(), &b.name().to_lowercase()))
+    });
+}
+
+/// Whether name `a` comes before or after `b`: character by character, except that where both
+/// have digits the whole numbers are compared (the longer one is bigger, zeros in front aside).
+fn name_order(mut a: &str, mut b: &str) -> Ordering {
+    let digits =
+        |name: &str| name.len() - name.trim_start_matches(|c: char| c.is_ascii_digit()).len();
+    loop {
+        let (a_digits, b_digits) = (digits(a), digits(b));
+        if a_digits > 0 && b_digits > 0 {
+            let a_number = a[..a_digits].trim_start_matches('0');
+            let b_number = b[..b_digits].trim_start_matches('0');
+            let by_number = (a_number.len().cmp(&b_number.len())).then(a_number.cmp(b_number));
+            if by_number != Ordering::Equal {
+                return by_number;
+            }
+            (a, b) = (&a[a_digits..], &b[b_digits..]);
+            continue;
+        }
+        match (a.chars().next(), b.chars().next()) {
+            (Some(first), Some(other)) if first == other => {
+                (a, b) = (&a[first.len_utf8()..], &b[first.len_utf8()..]);
+            }
+            // The end of a name comes before any character.
+            (first, other) => return first.cmp(&other),
+        }
+    }
+}
+
+/// What's in `dir`, in the picker's order (`sort`). An unreadable folder is empty.
 pub fn entries(dir: &Path) -> Vec<Entry> {
     let Ok(read) = fs::read_dir(dir) else {
         return Vec::new();
@@ -44,7 +81,7 @@ pub fn entries(dir: &Path) -> Vec<Entry> {
             }
         })
         .collect();
-    found.sort_by_key(|entry| (!entry.is_dir, entry.name().to_lowercase()));
+    sort(&mut found);
     found
 }
 
@@ -153,6 +190,32 @@ mod tests {
         let root = folder_with("entries", &["b.txt", "A.md", "src/", "zeta/"]);
         assert_eq!(names(&entries(&root)), ["src", "zeta", "A.md", "b.txt"]);
         assert!(entries(&root.join("missing")).is_empty());
+    }
+
+    #[test]
+    fn names_with_numbers_are_in_number_order() {
+        let files = [
+            "log-10.txt",
+            "log-2.txt",
+            "Log-1.txt",
+            "log-02b.txt",
+            "log.txt",
+            "10/",
+            "9/",
+        ];
+        let root = folder_with("numbers", &files);
+        assert_eq!(
+            names(&entries(&root)),
+            [
+                "9",
+                "10",
+                "Log-1.txt",
+                "log-2.txt",
+                "log-02b.txt",
+                "log-10.txt",
+                "log.txt"
+            ]
+        );
     }
 
     #[test]

@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::core::folder::Entry;
+use crate::core::folder::{self, Entry};
 use crate::core::paths::Paths;
 
 /// A file on another machine: the host as `ssh` knows it (an alias from `~/.ssh/config`, or
@@ -414,7 +414,7 @@ pub struct Listing {
     /// whole path there.
     pub asked: String,
     pub folder: String,
-    /// Folders first, then by name ignoring case, as `folder::entries` orders them.
+    /// In the order `folder::entries` gives a folder here (`folder::sort`).
     pub entries: Vec<Entry>,
 }
 
@@ -444,7 +444,7 @@ pub fn list(ssh: &Ssh, host: &str, folder: &str) -> Result<Listing, String> {
             }
         })
         .collect();
-    entries.sort_by_key(|entry| (!entry.is_dir, entry.name().to_lowercase()));
+    folder::sort(&mut entries);
     Ok(Listing {
         host: host.to_string(),
         asked: folder.to_string(),
