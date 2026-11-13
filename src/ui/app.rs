@@ -514,6 +514,14 @@ impl App {
                     return self.update(Message::Zoom(-lines.signum() as f32));
                 }
             }
+            // Shift+click selects from where the selection began (or the caret) to the click, as
+            // a drag that ended there would. A plain click would drop the selection.
+            Message::Edit(Action::Click(at)) if self.modifiers.shift() => {
+                return self.update(Message::Edit(Action::Drag(at)));
+            }
+            Message::Original(Action::Click(at)) if self.modifiers.shift() => {
+                return self.update(Message::Original(Action::Drag(at)));
+            }
             // A read-only window still scrolls, selects and copies, but never changes the text.
             Message::Edit(action) if action.is_edit() && !self.editable() => {}
             // In code, brackets and quotes close themselves.
