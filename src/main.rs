@@ -5,6 +5,7 @@
 //! - `--print-brand`: prints the names from `brand.rs`, and the version, for the install scripts,
 //!   then exits
 //! - `--version`: prints the name and version, then exits
+//! - `--help` or `-h`: prints what the command line takes, then exits
 
 // A release build on Windows is a GUI program, so no console window opens beside it. Its output
 // still reaches a pipe or a file (`--print-brand` in a script); debug builds keep the console, for
@@ -33,6 +34,18 @@ fn main() -> iced::Result {
         }
         Some(flag) if flag == Path::new("--version") => {
             println!("{} {}", brand::BIN_NAME, env!("CARGO_PKG_VERSION"));
+            return Ok(());
+        }
+        // Before, these opened a new file named `--help`.
+        Some(flag) if flag == Path::new("--help") || flag == Path::new("-h") => {
+            let bin = brand::BIN_NAME;
+            println!("Usage: {bin} [FILE]");
+            println!();
+            println!("  {bin}              open the scratch space");
+            println!("  {bin} FILE         open a text file (a new name is a new file)");
+            println!("  {bin} HOST:PATH    open a file on an SSH host, named as in the SSH config");
+            println!("  {bin} --version    print the version");
+            println!("  {bin} --help       print this");
             return Ok(());
         }
         // `alias:path` is a file on an SSH host, unless this computer has a file by that name

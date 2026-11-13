@@ -110,6 +110,7 @@ dovetail              # opens scratch (or start it from your app launcher)
 dovetail notes.txt    # opens that file, creating it if it doesn't exist
 dovetail web1:/etc/hosts   # opens a file on an SSH host (see Files over SSH)
 dovetail web1:notes/todo.md   # the same, from your home folder there
+dovetail --help       # prints these, and --version the version
 ```
 
 **Scratch** is one continuous notepad that comes back exactly as you left it: text, cursor and
