@@ -6,7 +6,6 @@
 //! the documents open now, give or take one left by a crash.
 
 use std::fs::{self, File, OpenOptions, TryLockError};
-use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 
 /// A claim on a document: the lock on its lock file, held until this is dropped.
@@ -80,9 +79,16 @@ pub fn locked_elsewhere(lock_path: &Path) -> bool {
 }
 
 /// Where the lock for the text file at `path` lives: one small file per document in the data
-/// folder, named from a hash of the document's real path (a symlink and its target share one).
+/// folder, named from a fingerprint of the document's real path (a symlink and its target share
+/// one).
 pub fn file_lock_path(data_dir: &Path, path: &Path) -> PathBuf {
-    let real_path = match fs::canonicalize(path) {
+    let name = fingerprint(real_path(path).as_os_str().as_encoded_bytes());
+    data_dir.join("locks").join(format!("{name:016x}.lock"))
+}
+
+/// The path of the file at `path` with its symlinks followed.
+pub fn real_path(path: &Path) -> PathBuf {
+    match fs::canonicalize(path) {
         Ok(real_path) => real_path,
         // A file not made yet is named by its folder's real path, so the name stays the same once
         // it exists (Windows writes real paths as `\\?\C:\...`, so the plain path would differ).
@@ -90,12 +96,16 @@ pub fn file_lock_path(data_dir: &Path, path: &Path) -> PathBuf {
             (Some(Ok(dir)), Some(name)) => dir.join(name),
             _ => path.to_path_buf(),
         },
-    };
-    let mut hasher = DefaultHasher::new();
-    real_path.hash(&mut hasher);
-    data_dir
-        .join("locks")
-        .join(format!("{:016x}.lock", hasher.finish()))
+    }
+}
+
+/// A fingerprint of `bytes` (64-bit FNV-1a), the same from one build of the app to the next,
+/// which std's hasher doesn't promise. Files are named from it, so two versions of the app
+/// running at once agree on a document's lock, and a rewrite's draft is found after an update.
+pub fn fingerprint(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+        (hash ^ u64::from(*byte)).wrapping_mul(0x0100_0000_01b3)
+    })
 }
 
 #[cfg(test)]
@@ -139,6 +149,14 @@ mod tests {
         assert!(!still_there(&stale, &path));
         let lock = claim_lock(&path).unwrap();
         assert!(still_there(&lock._file, &path));
+    }
+
+    #[test]
+    fn a_fingerprint_is_the_same_in_every_build() {
+        // FNV-1a's published values: a lock or draft named in one version is found by the next.
+        assert_eq!(fingerprint(b""), 0xcbf2_9ce4_8422_2325);
+        assert_eq!(fingerprint(b"a"), 0xaf63_dc4c_8601_ec8c);
+        assert_eq!(fingerprint(b"foobar"), 0x8594_4171_f739_67e8);
     }
 
     #[test]

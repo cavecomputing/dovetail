@@ -5,6 +5,7 @@
 //! the file. Scratch has no rewrite.
 
 use std::fs;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::{self, ErrorKind};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
@@ -12,11 +13,11 @@ use std::time::{Duration, Instant};
 
 use similar::{DiffTag, TextDiff};
 
-use crate::core::lock::file_lock_path;
+use crate::core::lock::{file_lock_path, fingerprint, real_path};
 use crate::core::save::atomic_write;
 
 /// Where the draft of a rewrite of the file at `path` is kept: `drafts/` in the data folder,
-/// named like the file's lock (from a hash of its real path).
+/// named like the file's lock (from a fingerprint of its real path).
 pub fn draft_path(data_dir: &Path, path: &Path) -> PathBuf {
     let lock = file_lock_path(data_dir, path);
     let name = lock.file_stem().expect("a lock path ends in a file name");
@@ -28,8 +29,32 @@ fn paused_path(data_dir: &Path, path: &Path) -> PathBuf {
     draft_path(data_dir, path).with_extension("paused")
 }
 
+/// Where versions up to 0.2.10 kept the draft of a rewrite of the file at `path`, without its
+/// extension: named from std's hasher, which a later Rust may change.
+fn old_draft_stem(data_dir: &Path, path: &Path) -> PathBuf {
+    let mut hasher = DefaultHasher::new();
+    real_path(path).hash(&mut hasher);
+    let name = format!("{:016x}", hasher.finish());
+    data_dir.join("drafts").join(name)
+}
+
+/// Moves a rewrite of the file at `path` kept under its old name (see `old_draft_stem`) to the
+/// name used now, unless one is there already. Each first look for a file's rewrite does this,
+/// so a rewrite left open or paused before an update carries on after it.
+fn adopt_old_draft(data_dir: &Path, path: &Path) {
+    let old = old_draft_stem(data_dir, path);
+    let new = draft_path(data_dir, path);
+    for extension in ["txt", "paused", "base"] {
+        let (old, new) = (old.with_extension(extension), new.with_extension(extension));
+        if old.exists() && !new.exists() {
+            let _ = fs::rename(old, new);
+        }
+    }
+}
+
 /// The draft of a rewrite of the file at `path` left open, if there is one.
 pub fn read_draft(data_dir: &Path, path: &Path) -> Option<String> {
+    adopt_old_draft(data_dir, path);
     fs::read_to_string(draft_path(data_dir, path)).ok()
 }
 
@@ -48,6 +73,7 @@ pub fn pause_draft(data_dir: &Path, path: &Path, text: &str) -> io::Result<()> {
 /// The draft a paused rewrite of the file at `path` left, if there is one, made the rewrite's
 /// draft again.
 pub fn take_paused(data_dir: &Path, path: &Path) -> Option<String> {
+    adopt_old_draft(data_dir, path);
     let paused = paused_path(data_dir, path);
     let text = fs::read_to_string(&paused).ok()?;
     fs::rename(&paused, draft_path(data_dir, path)).ok()?;
@@ -56,6 +82,7 @@ pub fn take_paused(data_dir: &Path, path: &Path) -> Option<String> {
 
 /// Whether the file at `path` has a paused rewrite waiting for the next Ctrl+R.
 pub fn has_paused(data_dir: &Path, path: &Path) -> bool {
+    adopt_old_draft(data_dir, path);
     paused_path(data_dir, path).exists()
 }
 
@@ -75,7 +102,8 @@ fn base_path(data_dir: &Path, path: &Path) -> PathBuf {
 /// Notes `original`, the file's text as the rewrite of the file at `path` starts from it (when
 /// it starts, and after each Ctrl+S).
 pub fn write_base(data_dir: &Path, path: &Path, original: &str) -> io::Result<()> {
-    let note = format!("{:016x}\n{}\n", fingerprint(original), path.display());
+    let mark = fingerprint(original.as_bytes());
+    let note = format!("{mark:016x}\n{}\n", path.display());
     atomic_write(&base_path(data_dir, path), note.as_bytes())
 }
 
@@ -84,17 +112,12 @@ pub fn write_base(data_dir: &Path, path: &Path, original: &str) -> io::Result<()
 /// (from before notes were kept) counts as unchanged.
 pub fn base_changed(data_dir: &Path, path: &Path, original: &str) -> bool {
     match fs::read_to_string(base_path(data_dir, path)) {
-        Ok(note) => note.lines().next() != Some(&format!("{:016x}", fingerprint(original))),
+        Ok(note) => {
+            let mark = fingerprint(original.as_bytes());
+            note.lines().next() != Some(&format!("{mark:016x}"))
+        }
         Err(_) => false,
     }
-}
-
-/// A fingerprint of `text` (64-bit FNV-1a), the same from one build of the app to the next,
-/// which std's hasher doesn't promise.
-fn fingerprint(text: &str) -> u64 {
-    text.bytes().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
-        (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
-    })
 }
 
 /// What a draft changes from its original, letter by letter: the byte ranges of the original it takes
@@ -505,6 +528,25 @@ mod tests {
         pause_draft(dir.path(), &notes, "edited").unwrap();
         remove_draft(dir.path(), &notes).unwrap();
         assert_eq!(take_paused(dir.path(), &notes), None);
+    }
+
+    #[test]
+    fn a_rewrite_kept_under_its_old_name_carries_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let notes = dir.path().join("notes.md");
+        fs::write(&notes, "saved").unwrap();
+        // As a version up to 0.2.10 left a paused rewrite.
+        let old = old_draft_stem(dir.path(), &notes);
+        fs::create_dir_all(old.parent().unwrap()).unwrap();
+        fs::write(old.with_extension("paused"), "edited").unwrap();
+        fs::write(old.with_extension("base"), "0\n").unwrap();
+        assert!(has_paused(dir.path(), &notes));
+        assert!(base_changed(dir.path(), &notes, "saved"));
+        assert_eq!(take_paused(dir.path(), &notes).as_deref(), Some("edited"));
+        assert!(!old.with_extension("paused").exists());
+        // One already under the name used now is never written over.
+        fs::write(old.with_extension("txt"), "older").unwrap();
+        assert_eq!(read_draft(dir.path(), &notes).as_deref(), Some("edited"));
     }
 
     #[test]
