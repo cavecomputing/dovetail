@@ -273,6 +273,9 @@ pub enum Message {
 
     ReloadFromDisk,
     KeepMine,
+    /// The window has the keyboard again: a file changed on disk meanwhile is read again, when
+    /// nothing in this window is unsaved (2026-11-13; before, only the next save noticed).
+    WindowFocused,
 
     /// The settings as the Settings panel (or a shortcut) just changed them.
     Setting(Settings),
@@ -920,26 +923,25 @@ impl App {
                     let reload = self.reload_remote(remote.clone());
                     return Task::batch([reload, iced::widget::operation::focus(EDITOR_ID)]);
                 }
-                if let Doc::File {
-                    path,
-                    line_ending,
-                    bom,
-                } = &mut self.doc
-                {
-                    // Noted before the read, as when a file opens (`open_doc`).
-                    let stamp = DiskStamp::of(path);
-                    match read_text(path) {
-                        Ok(file) => {
-                            *line_ending = file.line_ending;
-                            *bom = file.bom;
-                            self.disk_stamp = stamp;
-                            self.take_reloaded(&file.text);
-                        }
-                        Err(error) => self.set_notice(Some(format!("Couldn't reload: {error}"))),
-                    }
-                }
+                self.reload_file();
                 // Clicking the button took the keyboard from the editor; give it back.
                 return iced::widget::operation::focus(editor::EDITOR_ID);
+            }
+            Message::WindowFocused => {
+                // Only with nothing of this window's at stake: every edit saved, no rewrite's
+                // draft beside the file, no suggestions waiting on its text. Otherwise the next
+                // save notices the change, and the status bar offers Reload or Keep mine.
+                let settled = self.autosaver.state() == SaveState::Saved
+                    && self.original.is_none()
+                    && !self.pane.reviewing();
+                if let Doc::File { path, .. } = &self.doc
+                    && settled
+                    && changed_on_disk(path, self.disk_stamp)
+                    && self.reload_file()
+                {
+                    let words = "Reloaded: the file changed on disk (Ctrl+Z undoes)";
+                    self.set_notice(Some(status_bar::keys(words)));
+                }
             }
             Message::KeepMine => {
                 if let Doc::Remote { remote, .. } = &self.doc {
@@ -1044,11 +1046,50 @@ impl App {
         ));
     }
 
+    /// Reads this window's file again and shows it (`take_reloaded`), or says why it couldn't.
+    /// Returns whether it did.
+    fn reload_file(&mut self) -> bool {
+        let Doc::File {
+            path,
+            line_ending,
+            bom,
+        } = &mut self.doc
+        else {
+            return false;
+        };
+        // Noted before the read, as when a file opens (`open_doc`).
+        let stamp = DiskStamp::of(path);
+        match read_text(path) {
+            Ok(file) => {
+                *line_ending = file.line_ending;
+                *bom = file.bom;
+                self.disk_stamp = stamp;
+                self.take_reloaded(&file.text);
+                true
+            }
+            Err(error) => {
+                self.set_notice(Some(format!("Couldn't reload: {error}")));
+                false
+            }
+        }
+    }
+
     /// Reload: puts `text`, the file as just read again, in place of this window's, as one undo
-    /// step, so Ctrl+Z brings this window's text back.
+    /// step, so Ctrl+Z brings this window's text back. Only the part that differs is replaced,
+    /// and the caret stays on its text (or goes to the start of the part it was in), so the
+    /// view isn't thrown to the end of the file.
     pub fn take_reloaded(&mut self, text: &str) {
-        let length = self.pane.model.text().len();
-        self.pane.replace(0..length, text);
+        let old = self.pane.model.text();
+        if let Some(change) = TextModel::change_between(old, text, old.len()) {
+            let caret = self.pane.caret();
+            let end = change.at + change.removed.len();
+            self.pane.replace(change.at..end, &change.inserted);
+            self.pane.put_caret(match caret {
+                before if before <= change.at => before,
+                after if after >= end => after - change.removed.len() + change.inserted.len(),
+                _ => change.at,
+            });
+        }
         self.text_changed();
         self.autosaver.mark_saved();
         shutdown::forget();
@@ -1453,6 +1494,7 @@ fn shortcut(event: iced::Event, status: event::Status, _window: window::Id) -> O
         iced::Event::Window(window::Event::FileDropped(path)) => {
             return Some(Message::OpenPath(path));
         }
+        iced::Event::Window(window::Event::Focused) => return Some(Message::WindowFocused),
         _ => return None,
     };
     // Ctrl+Enter accepts every suggested edit, Ctrl+Backspace rejects the current one, and
@@ -2077,6 +2119,27 @@ mod tests {
         // An answer for the document shown still works.
         let _ = app.update(Message::SaveAsPicked(app.document, picked.clone()));
         assert_eq!(std::fs::read_to_string(&picked).unwrap(), "from scratch");
+    }
+
+    #[test]
+    fn a_file_changed_on_disk_is_reloaded_on_focus_when_nothing_is_unsaved() {
+        let (_dir, _paths, mut app, notes) = scratch_window("");
+        let _ = app.update(Message::OpenPath(notes.clone()));
+        std::fs::write(&notes, "theirs\n").unwrap();
+        let _ = app.update(Message::WindowFocused);
+        assert_eq!(app.pane.model.text(), "theirs\n");
+        assert_eq!(app.pane.caret(), 0, "the caret is where it was");
+        assert_eq!(app.autosaver.state(), SaveState::Saved);
+        // Ctrl+Z brings back what the window showed.
+        let _ = app.update(Message::Undo);
+        assert_eq!(app.pane.model.text(), "# notes\n");
+        let _ = app.update(Message::Redo);
+        let _ = app.update(Message::Tick(Instant::now() + Duration::from_secs(60)));
+        // With an edit not saved yet the file is left for the save to notice.
+        let _ = app.update(Message::Edit(Action::Edit(Edit::Insert('!'))));
+        std::fs::write(&notes, "theirs again\n").unwrap();
+        let _ = app.update(Message::WindowFocused);
+        assert!(app.pane.model.text().contains('!'));
     }
 
     #[test]

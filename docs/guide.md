@@ -314,8 +314,11 @@ F3's next and previous match), ⌘M (minimise) and ⌘Q (closes the window, wait
   Fix the cause, or use Save as to put the text somewhere that works (or Reload or Keep mine, for a
   file changed outside), then close again.
 - **A file changed outside Dovetail** (by another editor, or a `git checkout`) is not saved over.
-  Dovetail checks just before each save, so it notices the next time you type; it never reloads a
-  file by itself. The status bar then says the save failed and offers Reload (take the file on
+  When the window gets the keyboard back and everything in it is saved, it reads the file again
+  and says so in the status bar; the cursor stays where it was, and Ctrl+Z brings back the text
+  the window had. With an edit not saved yet (or a rewrite or suggested edits open) it reloads
+  nothing by itself: Dovetail checks just before each save, so it notices the next time you type.
+  The status bar then says the save failed and offers Reload (take the file on
   disk; Ctrl+Z brings your text back) or Keep mine (write your text over it). Until you choose,
   Ctrl+S does nothing and the window won't close. A file deleted outside is written again at the
   next save. Scratch has no such check, so don't edit `scratch.txt` elsewhere while its window is
