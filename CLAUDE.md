@@ -277,7 +277,7 @@ src/
     ssh.rs               SSH config files (~/.ssh/config, /etc/ssh/*): known by their folders,
                          which parts of a line to colour, the check, and the palette's Host block
     shutdown.rs          the save when the app ends without closing its window: logout,
-                         shutdown, signals, Dock Quit, a lost display
+                         shutdown, signals, Dock Quit, a lost display, a panic
     json.rs              which parts of a .json line to colour, whether the text is valid JSON,
                          and Format and Minify (whitespace only, so key order and digits are kept)
     text_file.rs         reading and saving text files: line endings, outside-change check

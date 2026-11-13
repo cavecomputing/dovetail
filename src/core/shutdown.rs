@@ -1,6 +1,6 @@
 //! The save that still happens when the app is ended without its window closing first: logging
-//! out, shutting down, `kill`, Ctrl+C in the terminal, the display server going away, and on
-//! macOS Quit from the Dock. The window keeps the text autosave hasn't written yet here, and
+//! out, shutting down, `kill`, Ctrl+C in the terminal, the display server going away, a panic,
+//! and on macOS Quit from the Dock. The window keeps the text autosave hasn't written yet here, and
 //! `write_unsaved` writes it from whichever thread hears the app is ending.
 
 use std::path::PathBuf;
@@ -71,9 +71,21 @@ pub fn write_unsaved() {
     }
 }
 
-/// Listens for the OS ending the app, and writes the unsaved text before it goes. Call once, at
-/// startup.
+/// Listens for the OS ending the app, or the app ending itself over a bug, and writes the unsaved
+/// text before it goes. Call once, at startup.
 pub fn write_unsaved_at_end() {
+    // Every OS: a panic on the main thread, which runs the window, ends the app. The hook runs
+    // as the panic starts, before anything is torn down, so it saves even where nothing below
+    // would: on Windows, and anywhere a panic aborts the app rather than unwinding (inside a
+    // callback from the system's own code). A panic on another thread ends only that thread, and
+    // a write then would leave the window's note of the file on disk out of date.
+    let report = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |panic| {
+        if std::thread::current().name() == Some("main") {
+            write_unsaved();
+        }
+        report(panic);
+    }));
     // Linux and macOS: the session sends SIGTERM at logout and shutdown, a closed terminal sends
     // SIGHUP and Ctrl+C sends SIGINT. Each would end the app at once, so a thread waits for them
     // instead, saves, and exits. macOS's Dock Quit and logout end the app through exit(), which
