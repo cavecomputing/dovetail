@@ -617,8 +617,10 @@ pub mod tests {
     #[test]
     fn a_folder_on_a_host_is_listed_like_one_here() {
         let dir = tempfile::tempdir().unwrap();
-        let ssh = fake_ssh(dir.path());
-        let root = dir.path().join("root");
+        // Whole paths are compared below, and macOS reaches its temp folder through a link.
+        let top = std::fs::canonicalize(dir.path()).unwrap();
+        let ssh = fake_ssh(&top);
+        let root = top.join("root");
         for folder in ["src", "Docs", "a b"] {
             std::fs::create_dir_all(root.join(folder)).unwrap();
         }
@@ -664,9 +666,8 @@ pub mod tests {
             "web1 has no folder /no/such"
         );
         // A folder that doesn't start at `/` is from the home folder, as is a file's path.
-        let home = dir.path().join("home");
+        let home = top.join("home");
         std::fs::create_dir_all(home.join("notes")).unwrap();
-        let home = std::fs::canonicalize(home).unwrap();
         assert_eq!(
             list(&ssh, "web1", "").unwrap().folder,
             home.to_str().unwrap()
