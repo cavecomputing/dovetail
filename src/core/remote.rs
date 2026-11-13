@@ -467,7 +467,7 @@ pub mod tests {
                     deaf) sh -c "$command" >/dev/null; echo "client_loop: send disconnect: Broken pipe" >&2; exit 255;;
                     short) sh -c "$command" | head -c "$count"; echo "Connection reset by peer" >&2; exit 255;;
                     shell) exec "$count" -c "$command";;
-                    silent) sleep 30;;
+                    silent) exec sleep 30;;
                     noisy) echo "Welcome to web1, {MARK} of the fleet"; exec sh -c "$command";;
                     *) exec sh -c "$command";;
                 esac"#,
@@ -478,7 +478,8 @@ pub mod tests {
         Ssh {
             program: "sh".into(),
             first: vec![script.into()],
-            quiet: Duration::from_millis(400),
+            // Long enough for a slow disk: a save's `sync` moves no bytes while it runs.
+            quiet: Duration::from_secs(30),
         }
     }
 
@@ -646,9 +647,13 @@ pub mod tests {
         assert_eq!(list(&ssh, "web1", "/").unwrap_err(), "can't reach web1");
         // Connected, then nothing: given up on, not waited for without end.
         std::fs::write(dir.path().join("mode"), "silent").unwrap();
+        let impatient = Ssh {
+            quiet: Duration::from_millis(300),
+            ..ssh.clone()
+        };
         let started = Instant::now();
         assert_eq!(
-            list(&ssh, "web1", "/").unwrap_err(),
+            list(&impatient, "web1", "/").unwrap_err(),
             "web1 stopped answering"
         );
         assert!(started.elapsed() < Duration::from_secs(5));
