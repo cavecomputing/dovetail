@@ -216,11 +216,13 @@ impl App {
                     bom,
                 } = &mut self.doc
                     && changed_on_disk(path, self.disk_stamp)
+                    // Noted before the read, as when a file opens (`open_doc`).
+                    && let stamp = DiskStamp::of(path)
                     && let Ok(file) = read_text(path)
                 {
                     *line_ending = file.line_ending;
                     *bom = file.bom;
-                    self.disk_stamp = DiskStamp::of(path);
+                    self.disk_stamp = stamp;
                     let words = "The file changed on disk: the left shows it now, Ctrl+S again \
                                  writes over it";
                     self.set_notice(Some(words.to_string()));

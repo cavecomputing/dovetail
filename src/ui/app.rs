@@ -804,11 +804,13 @@ impl App {
                     bom,
                 } = &mut self.doc
                 {
+                    // Noted before the read, as when a file opens (`open_doc`).
+                    let stamp = DiskStamp::of(path);
                     match read_text(path) {
                         Ok(file) => {
                             *line_ending = file.line_ending;
                             *bom = file.bom;
-                            self.disk_stamp = DiskStamp::of(path);
+                            self.disk_stamp = stamp;
                             // One undo step, so Ctrl+Z brings this window's text back.
                             let length = self.pane.model.text().len();
                             self.pane.replace(0..length, &file.text);

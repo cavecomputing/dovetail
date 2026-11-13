@@ -108,6 +108,10 @@ pub fn open_doc(doc: Doc, paths: &Paths) -> OpenedDoc {
             let _ = remember(&paths.data_dir, &path);
             let mut line_ending = LineEnding::default();
             let mut bom = false;
+            // Noted before the read: a write from outside between the two then shows at the next
+            // save as a change on disk. Noted after, it would pass for the text read here, and
+            // the save would go over it.
+            opened.disk_stamp = DiskStamp::of(&path);
             match read_text(&path) {
                 Ok(file) => {
                     opened.text = file.text;
@@ -125,6 +129,7 @@ pub fn open_doc(doc: Doc, paths: &Paths) -> OpenedDoc {
                     if atomic_write(&path, b"").is_err() {
                         opened.read_only_reason = Some(NO_PERMISSION.to_string());
                     }
+                    opened.disk_stamp = DiskStamp::of(&path);
                 }
                 // Not UTF-8: look, but never save, so the file's bytes can't be overwritten with
                 // replacement characters. A binary file or a non-file can't even be looked at.
@@ -139,7 +144,6 @@ pub fn open_doc(doc: Doc, paths: &Paths) -> OpenedDoc {
                 },
                 Err(error) => opened.read_only_reason = Some(format!("Couldn't open: {error}")),
             }
-            opened.disk_stamp = DiskStamp::of(&path);
             opened.doc = Doc::File {
                 path,
                 line_ending,
