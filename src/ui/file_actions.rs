@@ -18,7 +18,7 @@ use crate::core::shutdown;
 use crate::core::text_file::{LineEnding, save_text, suggested_file_name};
 use crate::ui::app::{App, Message};
 use crate::ui::editor;
-use crate::ui::status_bar::{file_name, keys};
+use crate::ui::status_bar::keys;
 
 impl App {
     /// Opens the file at `path` in this window (`open_here`).
@@ -241,10 +241,10 @@ impl App {
     }
 
     /// Writes `text`, which was selected at byte `start` of scratch when the dialog opened, to
-    /// `path` as a file of its own, then takes it out of scratch as one undo step, so Ctrl+Z
-    /// puts it back. The window stays on scratch, and the file joins the recent ones. The text
-    /// leaves scratch only once the file holds it, and nothing is written if scratch no longer
-    /// has that text there.
+    /// `path` as a file of its own, takes it out of scratch as one undo step (so Ctrl+Z in
+    /// scratch puts it back), then opens the file in this window (`open_file`), which saves
+    /// scratch first. The text leaves scratch only once the file holds it, and nothing is written
+    /// if scratch no longer has that text there.
     pub fn save_selection(&mut self, path: PathBuf, start: usize, text: String) -> Task<Message> {
         let range = start..start + text.len();
         let unchanged = self.pane.model.text().get(range.clone()) == Some(text.as_str());
@@ -254,24 +254,19 @@ impl App {
             return Task::none();
         }
         let data_dir = &self.paths.data_dir;
-        match save_as(
-            data_dir,
-            &self.doc,
-            &path,
-            &text,
-            LineEnding::default(),
-            false,
-        ) {
-            Err(reason) => self.set_notice(Some(reason)),
-            // The claim on the new file is let go at once: this window stays on scratch.
-            Ok(_) => {
+        let ending = LineEnding::default();
+        // The claim on the new file is let go at once, so that opening it can claim it again.
+        match save_as(data_dir, &self.doc, &path, &text, ending, false).map(drop) {
+            Err(reason) => {
+                self.set_notice(Some(reason));
+                focus(editor::EDITOR_ID)
+            }
+            Ok(()) => {
                 self.pane.replace(range, "");
                 self.text_changed();
-                // Only the name: the status bar cuts a long notice off at its end.
-                self.set_notice(Some(format!("Selection saved to {}", file_name(&path))));
+                self.open_file(path)
             }
         }
-        focus(editor::EDITOR_ID)
     }
 
     /// The extension offered for a file saved from scratch: `md` while scratch is coloured as

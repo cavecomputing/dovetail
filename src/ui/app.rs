@@ -1727,31 +1727,39 @@ mod tests {
     }
 
     #[test]
-    fn saving_a_selection_takes_only_that_text_out_of_scratch() {
+    fn saving_a_selection_moves_it_to_a_file_and_opens_that_file() {
         let (dir, paths, mut app, _notes) = scratch_window("one two three");
         let saved = dir.path().join("two.md");
         let picked = Message::SelectionPicked(0, saved.clone(), 4, "two ".to_string());
         let _ = app.update(picked);
         assert_eq!(std::fs::read_to_string(&saved).unwrap(), "two ");
-        assert_eq!(app.pane.model.text(), "one three");
-        assert!(
-            matches!(app.doc, Doc::Scratch),
-            "the window stays on scratch"
-        );
-        assert_eq!(app.autosaver.state(), SaveState::Saving);
-        // The new file is nobody's: another window can edit it, and it is the latest recent file.
-        assert!(
-            open_doc(file_doc(&saved), &paths)
-                .read_only_reason
-                .is_none()
-        );
-        assert_eq!(existing_recent_files(&paths.data_dir)[0], saved);
-        // One undo step, which the next scratch window still has.
-        assert!(app.save_before_leaving());
+        // The window is on the new file, which it can edit.
+        assert!(matches!(&app.doc, Doc::File { path, .. } if *path == saved));
+        assert_eq!(app.pane.model.text(), "two ");
+        assert!(app.editable());
+        // Scratch keeps the rest, with the text that left one undo step away.
         let mut pane = pane_for(&open_doc(Doc::Scratch, &paths));
         assert_eq!(pane.model.text(), "one three");
         assert!(pane.undo());
         assert_eq!(pane.model.text(), "one two three");
+    }
+
+    #[test]
+    fn opening_a_saved_selection_waits_for_an_autosave_already_running() {
+        let (dir, paths, mut app, _notes) = scratch_window("one two three");
+        let generation = app.autosaver.begin(Instant::now());
+        let saved = dir.path().join("two.md");
+        let picked = Message::SelectionPicked(0, saved.clone(), 4, "two ".to_string());
+        let _ = app.update(picked);
+        assert_eq!(std::fs::read_to_string(&saved).unwrap(), "two ");
+        assert!(matches!(app.doc, Doc::Scratch));
+        assert_eq!(app.pane.model.text(), "one three");
+        let _ = app.update(Message::Saved(0, generation, Ok(None)));
+        assert!(matches!(&app.doc, Doc::File { path, .. } if *path == saved));
+        assert_eq!(
+            ScratchState::load(&paths.data_dir).unwrap().text,
+            "one three"
+        );
     }
 
     #[test]

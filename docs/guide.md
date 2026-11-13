@@ -289,10 +289,10 @@ F3's next and previous match), ⌘M (minimise) and ⌘Q (closes the window, wait
   emptied. The next scratch window opens empty, and Ctrl+Z there brings the text back.
 - **Save selection as** (Ctrl+Shift+S in scratch, or the menu) saves only the selected text to a
   new file, for notes that have turned into their own thing. It suggests a name from the
-  selection's first words, writes the file, then takes that text out of scratch; the rest stays,
-  and the window stays on scratch. Ctrl+Z puts the text back (the file is left as it is). The new
-  file isn't opened: it is first in Ctrl+P and the menu's recent files. With nothing selected,
-  nothing is saved and the status bar says so.
+  selection's first words, writes the file, takes that text out of scratch (the rest stays), and
+  opens the new file in the window, as Ctrl+O would. Ctrl+0 goes back to scratch, where Ctrl+Z
+  puts the text back (the file is left as it is). With nothing selected, nothing is saved and the
+  status bar says so.
 - **Scratch keeps its Ctrl+Z history across restarts**: closing and reopening scratch (or saving
   it to a file) leaves the undo steps as they were, up to the last 1000 steps or about a megabyte
   of changed text. If `scratch.txt` was changed outside Dovetail in between, the history no
