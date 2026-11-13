@@ -12,6 +12,7 @@ use crate::core::rewrite::remove_draft;
 use crate::core::save::failure_reason;
 use crate::core::scratch::clear_scratch;
 use crate::core::settings::ScratchSyntax;
+use crate::core::shutdown;
 use crate::core::text_file::{LineEnding, save_text, suggested_file_name};
 use crate::ui::app::{App, Message};
 
@@ -201,6 +202,9 @@ impl App {
                 self.disk_conflict = false;
                 self.read_only_reason = None;
                 self.autosaver.mark_saved();
+                // Typing autosave hadn't written is in the new file now. Left remembered, the
+                // end of the app would write it back into scratch, just emptied.
+                shutdown::forget();
                 self.saving_since = None;
             }
         }

@@ -39,6 +39,17 @@ pub fn forget() {
         .take();
 }
 
+/// Whether text is being kept for a window whose data folder is `data_dir`. Tests each use a
+/// folder of their own, so this tells their windows apart.
+#[cfg(test)]
+pub fn remembers(data_dir: &std::path::Path) -> bool {
+    UNSAVED
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .as_ref()
+        .is_some_and(|unsaved| unsaved.data_dir == data_dir)
+}
+
 /// Writes the text autosave hasn't yet, if there is any. Only the first call writes.
 pub fn write_unsaved() {
     let unsaved = UNSAVED

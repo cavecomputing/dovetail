@@ -1705,6 +1705,9 @@ mod tests {
         assert_eq!(pane.model.text(), "");
         assert!(pane.undo());
         assert_eq!(pane.model.text(), "typed");
+        // The typing autosave hadn't written yet went to the file, so the end of the app has
+        // nothing left to write back into scratch.
+        assert!(!shutdown::remembers(&paths.data_dir));
     }
 
     #[test]
