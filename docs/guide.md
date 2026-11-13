@@ -128,7 +128,8 @@ read-only and says why, and opening one that another window has open is refused.
 **A file reopens where you left it**: the cursor and the view come back as they were, for the last 50 files (kept in `places.json` in the data folder). If the file got shorter in between, the cursor goes to the nearest spot that still exists.
 
 **Opening** (Ctrl+O) shows a box holding a path, starting at the open file's folder, with
-what's in that folder below it. Type to narrow the list by name (hidden files show once you type
+what's in that folder below it, 14 rows at a time: ↑ and ↓ go through the whole folder, and the
+list scrolls with them. Type to narrow the list by name (hidden files show once you type
 a `.`). Enter, Tab, → or a click on a folder goes into it, and Enter or a click on a file opens
 it in this window. ← goes up a folder, with the one you left highlighted, and with nothing typed
 after the last `/` the first row is `../`, which does the same.

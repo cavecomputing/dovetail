@@ -28,7 +28,7 @@ use crate::ui::switcher::{comment, list_row, panel, prompt};
 use crate::ui::theme::Roles;
 
 pub const PICKER_ID: &str = "picker";
-/// The most rows shown; typing narrows a bigger folder.
+/// The most rows shown at once: the list scrolls with the highlight through a bigger folder.
 const MAX_ROWS: usize = 14;
 
 pub struct Picker {
@@ -36,6 +36,8 @@ pub struct Picker {
     /// What's in the folder `typed` lists (see `picker_rows`).
     rows: Vec<Entry>,
     selected: usize,
+    /// The first row shown (see `select`).
+    top: usize,
     /// The folder on a host listed last, which typing a name filters without asking again.
     listing: Option<Listing>,
     /// The host and folder the box names that isn't in hand, for `App::ask_for_listing`.
@@ -72,6 +74,7 @@ impl Picker {
             typed: String::new(),
             rows: Vec::new(),
             selected: 0,
+            top: 0,
             listing: None,
             wanted: None,
             asked_for: None,
@@ -116,7 +119,15 @@ impl Picker {
         // The first entry is highlighted, not `..`, so Enter doesn't leave the folder by
         // surprise.
         let entry = |row: &Entry| !row.is_up();
-        self.selected = self.rows.iter().position(entry).unwrap_or(0);
+        self.top = 0;
+        self.select(self.rows.iter().position(entry).unwrap_or(0));
+    }
+
+    /// Highlights row `index`, scrolling the list just far enough to show it.
+    fn select(&mut self, index: usize) {
+        self.selected = index;
+        let lowest_top = (index + 1).saturating_sub(MAX_ROWS);
+        self.top = self.top.clamp(lowest_top, index);
     }
 
     /// What the box holds once `entry` is chosen with Tab, Enter or →: its folder gone into,
@@ -137,8 +148,8 @@ impl Picker {
     }
 
     pub fn move_selection(&mut self, step: i32) {
-        let last = self.rows.len().min(MAX_ROWS).saturating_sub(1);
-        self.selected = self.selected.saturating_add_signed(step as isize).min(last);
+        let last = self.rows.len().saturating_sub(1);
+        self.select(self.selected.saturating_add_signed(step as isize).min(last));
     }
 }
 
@@ -245,13 +256,13 @@ impl App {
                     picker.set_typed(typed_folder(display_path(above)));
                     // The folder just left is highlighted, so → goes back into it.
                     if let Some(at) = picker.rows.iter().position(|row| row.path == folder) {
-                        picker.selected = at;
+                        picker.select(at);
                     }
                     return move_cursor_to_end(PICKER_ID);
                 }
             }
             PickerAction::Pick(index) => {
-                picker.selected = index;
+                picker.select(index);
                 let chosen = self.update_picker(PickerAction::Choose);
                 // A folder keeps the picker open, and the click took the box's focus. A file
                 // closed it and focused the text, which focusing the gone box would undo.
@@ -321,7 +332,8 @@ pub fn view(picker: &Picker) -> Element<'_, Message> {
         .on_input(|typed| Message::Picker(PickerAction::Typed(typed)))
         .on_submit(Message::Picker(PickerAction::Choose));
     let mut rows = column![];
-    for (index, entry) in picker.rows.iter().enumerate().take(MAX_ROWS) {
+    let shown = picker.rows.iter().enumerate().skip(picker.top);
+    for (index, entry) in shown.take(MAX_ROWS) {
         let selected = index == picker.selected;
         let (label, folder) = match entry.is_dir {
             true => (format!("{}/", entry.name()), true),
@@ -343,8 +355,8 @@ pub fn view(picker: &Picker) -> Element<'_, Message> {
     let foot = match (&picker.status, picker.rows.len()) {
         (Some(status), _) => status.clone(),
         (None, 0) => "# nothing here matches".to_string(),
-        (None, shown) => {
-            let more = match shown.saturating_sub(MAX_ROWS) {
+        (None, rows) => {
+            let more = match rows.saturating_sub(picker.top + MAX_ROWS) {
                 0 => String::new(),
                 more => format!("{more} more · "),
             };
@@ -369,6 +381,26 @@ mod tests {
 
     fn picker(app: &App) -> &Picker {
         app.picker.as_ref().unwrap()
+    }
+
+    #[test]
+    fn the_list_scrolls_to_keep_the_highlight_in_view() {
+        let dir = tempfile::tempdir().unwrap();
+        for n in 1..=30 {
+            fs::write(dir.path().join(format!("file-{n}.txt")), "x").unwrap();
+        }
+        // 31 rows: `..`, then the files, the first of them highlighted.
+        let mut picker = Picker::new(typed_folder(dir.path().display().to_string()));
+        assert_eq!((picker.selected, picker.top), (1, 0));
+        picker.move_selection(13);
+        assert_eq!((picker.selected, picker.top), (14, 1));
+        picker.move_selection(100);
+        assert_eq!((picker.selected, picker.top), (30, 30 + 1 - MAX_ROWS));
+        // Back up, the list stays until the highlight reaches its first row.
+        picker.move_selection(-10);
+        assert_eq!((picker.selected, picker.top), (20, 30 + 1 - MAX_ROWS));
+        picker.move_selection(-100);
+        assert_eq!((picker.selected, picker.top), (0, 0));
     }
 
     #[test]
