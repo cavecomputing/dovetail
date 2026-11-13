@@ -13,31 +13,54 @@ pub enum Markup {
 pub fn markup_ranges(line: &str) -> Vec<(Range<usize>, Markup)> {
     let mut found = Vec::new();
     let mut from = 0;
-    while from < line.len() {
-        let rest = &line[from..];
-        let next_tag = rest.match_indices('<').find(|(at, _)| {
-            // A tag starts like `<a`, `</`, `<!` or `<?`, so "a < b" is left alone.
-            let after = rest[at + 1..].chars().next();
-            after.is_some_and(|c| c.is_alphabetic() || "/!?".contains(c))
-        });
-        let candidates = [
-            next_tag.map(|(at, _)| (at, ">", Markup::Tag)),
-            rest.find("{{").map(|at| (at, "}}", Markup::Macro)),
-        ];
-        let Some((start, close, markup)) = candidates.into_iter().flatten().min_by_key(|c| c.0)
-        else {
-            break;
+    // Where the next tag and the next macro start, at or after `from`. Each is looked for again
+    // only once `from` has passed it, and never once the line has no more that close: looking
+    // through the rest of the line after every one found took seconds on a long line of tags.
+    let mut tag = tag_start(line, 0);
+    let mut macro_start = line.find("{{");
+    loop {
+        if tag.is_some_and(|at| at < from) {
+            tag = tag_start(line, from);
+        }
+        if macro_start.is_some_and(|at| at < from) {
+            macro_start = line[from..].find("{{").map(|at| from + at);
+        }
+        let (start, close, markup) = match (tag, macro_start) {
+            (Some(tag), Some(macro_start)) if macro_start < tag => {
+                (macro_start, "}}", Markup::Macro)
+            }
+            (Some(tag), _) => (tag, ">", Markup::Tag),
+            (None, Some(macro_start)) => (macro_start, "}}", Markup::Macro),
+            (None, None) => break,
         };
-        match rest[start..].find(close) {
+        match line[start..].find(close) {
             Some(length) => {
                 let end = start + length + close.len();
-                found.push((from + start..from + end, markup));
-                from += end;
+                found.push((start..end, markup));
+                from = end;
             }
-            None => from += start + 1,
+            // Nothing closes this one, so nothing closes a later one of its kind either.
+            None => {
+                match markup {
+                    Markup::Tag => tag = None,
+                    Markup::Macro => macro_start = None,
+                }
+                from = start + 1;
+            }
         }
     }
     found
+}
+
+/// Where the first tag at or after byte `from` of `line` starts. A tag starts like `<a`, `</`,
+/// `<!` or `<?`, so "a < b" is left alone.
+fn tag_start(line: &str, from: usize) -> Option<usize> {
+    let rest = &line[from..];
+    let (at, _) = rest.match_indices('<').find(|(at, _)| {
+        let after = rest[at + 1..].chars().next();
+        after.is_some_and(|c| c.is_alphabetic() || "/!?".contains(c))
+    })?;
+    Some(from + at)
 }
 
 #[cfg(test)]
@@ -72,5 +95,32 @@ mod tests {
         assert!(marked("if a < b and c > d, it's fine").is_empty());
         assert!(marked("an unclosed <tag and {{macro").is_empty());
         assert!(marked("").is_empty());
+    }
+
+    #[test]
+    fn one_kind_left_unclosed_leaves_the_other_found() {
+        assert_eq!(
+            marked("<b {{x}} and {{y}}"),
+            vec![("{{x}}", Markup::Macro), ("{{y}}", Markup::Macro)]
+        );
+        assert_eq!(
+            marked("{{x <b> and </b>"),
+            vec![("<b>", Markup::Tag), ("</b>", Markup::Tag)]
+        );
+        // A macro inside a tag is part of the tag.
+        assert_eq!(
+            marked("a < b <i {{x}}>{{y}}"),
+            vec![("<i {{x}}>", Markup::Tag), ("{{y}}", Markup::Macro)]
+        );
+    }
+
+    #[test]
+    fn a_long_line_of_tags_is_read_once() {
+        // Minified HTML or SVG: looking through the rest of the line after each tag took 2 s
+        // for this much, on every draw.
+        let closed = "<a>b</a>".repeat(25_000);
+        assert_eq!(markup_ranges(&closed).len(), 50_000);
+        let unclosed = "<a {{b ".repeat(30_000);
+        assert!(markup_ranges(&unclosed).is_empty());
     }
 }
