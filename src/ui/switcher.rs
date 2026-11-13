@@ -192,6 +192,14 @@ pub fn comment<'a>(words: impl text::IntoFragment<'a>) -> Element<'a, Message> {
     container(line(words, subtle)).padding([0.0, INSET]).into()
 }
 
+/// A `#` line in a panel saying something went wrong, in the warning colour as in the status
+/// bar.
+pub fn warning<'a>(words: impl text::IntoFragment<'a>) -> Element<'a, Message> {
+    container(line(words, |roles| roles.accent_warm))
+        .padding([0.0, INSET])
+        .into()
+}
+
 /// The `>` prompt and the box typed into after it, with no frame, as the assistant's is.
 pub fn prompt<'a>(input: text_input::TextInput<'a, Message>) -> Element<'a, Message> {
     let input = input

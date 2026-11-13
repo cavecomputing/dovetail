@@ -24,7 +24,7 @@ use crate::ui::assistant_view::{LINE, SIZE};
 use crate::ui::editor;
 use crate::ui::remote_actions::off_thread;
 use crate::ui::status_bar::keys;
-use crate::ui::switcher::{comment, list_row, panel, prompt};
+use crate::ui::switcher::{comment, list_row, panel, prompt, warning};
 use crate::ui::theme::Roles;
 
 pub const PICKER_ID: &str = "picker";
@@ -49,6 +49,8 @@ pub struct Picker {
     asked: u64,
     /// Said under the box in place of rows: a folder is on its way, or why it didn't come.
     status: Option<String>,
+    /// Whether `status` says why a folder didn't come, which is drawn as a warning.
+    failed: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -80,6 +82,7 @@ impl Picker {
             asked_for: None,
             asked: 0,
             status: None,
+            failed: false,
         };
         picker.set_typed(typed);
         picker
@@ -108,6 +111,7 @@ impl Picker {
                         true => waiting.or(Some(asking)),
                         false => {
                             self.wanted = Some(folder);
+                            self.failed = false;
                             Some(asking)
                         }
                     };
@@ -225,7 +229,8 @@ impl App {
                         return move_cursor_to_end(PICKER_ID);
                     }
                     (Err(reason), _) => {
-                        picker.status = Some(format!("# {reason} · Enter asks again"))
+                        picker.status = Some(format!("# {reason} · Enter asks again"));
+                        picker.failed = true;
                     }
                     _ => {}
                 }
@@ -363,7 +368,11 @@ pub fn view(picker: &Picker) -> Element<'_, Message> {
             format!("# {more}→ goes in · ← goes up · {}", keys("Ctrl+O closes"))
         }
     };
-    panel(column![prompt(search), rows, comment(foot)])
+    let foot = match picker.failed && picker.status.is_some() {
+        true => warning(foot),
+        false => comment(foot),
+    };
+    panel(column![prompt(search), rows, foot])
 }
 
 // The stand-in for ssh is a shell script, so this runs where there is an `sh`: not on Windows.
@@ -513,8 +522,10 @@ mod tests {
         let _ = app.update_picker(PickerAction::Listed(asked + 1, away));
         let status = picker(&app).status.clone().unwrap();
         assert_eq!(status, "# can't reach web1 · Enter asks again");
+        assert!(picker(&app).failed, "drawn as a warning");
         let _ = app.update_picker(PickerAction::Choose);
         assert_eq!(picker(&app).asked, asked + 2);
+        assert!(!picker(&app).failed, "asking again is no warning");
 
         // ← goes up: to the home folder from a path named from it, and no further than `/`,
         // which has no `..` row.
