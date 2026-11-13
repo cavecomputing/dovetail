@@ -133,6 +133,8 @@ list scrolls with them. Type to narrow the list by name (hidden files show once 
 a `.`). Enter, Tab, → or a click on a folder goes into it, and Enter or a click on a file opens
 it in this window. ← goes up a folder, with the one you left highlighted, and with nothing typed
 after the last `/` the first row is `../`, which does the same.
+A name that matches nothing in the folder is a new file: Enter opens it empty in this window, and
+it is created once you type, so no save dialog is needed for a new file beside the others.
 The rows are always this computer's folders. A host from your SSH config and a colon at the
 start of the box (`web1:`) is a folder on that host instead: see
 [Files over SSH](#files-over-ssh).

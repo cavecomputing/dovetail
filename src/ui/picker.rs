@@ -289,11 +289,16 @@ impl App {
                     None => {
                         match Remote::parse(&picker.typed).filter(|_| picker.status.is_some()) {
                             Some(remote) => remote.as_path(),
-                            None => {
-                                picker.asked_for = None;
-                                picker.set_typed(picker.typed.clone());
-                                return Task::none();
-                            }
+                            None => match new_file(&picker.typed) {
+                                // A name no file here has yet starts one, which its first
+                                // save creates (`open_doc`).
+                                Some(path) => path,
+                                None => {
+                                    picker.asked_for = None;
+                                    picker.set_typed(picker.typed.clone());
+                                    return Task::none();
+                                }
+                            },
                         }
                     }
                 };
@@ -315,6 +320,13 @@ fn above_on_host(typed: &Typed) -> String {
         None if folder.starts_with('/') => format!("{host}:/"),
         None => format!("{host}:"),
     }
+}
+
+/// The file the box names on this computer when a name is typed after its folder, for a name
+/// that matched nothing there.
+fn new_file(typed: &str) -> Option<PathBuf> {
+    let (folder, name) = split_typed(typed, &home());
+    (remote::typed(typed).is_none() && !name.is_empty()).then(|| folder.join(name))
 }
 
 /// `folder` ending in a `/`, as the box writes a folder on a host.
@@ -359,6 +371,9 @@ pub fn view(picker: &Picker) -> Element<'_, Message> {
     }
     let foot = match (&picker.status, picker.rows.len()) {
         (Some(status), _) => status.clone(),
+        (None, 0) if new_file(&picker.typed).is_some() => {
+            "# nothing here matches · Enter starts a new file by that name".to_string()
+        }
         (None, 0) => "# nothing here matches".to_string(),
         (None, rows) => {
             let more = match rows.saturating_sub(picker.top + MAX_ROWS) {
@@ -410,6 +425,26 @@ mod tests {
         assert_eq!((picker.selected, picker.top), (20, 30 + 1 - MAX_ROWS));
         picker.move_selection(-100);
         assert_eq!((picker.selected, picker.top), (0, 0));
+    }
+
+    #[test]
+    fn enter_on_a_name_that_matches_nothing_starts_a_new_file() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("notes.md"), "x").unwrap();
+        let (mut app, _) = App::with_paths(Doc::Scratch, Paths::under(dir.path()));
+        let _ = app.open_picker();
+        let folder = typed_folder(dir.path().display().to_string());
+        // With nothing typed after the folder there is no name to start a file by.
+        let empty = dir.path().join("empty");
+        fs::create_dir(&empty).unwrap();
+        assert_eq!(new_file(&typed_folder(empty.display().to_string())), None);
+        let _ = app.update_picker(PickerAction::Typed(format!("{folder}plan.txt")));
+        assert!(names(&app).is_empty());
+        let _ = app.update_picker(PickerAction::Choose);
+        let plan = dir.path().join("plan.txt");
+        assert!(app.picker.is_none());
+        assert!(matches!(&app.doc, Doc::File { path, .. } if *path == plan));
+        assert!(!plan.exists(), "made by its first save");
     }
 
     #[test]
