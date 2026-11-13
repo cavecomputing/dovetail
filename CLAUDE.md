@@ -275,9 +275,9 @@ src/
     shell.rs             shell scripts: which parts of a line to colour, whether a `#!` line
                          names sh or bash, and the `bash -n` check
     ssh.rs               SSH config files (~/.ssh/config, /etc/ssh/*): known by their folders,
-                         which parts of a line to colour, the check, the palette's Host block,
-                         and the hosts a config names (the picker's `ssh:` rows)
-    remote.rs            a file on an SSH host (`alias:/path`): running the system's `ssh` with a
+                         which parts of a line to colour, the check, and the palette's Host block
+    remote.rs            a file on an SSH host (`alias:path`, as rclone writes one; from the home
+                         folder unless the path starts at `/`): running the system's `ssh` with a
                          fixed `sh` script, why a run failed in plain words, `cksum`, and listing
                          a folder there
     remote_file.rs       reading a host's file whole and saving it so the host never holds half
@@ -316,8 +316,8 @@ src/
     switcher.rs          the Ctrl+P quick switcher: scratch and the recent files, numbered 0-9;
                          and the panel look it shares with the picker and the palette
     picker.rs            the Ctrl+O picker: a path box and the folder's entries; goes into a
-                         folder or opens a file here; `ssh:` lists the SSH config's hosts, and a
-                         host's folders are asked for off the UI thread
+                         folder or opens a file here; a host and a colon at the start of the box
+                         (`alias:path`) is a folder on an SSH host, asked for off the UI thread
     palette.rs           the Ctrl+Shift+P command palette: the open file's tools (Format JSON,
                          New Host block...)
     find_bar.rs          the Ctrl+F find bar: its matches, stepping through them, how they're lit

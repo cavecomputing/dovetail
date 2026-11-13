@@ -118,6 +118,11 @@ pub struct Fetched {
 /// never reached the host, that is what comes back (`Fetched::unsent`), even when the host
 /// can't be reached now, so it is never out of reach.
 pub fn fetch(ssh: &Ssh, data_dir: &Path, remote: &Remote) -> Result<Fetched, String> {
+    // `alias:notes.md` is asked for from the home folder there; from here on it has its whole
+    // path, which is what its kept copy is filed under.
+    let remote = &remote
+        .whole(ssh)
+        .map_err(|reason| format!("Couldn't open: {reason}"))?;
     let fetched = read(ssh, remote);
     let files = KeptFiles::of(data_dir, remote);
     let Some(unsent) = fs::read(&files.unsent).ok().and_then(|bytes| {
@@ -504,6 +509,22 @@ mod tests {
         // Leaving the file leaves nothing behind on this computer.
         forget(&host.data, &host.remote, false);
         assert_eq!(fs::read_dir(host.data.join("remote")).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn a_file_named_from_the_home_folder_gets_its_whole_path() {
+        let host = Host::with("one\n");
+        let home = fs::canonicalize(host.dir.path()).unwrap().join("home");
+        fs::create_dir(&home).unwrap();
+        fs::write(home.join("todo.md"), "todo\n").unwrap();
+        let named = Remote::parse("web1:todo.md").unwrap();
+        let fetched = fetch(&host.ssh, &host.data, &named).unwrap();
+        assert_eq!(fetched.remote.path, home.join("todo.md").to_str().unwrap());
+        assert_eq!(fetched.text, "todo\n");
+        // A host that is away can't say where its home folder is.
+        host.connection("down");
+        let away = fetch(&host.ssh, &host.data, &named).unwrap_err();
+        assert_eq!(away, "Couldn't open: can't reach web1");
     }
 
     #[test]

@@ -109,6 +109,7 @@ clear its field in Settings first.
 dovetail              # opens scratch (or start it from your app launcher)
 dovetail notes.txt    # opens that file, creating it if it doesn't exist
 dovetail web1:/etc/hosts   # opens a file on an SSH host (see Files over SSH)
+dovetail web1:notes/todo.md   # the same, from your home folder there
 ```
 
 **Scratch** is one continuous notepad that comes back exactly as you left it: text, cursor and
@@ -129,7 +130,8 @@ what's in that folder below it. Type to narrow the list by name (hidden files sh
 a `.`). Enter, Tab, → or a click on a folder goes into it, and Enter or a click on a file opens
 it in this window. ← goes up a folder, with the one you left highlighted, and with nothing typed
 after the last `/` the first row is `../`, which does the same.
-With hosts in your SSH config, the first row is `ssh:`, which lists them: see
+The rows are always this computer's folders. A host from your SSH config and a colon at the
+start of the box (`web1:`) is a folder on that host instead: see
 [Files over SSH](#files-over-ssh).
 
 **The status bar**, left to right: the ☰ menu (New file, Open, Open recent, Save as (in scratch, Save to a file and Save selection as), Undo,
@@ -320,17 +322,25 @@ F3's next and previous match), ⌘M (minimise) and ⌘Q (closes the window, wait
 
 ## Files over SSH
 
-Dovetail opens files on the computers in your SSH config (`~/.ssh/config`, and the files it
-`Include`s) and saves them back, without mounting anything.
+Dovetail opens files on the computers you reach with `ssh` and saves them back, without
+mounting anything. A file there is written `host:path`, the way rclone and scp write one: the
+colon is what says it is on a host. Without a colon, a path is on this computer.
 
-- **Opening.** In the Ctrl+O picker the first row of any folder is `ssh:`. Go into it and the
-  rows are your hosts, by the names after `Host` (patterns like `*.lan` are left out). Go into
-  one and you are in your home folder there, written `web1:/home/you/` in the box; from there
-  folders and files work as they do on this computer, and Enter on a file opens it. You can also
-  type or paste `web1:/etc/hosts` into the box. Each folder is asked for over ssh, so its rows
-  take a moment; if the host can't be reached, the line under the box says why and Enter asks
-  again. The file is shown in the status bar, in Ctrl+P and in the recent files as
+- **Opening.** In the Ctrl+O picker, clear the box and type a host and a colon: `web1:`. The
+  host is a name from your SSH config (`~/.ssh/config`), or anything else `ssh` would take, such
+  as `you@10.0.0.5`. The rows are then your home folder there, and the box shows its whole path,
+  `web1:/home/you/`. From there folders and files work as they do on this computer, and Enter on
+  a file opens it. A path after the colon goes straight to it: `web1:notes/` is from your home
+  folder (so is `web1:~/notes/`), and `web1:/etc/` is from the top. A file's whole name and
+  Enter (`web1:notes/todo.md`) opens it without waiting for the rows. Each folder is asked for
+  over ssh, so its rows take a moment; if the host can't be reached, the line under the box says
+  why and Enter asks again. To get back to this computer's folders, type a path without a colon,
+  such as `~/`. The file is shown in the status bar, in Ctrl+P and in the recent files as
   `web1:/path/to/file`, and reopens where you left it.
+- **A name on this computer with a colon in it** is still found: in the picker a folder's path
+  comes before it (`~/notes/a:b.txt`), and only a host at the very start of the box counts. From
+  a terminal, `dovetail a:b.txt` opens the file if it is there; to make a new one by that name,
+  write `./a:b.txt`. On Windows one letter and a colon is a drive, never a host.
 - **How it connects.** It runs the `ssh` program your terminal does, so every setting in your
   config applies: ports, users, jump hosts, keys, the agent. It never asks for anything, so the
   host has to let you in with a key or the agent, with no password, and you must have connected

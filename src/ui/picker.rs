@@ -4,10 +4,10 @@
 //! this window. → goes into the highlighted folder and ← up to the one above, so the arrows alone
 //! get around.
 //!
-//! With hosts in the SSH config, a folder's rows start with `ssh:`, which lists them. Choosing
-//! one lists its home folder, and from there a host's folders work like the ones here, with
-//! `alias:/path/` in the box. Each folder there is asked for over ssh, off the UI thread, so
-//! its rows come a moment later.
+//! A host and a colon at the start of the box (`alias:`, as rclone writes a remote) is a folder
+//! on that SSH host: its home folder, or the path after the colon. From there a host's folders
+//! work like the ones here. Each is asked for over ssh, off the UI thread, so its rows come a
+//! moment later. Without the colon, the box names a folder on this computer.
 
 use std::path::{Path, PathBuf};
 
@@ -18,9 +18,7 @@ use iced::{Element, Task, Theme};
 use crate::core::folder::{Entry, complete, picker_rows, rows_of, split_typed, typed_folder};
 use crate::core::opened::Doc;
 use crate::core::paths::display_path;
-use crate::core::recent::match_score;
-use crate::core::remote::{self, HOSTS, Listing, Remote, Ssh, Typed};
-use crate::core::ssh::host_aliases;
+use crate::core::remote::{self, Listing, Remote, Ssh, Typed};
 use crate::ui::app::{App, Message};
 use crate::ui::assistant_view::{LINE, SIZE};
 use crate::ui::editor;
@@ -35,11 +33,9 @@ const MAX_ROWS: usize = 14;
 
 pub struct Picker {
     pub typed: String,
-    /// What's in the folder `typed` lists (see `picker_rows`), or the hosts after `ssh:`.
+    /// What's in the folder `typed` lists (see `picker_rows`).
     rows: Vec<Entry>,
     selected: usize,
-    /// The hosts in the SSH config, read when the picker opens.
-    hosts: Vec<String>,
     /// The folder on a host listed last, which typing a name filters without asking again.
     listing: Option<Listing>,
     /// The host and folder the box names that isn't in hand, for `App::ask_for_listing`.
@@ -71,12 +67,11 @@ pub enum PickerAction {
 }
 
 impl Picker {
-    fn new(typed: String, hosts: Vec<String>) -> Picker {
+    fn new(typed: String) -> Picker {
         let mut picker = Picker {
             typed: String::new(),
             rows: Vec::new(),
             selected: 0,
-            hosts,
             listing: None,
             wanted: None,
             asked_for: None,
@@ -93,26 +88,13 @@ impl Picker {
         self.rows = match remote::typed(&typed) {
             None => {
                 let (folder, name) = split_typed(&typed, &home());
-                let mut rows = picker_rows(&folder, &name);
-                if name.is_empty() && !self.hosts.is_empty() {
-                    rows.insert(0, named_row(HOSTS));
-                }
-                rows
+                picker_rows(&folder, &name)
             }
-            Some(Typed::Hosts(name)) => {
-                let hosts = self.hosts.iter();
-                let mut rows: Vec<Entry> = hosts
-                    .filter(|host| match_score(&name, host).is_some())
-                    .map(|host| named_row(&format!("{host}:")))
-                    .collect();
-                if name.is_empty() {
-                    rows.insert(0, named_row(".."));
-                }
-                rows
-            }
-            Some(Typed::Folder { host, folder, name }) => match &self.listing {
+            Some(Typed { host, folder, name }) => match &self.listing {
                 Some(listing) if listing.host == host && with_slash(&listing.folder) == folder => {
-                    rows_of(listing.entries.clone(), &name, Some(Path::new(&folder)))
+                    // `/` has no folder above it, there as here.
+                    let above = Path::new(&folder).parent().map(|_| Path::new(&folder));
+                    rows_of(listing.entries.clone(), &name, above)
                 }
                 // Not the folder in hand: `App::ask_for_listing` asks its host for it, unless
                 // it is already on its way or just failed (what is said then stays).
@@ -131,9 +113,9 @@ impl Picker {
             },
         };
         self.typed = typed;
-        // The first entry is highlighted, not `..` or `ssh:`, so Enter doesn't leave the folder
-        // by surprise.
-        let entry = |row: &Entry| !row.is_up() && row.path != Path::new(HOSTS);
+        // The first entry is highlighted, not `..`, so Enter doesn't leave the folder by
+        // surprise.
+        let entry = |row: &Entry| !row.is_up();
         self.selected = self.rows.iter().position(entry).unwrap_or(0);
     }
 
@@ -141,21 +123,16 @@ impl Picker {
     /// or its name completed.
     fn completed(&self, entry: &Entry) -> String {
         match remote::typed(&self.typed) {
-            None if entry.path == Path::new(HOSTS) => HOSTS.to_string(),
-            None => complete(&self.typed, entry),
-            // Back from the hosts to the folders here; or into a host's home folder.
-            Some(Typed::Hosts(_)) if entry.is_up() => typed_folder(display_path(&home())),
-            Some(Typed::Hosts(_)) => entry.name(),
-            Some(Typed::Folder { host, folder, .. }) => {
-                let folder = folder.trim_end_matches('/');
-                match (entry.is_up(), folder.rfind('/')) {
-                    // Above a host's top folder are the hosts.
-                    (true, None) => HOSTS.to_string(),
-                    (true, Some(cut)) => format!("{host}:{}", &folder[..=cut]),
-                    (false, _) if entry.is_dir => format!("{host}:{folder}/{}/", entry.name()),
-                    (false, _) => format!("{host}:{folder}/{}", entry.name()),
-                }
+            // A name here that reads as a host and a colon gets `./` first, as in rclone.
+            None => match complete(&self.typed, entry) {
+                local if remote::typed(&local).is_some() => format!("./{local}"),
+                local => local,
+            },
+            Some(on_host) if entry.is_up() => above_on_host(&on_host),
+            Some(Typed { host, folder, .. }) if entry.is_dir => {
+                format!("{host}:{folder}{}/", entry.name())
             }
+            Some(Typed { host, folder, .. }) => format!("{host}:{folder}{}", entry.name()),
         }
     }
 
@@ -179,9 +156,8 @@ impl App {
             Doc::Remote { remote, .. } => Some(remote.typed_folder()),
             Doc::Scratch => None,
         };
-        let hosts = host_aliases(&self.paths.ssh_config());
         let typed = typed_folder(start.unwrap_or("~/".into()));
-        self.picker = Some(Picker::new(typed, hosts));
+        self.picker = Some(Picker::new(typed));
         let asked = self.ask_for_listing();
         Task::batch([focus(PICKER_ID), move_cursor_to_end(PICKER_ID), asked])
     }
@@ -205,7 +181,8 @@ impl App {
         picker.asked_for = Some((host.clone(), folder.clone()));
         picker.asked += 1;
         let asked = picker.asked;
-        // A host's top folder is `/`; any other is asked for without the `/` after it.
+        // A host's top folder is `/`; any other is asked for without the `/` after it, and its
+        // home folder by an empty path.
         let folder = match folder.as_str() {
             "/" => folder,
             _ => folder.trim_end_matches('/').to_string(),
@@ -225,10 +202,11 @@ impl App {
             PickerAction::Listed(_, listed) => {
                 match (listed, remote::typed(&picker.typed)) {
                     // Only if the box still names the folder that was asked for.
-                    (Ok(listing), Some(Typed::Folder { host, folder, name }))
+                    (Ok(listing), Some(Typed { host, folder, name }))
                         if picker.asked_for == Some((host.clone(), folder.clone())) =>
                     {
-                        // The box takes the folder's whole path, which a home folder's is not.
+                        // The box takes the folder's whole path, which one named from the
+                        // home folder is not.
                         let typed = format!("{host}:{}{name}", with_slash(&listing.folder));
                         picker.listing = Some(listing);
                         picker.asked_for = None;
@@ -256,12 +234,12 @@ impl App {
                     return self.update_picker(PickerAction::Complete);
                 }
             }
-            // On a host, or among the hosts: up is what the `..` row does.
-            PickerAction::Up if remote::typed(&picker.typed).is_some() => {
-                picker.set_typed(picker.completed(&named_row("..")));
-                return move_cursor_to_end(PICKER_ID);
-            }
             PickerAction::Up => {
+                // On a host, up is what the `..` row does.
+                if let Some(on_host) = remote::typed(&picker.typed) {
+                    picker.set_typed(above_on_host(&on_host));
+                    return move_cursor_to_end(PICKER_ID);
+                }
                 let (folder, _) = split_typed(&picker.typed, &home());
                 if let Some(above) = folder.parent() {
                     picker.set_typed(typed_folder(display_path(above)));
@@ -282,34 +260,44 @@ impl App {
                     None => chosen,
                 };
             }
-            PickerAction::Choose => match picker.rows.get(picker.selected) {
-                Some(row) if row.is_dir => return self.update_picker(PickerAction::Complete),
-                Some(row) => {
+            PickerAction::Choose => {
+                let path = match picker.rows.get(picker.selected) {
+                    Some(row) if row.is_dir => return self.update_picker(PickerAction::Complete),
                     // A file on a host is opened by its name there, `alias:/path`.
-                    let path = match Remote::parse(&picker.completed(row)) {
-                        Some(remote) => remote.as_path(),
-                        None => row.path.clone(),
-                    };
-                    self.picker = None;
-                    let open = self.update(Message::OpenPath(path));
-                    return Task::batch([open, focus(editor::EDITOR_ID)]);
-                }
-                // No rows because a host's folder didn't come: Enter asks for it again.
-                None => {
-                    picker.asked_for = None;
-                    picker.set_typed(picker.typed.clone());
-                }
-            },
+                    Some(row) if remote::typed(&picker.typed).is_some() => {
+                        PathBuf::from(picker.completed(row))
+                    }
+                    Some(row) => row.path.clone(),
+                    // No rows, as a host's folder hasn't come or couldn't be listed: a file
+                    // named in it is opened without them; with no name, Enter asks again.
+                    None => {
+                        match Remote::parse(&picker.typed).filter(|_| picker.status.is_some()) {
+                            Some(remote) => remote.as_path(),
+                            None => {
+                                picker.asked_for = None;
+                                picker.set_typed(picker.typed.clone());
+                                return Task::none();
+                            }
+                        }
+                    }
+                };
+                self.picker = None;
+                let open = self.update(Message::OpenPath(path));
+                return Task::batch([open, focus(editor::EDITOR_ID)]);
+            }
         }
         Task::none()
     }
 }
 
-/// A row that isn't a folder's entry: `ssh:`, a host (`alias:`), or `..` above the hosts.
-fn named_row(name: &str) -> Entry {
-    Entry {
-        path: PathBuf::from(name),
-        is_dir: true,
+/// What the box holds for the folder above the one it names on a host. Above the top of a
+/// path from the home folder is the home folder (`alias:`); `/` has nothing above it.
+fn above_on_host(typed: &Typed) -> String {
+    let Typed { host, folder, .. } = typed;
+    match folder.trim_end_matches('/').rfind('/') {
+        Some(cut) => format!("{host}:{}", &folder[..=cut]),
+        None if folder.starts_with('/') => format!("{host}:/"),
+        None => format!("{host}:"),
     }
 }
 
@@ -336,8 +324,6 @@ pub fn view(picker: &Picker) -> Element<'_, Message> {
     for (index, entry) in picker.rows.iter().enumerate().take(MAX_ROWS) {
         let selected = index == picker.selected;
         let (label, folder) = match entry.is_dir {
-            // `ssh:` and a host's `alias:` end as the box writes them.
-            true if entry.name().ends_with(':') => (entry.name(), true),
             true => (format!("{}/", entry.name()), true),
             false => (entry.name(), false),
         };
@@ -386,91 +372,154 @@ mod tests {
     }
 
     #[test]
-    fn hosts_come_after_ssh_and_their_folders_work_like_the_ones_here() {
+    fn a_name_here_with_a_colon_in_it_is_not_taken_for_a_host() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join("web1:old")).unwrap();
+        fs::write(dir.path().join("web1:old/a.txt"), "a\n").unwrap();
+        let (mut app, _) = App::with_paths(Doc::Scratch, Paths::under(dir.path()));
+        let _ = app.open_picker();
+        // In a folder's path the colon comes after a `/`, so it names no host.
+        let folder = typed_folder(dir.path().display().to_string());
+        let _ = app.update_picker(PickerAction::Typed(format!("{folder}web")));
+        assert_eq!(names(&app), ["web1:old"]);
+        let _ = app.update_picker(PickerAction::Complete);
+        assert_eq!(names(&app), ["..", "a.txt"]);
+        assert_eq!(picker(&app).asked, 0, "no host was asked");
+        // With no folder before it, the name gets `./`.
+        let entry = Entry {
+            path: PathBuf::from("web1:old"),
+            is_dir: true,
+        };
+        let completed = Picker::new("web".to_string()).completed(&entry);
+        assert_eq!(completed, "./web1:old/");
+        assert_eq!(remote::typed(&completed), None);
+    }
+
+    #[test]
+    fn a_host_and_a_colon_names_a_folder_there_which_works_like_one_here() {
         let dir = tempfile::tempdir().unwrap();
         let root = fs::canonicalize(dir.path()).unwrap();
-        fs::create_dir_all(root.join("host/docs")).unwrap();
-        fs::write(root.join("host/a.txt"), "a\n").unwrap();
+        fs::create_dir_all(root.join("home/docs")).unwrap();
+        fs::write(root.join("home/a.txt"), "a\n").unwrap();
         fs::create_dir_all(root.join("ssh")).unwrap();
         fs::write(root.join("ssh/config"), "Host web1 *.lan\nHost db1\n").unwrap();
         let ssh = fake_ssh(&root);
         let (mut app, _) = App::with_paths(Doc::Scratch, Paths::under(&root));
-        let typed = |app: &mut App, typed: String| {
-            let _ = app.update_picker(PickerAction::Typed(typed));
+        let typed = |app: &mut App, typed: &str| {
+            let _ = app.update_picker(PickerAction::Typed(typed.to_string()));
         };
+        let listed = |app: &mut App, folder: &str| {
+            let asked = picker(app).asked;
+            let listed = remote::list(&ssh, "web1", folder);
+            let _ = app.update_picker(PickerAction::Listed(asked, listed));
+        };
+        let home = format!("web1:{}/home/", root.display());
 
+        // The hosts in the SSH config aren't offered: the rows are this computer's folders,
+        // and without a colon so is what's typed.
         let _ = app.open_picker();
-        assert_eq!(names(&app)[0], "ssh:", "first in a folder here");
-        typed(&mut app, "ssh:".to_string());
-        assert_eq!(names(&app), ["..", "web1:", "db1:"]);
-        typed(&mut app, "ssh:d".to_string());
-        assert_eq!(names(&app), ["db1:"]);
-        typed(&mut app, "ssh:".to_string());
+        assert!(names(&app).iter().all(|name| !name.contains(':')));
+        typed(&mut app, "web1");
+        assert_eq!((picker(&app).asked, &picker(&app).status), (0, &None));
 
-        // Enter on a host asks for its home folder, whose whole path the box takes.
-        let _ = app.update_picker(PickerAction::Choose);
-        assert_eq!(picker(&app).typed, "web1:");
+        // A host and a colon asks for its home folder, whose whole path the box takes.
+        typed(&mut app, "web1:");
         assert_eq!(picker(&app).status.as_deref(), Some("# asking web1…"));
-        let home = Listing {
-            host: "web1".to_string(),
-            asked: String::new(),
-            folder: "/home/me".to_string(),
-            entries: Vec::new(),
-        };
-        let _ = app.update_picker(PickerAction::Listed(1, Ok(home.clone())));
-        assert_eq!(picker(&app).typed, "web1:/home/me/");
+        listed(&mut app, "");
+        assert_eq!(picker(&app).typed, home);
         assert_eq!(
             (names(&app), picker(&app).asked),
-            (vec!["..".to_string()], 1)
+            (
+                vec!["..", "docs", "a.txt"]
+                    .into_iter()
+                    .map(String::from)
+                    .collect(),
+                1
+            )
         );
+
+        // A path after the colon is from the home folder, and a name after it narrows the
+        // folder once it comes. `~/` may start it.
+        typed(&mut app, "web1:docs/");
+        typed(&mut app, "web1:docs/x");
+        assert_eq!(picker(&app).asked, 2);
+        listed(&mut app, "docs");
+        assert_eq!(picker(&app).typed, format!("{home}docs/x"));
+        assert!(names(&app).is_empty());
+        typed(&mut app, "web1:~/docs/");
+        listed(&mut app, "docs");
+        assert_eq!(picker(&app).typed, format!("{home}docs/"));
+        assert_eq!(names(&app), [".."]);
 
         // A folder typed in is asked for once, however much is typed after it; the answer for
         // one since left is dropped.
-        let host = format!("web1:{}/host/", root.display());
-        typed(&mut app, host.clone());
-        typed(&mut app, format!("{host}a"));
-        typed(&mut app, host.clone());
-        assert_eq!(picker(&app).asked, 2);
-        let _ = app.update_picker(PickerAction::Listed(1, Ok(home)));
-        assert_eq!(picker(&app).typed, host);
-        let listed = remote::list(&ssh, "web1", &format!("{}/host", root.display()));
-        let _ = app.update_picker(PickerAction::Listed(2, listed));
+        typed(&mut app, &home);
+        typed(&mut app, &format!("{home}a"));
+        typed(&mut app, &home);
+        let asked = picker(&app).asked;
+        let late = remote::list(&ssh, "web1", "docs");
+        let _ = app.update_picker(PickerAction::Listed(asked - 1, late));
+        assert_eq!(
+            (picker(&app).typed.as_str(), names(&app).len()),
+            (home.as_str(), 0)
+        );
+        listed(&mut app, &format!("{}/home", root.display()));
         assert_eq!(names(&app), ["..", "docs", "a.txt"]);
         // Typing narrows it without asking again; → goes into a folder, which is asked for.
-        typed(&mut app, format!("{host}a"));
+        typed(&mut app, &format!("{home}a"));
         assert_eq!(
             (names(&app), picker(&app).asked),
-            (vec!["a.txt".to_string()], 2)
+            (vec!["a.txt".to_string()], asked)
         );
-        typed(&mut app, host.clone());
+        typed(&mut app, &home);
         let _ = app.update_picker(PickerAction::Into);
-        assert_eq!(picker(&app).typed, format!("{host}docs/"));
-        assert_eq!(picker(&app).asked, 3);
+        assert_eq!(picker(&app).typed, format!("{home}docs/"));
+        assert_eq!(picker(&app).asked, asked + 1);
 
         // A folder that doesn't come says why, and Enter asks again.
         let away = Err("can't reach web1".to_string());
-        let _ = app.update_picker(PickerAction::Listed(3, away));
+        let _ = app.update_picker(PickerAction::Listed(asked + 1, away));
         let status = picker(&app).status.clone().unwrap();
         assert_eq!(status, "# can't reach web1 · Enter asks again");
         let _ = app.update_picker(PickerAction::Choose);
-        assert_eq!(picker(&app).asked, 4);
+        assert_eq!(picker(&app).asked, asked + 2);
 
-        // ← goes up, and above a host's top folder are the hosts.
+        // ← goes up: to the home folder from a path named from it, and no further than `/`,
+        // which has no `..` row.
         let _ = app.update_picker(PickerAction::Up);
-        assert_eq!(picker(&app).typed, host);
-        typed(&mut app, "web1:/".to_string());
+        assert_eq!(picker(&app).typed, home);
+        typed(&mut app, "web1:docs/sub/");
         let _ = app.update_picker(PickerAction::Up);
-        assert_eq!(picker(&app).typed, "ssh:");
+        assert_eq!(picker(&app).typed, "web1:docs/");
+        let _ = app.update_picker(PickerAction::Up);
+        assert_eq!(picker(&app).typed, "web1:");
+        typed(&mut app, "web1:/");
+        listed(&mut app, "/");
+        assert!(!names(&app).contains(&"..".to_string()));
+        let _ = app.update_picker(PickerAction::Up);
+        assert_eq!(picker(&app).typed, "web1:/");
 
         // Enter on a file opens it from its host.
-        typed(&mut app, host.clone());
-        let listed = remote::list(&ssh, "web1", &format!("{}/host", root.display()));
-        let asked = picker(&app).asked;
-        let _ = app.update_picker(PickerAction::Listed(asked, listed));
-        typed(&mut app, format!("{host}a"));
+        typed(&mut app, &home);
+        listed(&mut app, &format!("{}/home", root.display()));
+        typed(&mut app, &format!("{home}a"));
         let _ = app.update_picker(PickerAction::Choose);
         assert!(app.picker.is_none());
-        let opening = format!("Opening web1:{}/host/a.txt…", root.display());
+        let opening = format!("Opening web1:{}/home/a.txt…", root.display());
         assert_eq!(app.fetching, Some(opening));
+
+        // Enter on a file's name typed out doesn't wait for its folder's rows. A name that
+        // matches nothing in a folder that did come opens nothing, as here.
+        let _ = app.open_picker();
+        typed(&mut app, "web1:a.txt");
+        let _ = app.update_picker(PickerAction::Choose);
+        assert!(app.picker.is_none());
+        assert_eq!(app.fetching.as_deref(), Some("Opening web1:a.txt…"));
+        let _ = app.open_picker();
+        typed(&mut app, &home);
+        listed(&mut app, &format!("{}/home", root.display()));
+        typed(&mut app, &format!("{home}nothing"));
+        let _ = app.update_picker(PickerAction::Choose);
+        assert!(app.picker.is_some());
     }
 }

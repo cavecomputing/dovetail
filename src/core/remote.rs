@@ -1,6 +1,6 @@
 //! Other machines, reached with the system's own `ssh`, so `~/.ssh/config`, keys, the agent and
 //! jump hosts all work as they do in a terminal. Here: how a file on a host is named
-//! (`alias:/path`), what the Ctrl+O picker's box means when it names a host, running a script on
+//! (`alias:path`), what the Ctrl+O picker's box means when it names a host, running a script on
 //! a host, why that failed in plain words, and what's in a folder there.
 //!
 //! Every request is one `ssh` run, which starts `sh` on the host with one of the scripts below
@@ -29,14 +29,29 @@ pub struct Remote {
 }
 
 impl Remote {
-    /// The file `text` names as `alias:/path`, as scp writes one, or `None` when it is anything
-    /// else, such as a path on this computer.
+    /// The file `text` names as `alias:path`, as rclone and scp write one, or `None` when it is
+    /// anything else, such as a path on this computer. A path that doesn't start at `/` is from
+    /// the home folder there (see `whole`).
     pub fn parse(text: &str) -> Option<Remote> {
         let (host, path) = text.split_once(':')?;
-        let named = path.starts_with('/') && !path.ends_with('/') && !path.contains('\n');
+        let path = from_home(path);
+        let named = !path.is_empty() && !path.ends_with('/') && !path.contains('\n');
         (is_host(host) && named).then(|| Remote {
             host: host.to_string(),
             path: path.to_string(),
+        })
+    }
+
+    /// This file with its whole path, from `/`, which is what it is locked, remembered and
+    /// saved by. One named from the home folder has its host asked where that is.
+    pub fn whole(&self, ssh: &Ssh) -> Result<Remote, String> {
+        if self.path.starts_with('/') {
+            return Ok(self.clone());
+        }
+        let home = list(ssh, &self.host, "")?.folder;
+        Ok(Remote {
+            host: self.host.clone(),
+            path: format!("{}/{}", home.trim_end_matches('/'), self.path),
         })
     }
 
@@ -69,35 +84,31 @@ pub fn is_host(host: &str) -> bool {
     !host.is_empty() && !host.starts_with('-') && host.chars().all(plain) && !drive
 }
 
-/// What the Ctrl+O picker's box names when it isn't a folder on this computer.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Typed {
-    /// `ssh:` and the start of a host's name: the hosts to choose from.
-    Hosts(String),
-    /// `alias:/folder/name`: a folder on a host and the name typed in it. `alias:` alone is the
-    /// host's home folder, with an empty `folder`.
-    Folder {
-        host: String,
-        folder: String,
-        name: String,
-    },
+/// A path on a host as it is typed, without the `~/` that may start one from the home folder.
+fn from_home(path: &str) -> &str {
+    path.strip_prefix("~/").unwrap_or(path)
 }
 
-/// The picker's row and prefix that list the hosts.
-pub const HOSTS: &str = "ssh:";
+/// What the Ctrl+O picker's box names when it has a host before a colon, `alias:folder/name`: a
+/// folder on that host and the name typed in it. The folder is from the host's home folder
+/// unless it starts at `/`, so `alias:` alone, with an empty `folder`, is the home folder.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Typed {
+    pub host: String,
+    pub folder: String,
+    pub name: String,
+}
 
-/// Reads the picker's box as a host's folder or the host list; `None` when it names a folder on
-/// this computer.
+/// Reads the picker's box as a host's folder; `None` when it names a folder on this computer,
+/// which is anything without a host and a colon at its start (`./a:b` is a file here).
 pub fn typed(text: &str) -> Option<Typed> {
-    if let Some(name) = text.strip_prefix(HOSTS) {
-        return (!name.contains('/')).then(|| Typed::Hosts(name.to_string()));
-    }
     let (host, path) = text.split_once(':')?;
-    if !is_host(host) || !(path.is_empty() || path.starts_with('/')) {
+    if !is_host(host) {
         return None;
     }
+    let path = from_home(path);
     let cut = path.rfind('/').map_or(0, |at| at + 1);
-    Some(Typed::Folder {
+    Some(Typed {
         host: host.to_string(),
         folder: path[..cut].to_string(),
         name: path[cut..].to_string(),
@@ -378,10 +389,11 @@ pub const FOLLOW_LINKS: &str = r#"
     done;
 "#;
 
-/// Lists the folder named on the input's first line (the home folder for an empty line): its
-/// real path, then each entry, a `/` after a folder's, with a NUL after each so any name works.
+/// Lists the folder named on the input's first line, from the home folder unless it starts at
+/// `/` (so an empty line is the home folder): its real path, then each entry, a `/` after a
+/// folder's, with a NUL after each so any name works.
 const LIST: &str = r#"
-    IFS= read -r d; if [ -z "$d" ]; then d=$HOME; fi;
+    IFS= read -r d; case "$d" in /*) ;; *) d=$HOME/$d;; esac;
     cd -- "$d" 2>/dev/null || {
         if [ -d "$d" ]; then echo "@re@ denied"; else echo "@re@ missing"; fi; exit 0;
     };
@@ -398,15 +410,16 @@ const LIST: &str = r#"
 #[derive(Debug, Clone, PartialEq)]
 pub struct Listing {
     pub host: String,
-    /// The folder as it was asked for (empty for the home folder), and its whole path there.
+    /// The folder as it was asked for (from the home folder unless it starts at `/`), and its
+    /// whole path there.
     pub asked: String,
     pub folder: String,
     /// Folders first, then by name ignoring case, as `folder::entries` orders them.
     pub entries: Vec<Entry>,
 }
 
-/// What's in `folder` on `host` (its home folder when `folder` is empty), or why it can't be
-/// listed. Names that aren't UTF-8 are left out: they couldn't be asked for again.
+/// What's in `folder` on `host` (from its home folder unless it starts at `/`; the home folder
+/// when empty), or why it can't be listed. Names that aren't UTF-8 are left out: they couldn't be asked for again.
 pub fn list(ssh: &Ssh, host: &str, folder: &str) -> Result<Listing, String> {
     let ran = ssh.run(host, LIST, format!("{folder}\n").into_bytes())?;
     let (words, listed) = ran.answer(host)?;
@@ -450,16 +463,19 @@ pub mod tests {
     /// (the connection drops after N bytes of input), `short N` (it drops after N bytes of the
     /// answer), `deaf` (the script runs, but its answer never arrives), `silent` (connected, and
     /// then nothing). `noisy` is a host whose login files print something first, and `shell X` one
-    /// whose login shell is the program X. It needs `sh`, which Windows doesn't have: there the
+    /// whose login shell is the program X. A folder named `home` in `dir` is the home folder
+    /// there. It needs `sh`, which Windows doesn't have: there the
     /// scripts are only ever sent to a host, and the tests that run them are left out.
     #[cfg(unix)]
     pub fn fake_ssh(dir: &std::path::Path) -> Ssh {
         let script = dir.join("fake-ssh.sh");
         let mode = dir.join("mode");
+        let home = dir.join("home");
         std::fs::write(
             &script,
             format!(
                 r#"for command; do :; done
+                if [ -d "{home}" ]; then HOME="{home}"; fi
                 read -r mode count < "{mode}" 2>/dev/null
                 case "$mode" in
                     down) echo "ssh: connect to host web1 port 22: Connection refused" >&2; exit 255;;
@@ -471,7 +487,8 @@ pub mod tests {
                     noisy) echo "Welcome to web1, {MARK} of the fleet"; exec sh -c "$command";;
                     *) exec sh -c "$command";;
                 esac"#,
-                mode = mode.display()
+                mode = mode.display(),
+                home = home.display()
             ),
         )
         .unwrap();
@@ -484,43 +501,54 @@ pub mod tests {
     }
 
     #[test]
-    fn a_remote_file_is_named_like_scp_names_one() {
+    fn a_remote_file_is_named_like_rclone_names_one() {
         let remote = Remote::parse("web1:/etc/nginx/nginx.conf").unwrap();
         assert_eq!(remote.host, "web1");
         assert_eq!(remote.path, "/etc/nginx/nginx.conf");
         assert_eq!(remote.to_string(), "web1:/etc/nginx/nginx.conf");
         assert_eq!(remote.typed_folder(), "web1:/etc/nginx/");
         assert_eq!(Remote::parse("me@10.0.0.2:/x").unwrap().host, "me@10.0.0.2");
+        // Without a `/` first, the path is from the home folder there.
+        assert_eq!(Remote::parse("web1:notes/a.md").unwrap().path, "notes/a.md");
+        assert_eq!(Remote::parse("web1:~/a.md").unwrap().path, "a.md");
         // Paths on this computer, folders, and anything ssh would read as an option.
         for local in [
             "/home/me/a:/b",
+            "./a:b",
             "~/notes.txt",
             "notes.txt",
             "web1:/etc/",
-            "web1:notes",
+            "web1:",
             "-oProxyCommand=x:/y",
             "a b:/c",
             ":/c",
         ] {
             assert_eq!(Remote::parse(local), None, "{local}");
         }
+        // One letter and a colon is a drive on Windows, and a host anywhere else.
+        assert_eq!(Remote::parse("c:/notes.txt").is_some(), !cfg!(windows));
     }
 
     #[test]
-    fn the_picker_box_names_hosts_and_their_folders() {
+    fn the_picker_box_names_a_host_before_a_colon() {
         let folder = |host: &str, folder: &str, name: &str| {
-            Some(Typed::Folder {
+            Some(Typed {
                 host: host.to_string(),
                 folder: folder.to_string(),
                 name: name.to_string(),
             })
         };
-        assert_eq!(typed("ssh:"), Some(Typed::Hosts(String::new())));
-        assert_eq!(typed("ssh:we"), Some(Typed::Hosts("we".to_string())));
         assert_eq!(typed("web1:"), folder("web1", "", ""));
+        assert_eq!(typed("web1:no"), folder("web1", "", "no"));
+        assert_eq!(typed("web1:notes/dr"), folder("web1", "notes/", "dr"));
+        assert_eq!(typed("web1:~/notes/"), folder("web1", "notes/", ""));
         assert_eq!(typed("web1:/"), folder("web1", "/", ""));
         assert_eq!(typed("web1:/etc/ng"), folder("web1", "/etc/", "ng"));
-        for local in ["~/", "/etc/", "notes", "web1:notes", "a/b:/c"] {
+        assert_eq!(typed("me@10.0.0.2:"), folder("me@10.0.0.2", "", ""));
+        // No colon, or no host before it, is a folder on this computer.
+        for local in [
+            "~/", "/etc/", "notes", "web1", "a/b:/c", "./a:b", "~/a:b", ":x",
+        ] {
             assert_eq!(typed(local), None, "{local}");
         }
     }
@@ -627,14 +655,31 @@ pub mod tests {
             ]
         );
         assert_eq!(listing.entries[0].path, root.join("a b"));
-        // An empty folder, the home folder, and a folder that isn't there.
+        // An empty folder, the top folder, and a folder that isn't there.
         let empty = list(&ssh, "web1", &format!("{}/Docs", root.display())).unwrap();
         assert!(empty.entries.is_empty());
-        assert!(list(&ssh, "web1", "").unwrap().folder.starts_with('/'));
         assert_eq!(list(&ssh, "web1", "/").unwrap().folder, "/");
         assert_eq!(
             list(&ssh, "web1", "/no/such").unwrap_err(),
             "web1 has no folder /no/such"
+        );
+        // A folder that doesn't start at `/` is from the home folder, as is a file's path.
+        let home = dir.path().join("home");
+        std::fs::create_dir_all(home.join("notes")).unwrap();
+        let home = std::fs::canonicalize(home).unwrap();
+        assert_eq!(
+            list(&ssh, "web1", "").unwrap().folder,
+            home.to_str().unwrap()
+        );
+        let notes = list(&ssh, "web1", "notes").unwrap();
+        assert_eq!(notes.folder, home.join("notes").to_str().unwrap());
+        let file = Remote::parse("web1:notes/a.md").unwrap();
+        let whole = file.whole(&ssh).unwrap();
+        assert_eq!(whole.path, home.join("notes/a.md").to_str().unwrap());
+        assert_eq!(whole.whole(&ssh).unwrap(), whole);
+        assert_eq!(
+            list(&ssh, "web1", "none").unwrap_err(),
+            "web1 has no folder none"
         );
     }
 

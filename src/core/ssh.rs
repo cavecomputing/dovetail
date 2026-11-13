@@ -4,11 +4,9 @@
 //! line is well formed (a keyword ssh knows, with a value), what Tab completes a keyword to, and
 //! the `Host` block the command palette puts in.
 
-use std::fs;
 use std::ops::Range;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use crate::core::remote::is_host;
 use crate::core::syntax::{Found, Token, indent, quoted_end};
 
 /// Whether `path` is an SSH config file, by the folders it sits in: `config` in a `.ssh` folder,
@@ -89,106 +87,6 @@ fn word(line: &str, at: usize, end: usize) -> Option<(Range<usize>, usize)> {
             .map_or(end, |found| start + found),
     };
     Some((start..stop, stop))
-}
-
-/// The hosts the SSH config file `config` names, for the Ctrl+O picker: each `Host` alias in it
-/// and in the files it `Include`s, in the order written, once each. Patterns (`*`, `?`, `!`) are
-/// left out: they name no one machine.
-pub fn host_aliases(config: &Path) -> Vec<String> {
-    let mut found = Vec::new();
-    collect_hosts(
-        config,
-        config.parent().unwrap_or(Path::new("")),
-        0,
-        &mut found,
-    );
-    found
-}
-
-/// Adds the hosts in `config` to `found`, following each `Include` (a path, or several, taken
-/// from `ssh_dir` when it isn't whole, with `~` for the home folder above it and `*` and `?`
-/// in names) up to 16 files deep, as ssh does.
-fn collect_hosts(config: &Path, ssh_dir: &Path, depth: usize, found: &mut Vec<String>) {
-    let Ok(text) = fs::read_to_string(config) else {
-        return;
-    };
-    for line in text.lines() {
-        let end = line.trim_end().len();
-        let Some((keyword, mut at)) = word(line, indent(line).min(end), end) else {
-            continue;
-        };
-        let keyword = line[keyword].to_ascii_lowercase();
-        while let Some((argument, after)) = word(line, at, end) {
-            at = after;
-            let argument = line[argument].trim_matches('"');
-            // The rest of the line is a comment.
-            if argument.starts_with('#') {
-                break;
-            }
-            match keyword.as_str() {
-                "host" if is_host(argument) && !found.iter().any(|host| host == argument) => {
-                    found.push(argument.to_string());
-                }
-                "include" if depth < 16 => {
-                    let pattern = match argument.strip_prefix("~/") {
-                        Some(rest) => ssh_dir.parent().unwrap_or(ssh_dir).join(rest),
-                        None => ssh_dir.join(argument),
-                    };
-                    for file in matching_files(&pattern) {
-                        collect_hosts(&file, ssh_dir, depth + 1, found);
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-}
-
-/// The paths `pattern` names, in name order: itself, or when parts of it have a `*` or `?`,
-/// everything on disk each such part matches.
-fn matching_files(pattern: &Path) -> Vec<PathBuf> {
-    let mut found = vec![PathBuf::new()];
-    for part in pattern.components() {
-        let part = part.as_os_str();
-        let wild = part.to_str().filter(|part| part.contains(['*', '?']));
-        found = match wild {
-            None => found.into_iter().map(|path| path.join(part)).collect(),
-            Some(wild) => {
-                let mut matched: Vec<PathBuf> = found
-                    .iter()
-                    .flat_map(|path| fs::read_dir(path).into_iter().flatten().flatten())
-                    .filter(|entry| {
-                        entry
-                            .file_name()
-                            .to_str()
-                            .is_some_and(|name| matches_wild(wild, name))
-                    })
-                    .map(|entry| entry.path())
-                    .collect();
-                matched.sort();
-                matched
-            }
-        };
-    }
-    found
-}
-
-/// Whether `name` fits `pattern`, where `*` stands for any run of characters and `?` for one.
-fn matches_wild(pattern: &str, name: &str) -> bool {
-    let mut rest = pattern.chars();
-    match rest.next() {
-        None => name.is_empty(),
-        Some('*') => {
-            let rest = rest.as_str();
-            (name.char_indices().map(|(at, _)| at).chain([name.len()]))
-                .any(|at| matches_wild(rest, &name[at..]))
-        }
-        Some(wanted) => {
-            let mut name = name.chars();
-            name.next().is_some_and(|c| wanted == '?' || c == wanted)
-                && matches_wild(rest.as_str(), name.as_str())
-        }
-    }
 }
 
 /// Every keyword OpenSSH's ssh_config and sshd_config know (as of OpenSSH 9.9, plus the GSSAPI
@@ -513,45 +411,6 @@ pub fn host_block(
 mod tests {
     use super::*;
     use Token::*;
-
-    #[test]
-    fn hosts_come_from_the_config_and_what_it_includes() {
-        let dir = tempfile::tempdir().unwrap();
-        let ssh = dir.path().join(".ssh");
-        fs::create_dir_all(ssh.join("config.d")).unwrap();
-        fs::create_dir_all(dir.path().join("elsewhere")).unwrap();
-        let config = ssh.join("config");
-        let outside = dir.path().join("elsewhere").join("more");
-        fs::write(
-            &config,
-            format!(
-                "# Host commented\nInclude config.d/*.conf missing ~/elsewhere/mo?e\n\
-                 Host web1 web2 *.example.com !bad # the web servers\n    HostName 10.0.0.1\n\
-                 host=equals\nHOST \"quoted\"\n\tHost tabbed\nHost *\n    User me\n\
-                 Host web1 -oProxyCommand\nMatch host other\nInclude \"{}\"\n",
-                outside.display()
-            ),
-        )
-        .unwrap();
-        fs::write(ssh.join("config.d/b.conf"), "Host beta\n").unwrap();
-        fs::write(
-            ssh.join("config.d/a.conf"),
-            "Host alpha\nInclude ../config\n",
-        )
-        .unwrap();
-        fs::write(ssh.join("config.d/skipped.txt"), "Host skipped\n").unwrap();
-        fs::write(outside, "Host far\n").unwrap();
-        // Included files first, as they are written first; a file that includes itself ends.
-        assert_eq!(
-            host_aliases(&config),
-            [
-                "alpha", "beta", "far", "web1", "web2", "equals", "quoted", "tabbed"
-            ]
-        );
-        assert!(host_aliases(&ssh.join("none")).is_empty());
-        assert!(matches_wild("*", "") && matches_wild("a*c?", "abbcd"));
-        assert!(!matches_wild("a?", "a") && !matches_wild("*.conf", "x.txt"));
-    }
 
     #[test]
     fn ssh_config_files_are_known_by_their_folders() {

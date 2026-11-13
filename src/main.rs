@@ -35,7 +35,8 @@ fn main() -> iced::Result {
             println!("{} {}", brand::BIN_NAME, env!("CARGO_PKG_VERSION"));
             return Ok(());
         }
-        // `alias:/path` is a file on an SSH host, unless this computer has a file by that name.
+        // `alias:path` is a file on an SSH host, unless this computer has a file by that name
+        // (`./a:b` names one that isn't there yet).
         Some(path) if !path.exists() && matches!(Doc::recent(&path), Doc::Remote { .. }) => {
             Doc::recent(&path)
         }

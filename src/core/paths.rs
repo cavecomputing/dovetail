@@ -55,13 +55,6 @@ impl Paths {
         }
     }
 
-    /// The SSH config file whose hosts the Ctrl+O picker offers: the user's own, in `.ssh` in
-    /// the home folder on every OS.
-    pub fn ssh_config(&self) -> PathBuf {
-        let own = || BaseDirs::new().map(|base| base.home_dir().join(".ssh").join("config"));
-        (self.ssh_config_override.clone().or_else(own)).unwrap_or_default()
-    }
-
     pub fn settings_file(&self) -> PathBuf {
         self.config_dir.join("settings.toml")
     }
