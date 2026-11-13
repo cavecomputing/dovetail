@@ -138,8 +138,8 @@ start of the box (`web1:`) is a folder on that host instead: see
 Redo, Find, Replace, Go to line, Line numbers, Word wrap, Settings, Scratch, then the six most recent files; Ctrl+P has
 the rest), the save dot, any problem
 in orange (a failed save, a file that isn't valid JSON, say), and the file's path (or Scratch); on
-the right, words and tokens (of the selection while some text is selected: `12 of 44 words`), the line and column if switched on, then the assistant button. Tokens are counted with OpenAI's o200k tokenizer (hover to
-see it), a close enough guide for other models.
+the right, words and tokens (of the selection while some text is selected: `12 of 44 words`), the line and column if switched on, then the assistant button. The token count is an estimate, one token for every four bytes of the text (hover to
+see that), which is within about a tenth of what OpenAI's, Claude's and Gemini's tokenizers count on prose and code.
 
 **Markdown** files (`.md` and `.markdown`) open like `.txt` files: type `notes.md` as the name in New file or Save as to make one. Those two save
 a name exactly as you type it, whatever its extension (`test.sh` stays `test.sh`). They are coloured
