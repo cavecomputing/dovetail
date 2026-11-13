@@ -158,8 +158,9 @@ impl Picker {
 }
 
 impl App {
-    /// Ctrl+O: opens the picker at the open file's folder (the home folder in scratch), or
-    /// closes it.
+    /// Ctrl+O: opens the picker at the open file's folder, or closes it. Scratch has no folder,
+    /// so there it starts in the newest recent file's (one on this computer, so no host is
+    /// asked just for opening the picker), or in the home folder with none.
     pub fn open_picker(&mut self) -> Task<Message> {
         let was_open = self.picker.is_some();
         self.close_panels();
@@ -169,7 +170,8 @@ impl App {
         let start = match &self.doc {
             Doc::File { path, .. } => path.parent().map(display_path),
             Doc::Remote { remote, .. } => Some(remote.typed_folder()),
-            Doc::Scratch => None,
+            Doc::Scratch => (self.recent.iter().find(|path| path.is_file()))
+                .and_then(|path| path.parent().map(display_path)),
         };
         let typed = typed_folder(start.unwrap_or("~/".into()));
         self.picker = Some(Picker::new(typed));
@@ -445,6 +447,24 @@ mod tests {
         assert!(app.picker.is_none());
         assert!(matches!(&app.doc, Doc::File { path, .. } if *path == plan));
         assert!(!plan.exists(), "made by its first save");
+    }
+
+    #[test]
+    fn from_scratch_the_picker_starts_in_the_newest_recent_files_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::under(dir.path());
+        let (mut app, _) = App::with_paths(Doc::Scratch, paths.clone());
+        let _ = app.open_picker();
+        assert_eq!(picker(&app).typed, typed_folder("~/".to_string()));
+        let _ = app.open_picker();
+        // A file opened and left: its folder is where scratch's picker starts next.
+        let notes = dir.path().join("notes.md");
+        fs::write(&notes, "x").unwrap();
+        let _ = app.update(Message::OpenPath(notes));
+        let _ = app.update(Message::OpenScratch);
+        let _ = app.open_picker();
+        let folder = typed_folder(display_path(dir.path()));
+        assert_eq!(picker(&app).typed, folder);
     }
 
     #[test]
