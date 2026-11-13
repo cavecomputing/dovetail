@@ -239,6 +239,7 @@ Shortcuts are written with Ctrl; on macOS use ⌘ (the app's menu and hints show
 | Shift+Enter | New line, indented like Enter's, but never a new list item |
 | Backspace | In the spaces at the start of a line, delete back to the previous indent, so one press takes back a Tab; in a shell script or JSON file, between an empty pair such as `()` or `""`, delete both; anywhere else, one character |
 | Ctrl+Backspace and Ctrl+Delete | Delete the word before or after the cursor (or just the selection). On macOS these are ⌥⌫ and ⌥⌦, and ⌘⌫ and ⌘⌦ delete to the start and end of the line |
+| Home | Go to the line's first letter, past its indent; pressed there, to the very start of the line. Shift+Home selects the same way (⌘← and ⇧⌘← on macOS) |
 | Alt+↑ and Alt+↓ | Move the line, or every selected line, up or down past the next one (⌥↑ and ⌥↓ on macOS) |
 | Ctrl+Shift+D | Duplicate the line, or every selected line: the copy goes just below, and the cursor moves onto it |
 | Ctrl+Shift+K | Delete the line, or every selected line |

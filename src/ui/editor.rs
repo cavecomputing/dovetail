@@ -560,7 +560,30 @@ impl Pane {
             if !matches!(action, Action::Scroll { .. }) {
                 self.others.clear();
             }
+            let before = self.content.cursor().position;
+            let home = matches!(
+                action,
+                Action::Move(Motion::Home) | Action::Select(Motion::Home)
+            );
             self.content.perform(action);
+            // Home goes to the line's first letter, past its indent. Pressed there it goes on
+            // to column 0, where the widget just put it. (On a wrapped line's later rows the
+            // widget goes to the row's start, which is left alone.)
+            let cursor = self.content.cursor();
+            if home && cursor.position.column == 0 {
+                let line = self.shown().split('\n').nth(cursor.position.line);
+                let indent = line.map_or(0, |line| line.len() - line.trim_start().len());
+                let first_letter = Position {
+                    column: indent,
+                    ..cursor.position
+                };
+                if before != first_letter {
+                    self.content.move_to(Cursor {
+                        position: first_letter,
+                        ..cursor
+                    });
+                }
+            }
             return Ok(false);
         }
         // Pasted text may hold `\r` line endings, which the model's line arithmetic doesn't know.
@@ -2490,6 +2513,30 @@ mod tests {
         pane.perform(Action::SelectAll).unwrap();
         assert_eq!(pane.unindent(4, false), Ok(true));
         assert_eq!(pane.content.text(), text);
+    }
+
+    #[test]
+    fn home_goes_to_the_first_letter_then_to_column_0() {
+        let mut pane = Pane::new("one\n    two words\n");
+        pane.content.move_to(cursor_at(1, 9));
+        pane.perform(Action::Move(Motion::Home)).unwrap();
+        assert_eq!(pane.content.cursor(), cursor_at(1, 4));
+        pane.perform(Action::Move(Motion::Home)).unwrap();
+        assert_eq!(pane.content.cursor(), cursor_at(1, 0));
+        pane.perform(Action::Move(Motion::Home)).unwrap();
+        assert_eq!(pane.content.cursor(), cursor_at(1, 4));
+
+        // Shift+Home selects back to the first letter, and the indent too on a second press.
+        pane.content.move_to(cursor_at(1, 9));
+        pane.perform(Action::Select(Motion::Home)).unwrap();
+        assert_eq!(pane.selection(), Some(8..13));
+        pane.perform(Action::Select(Motion::Home)).unwrap();
+        assert_eq!(pane.selection(), Some(4..13));
+
+        // A line with no indent has only the one place to go.
+        pane.content.move_to(cursor_at(0, 2));
+        pane.perform(Action::Move(Motion::Home)).unwrap();
+        assert_eq!(pane.content.cursor(), cursor_at(0, 0));
     }
 
     #[test]
