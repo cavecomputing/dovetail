@@ -216,7 +216,7 @@ A settings panel that opens over the app, from the menu or `Ctrl+,`, in whicheve
   - UI candidates: **iced** (used by COSMIC, Linux-first) or **GPUI** (Zed's toolkit, excellent text, thinner docs). egui and Slint are possible but weaker for long text.
   - Tauri remains a fallback if a native editor gets too hard. It's slower to start.
 - Likely crates: `git2` or `gix` for history, `tiktoken-rs` for counts, `serde` and `serde_json` for the manifest, `toml` for settings, `reqwest` for the OpenAI-compatible API, `keyring` for the API key, plus `notify`/`directories` as needed.
-- **No name is hardcoded.** The app name (Dovetail), the project extension (`.dovetail`), the config folder name (`dovetail`), the projects folder and the `.desktop`/MIME IDs all come from one constants module (`src/brand.rs`), so renaming later still means changing one file.
+- **No name is hardcoded.** The app name (Dovetail), the config folder name (`dovetail`), the projects folder and the `.desktop`/MIME IDs all come from one constants module (`src/brand.rs`), so renaming later still means changing one file.
 
 ## 13. Suggested build order
 

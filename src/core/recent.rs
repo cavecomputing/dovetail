@@ -6,7 +6,6 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::brand::PROJECT_EXT;
 use crate::core::save::atomic_write;
 use crate::core::scratch::ScratchView;
 
@@ -65,13 +64,12 @@ pub fn recent_files(data_dir: &Path) -> Vec<PathBuf> {
 }
 
 /// The recent files that still exist, newest first, for the menu and the switcher: a file
-/// deleted or moved since is left out, and so is a project manifest from the rewrite branch.
+/// deleted or moved since is left out.
 pub fn existing_recent_files(data_dir: &Path) -> Vec<PathBuf> {
     recent_files(data_dir)
         .into_iter()
         // Files only: a folder left from when folders could be opened is skipped.
         .filter(|path| path.is_file())
-        .filter(|path| path.extension().is_none_or(|ext| ext != PROJECT_EXT))
         .collect()
 }
 
@@ -200,16 +198,13 @@ mod tests {
     }
 
     #[test]
-    fn existing_files_leave_out_the_ones_that_are_gone_and_projects() {
+    fn existing_files_leave_out_the_ones_that_are_gone() {
         let dir = tempfile::tempdir().unwrap();
         let notes = dir.path().join("notes.txt");
         fs::write(&notes, "hi").unwrap();
-        let manifest = dir.path().join(format!("Nyx.{PROJECT_EXT}"));
-        fs::write(&manifest, "{}").unwrap();
         remember(dir.path(), &dir.path().join("gone.txt")).unwrap();
-        remember(dir.path(), &manifest).unwrap();
         remember(dir.path(), &notes).unwrap();
-        assert_eq!(recent_files(dir.path()).len(), 3);
+        assert_eq!(recent_files(dir.path()).len(), 2);
         assert_eq!(existing_recent_files(dir.path()), vec![notes]);
     }
 

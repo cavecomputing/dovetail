@@ -14,7 +14,3 @@ pub const APP_ID: &str = "io.cavecomputing.Dovetail";
 
 /// Folder name for settings and scratch inside each OS's own folders (see `core::paths`).
 pub const CONFIG_DIR_NAME: &str = "dovetail";
-
-/// File extension of a project manifest, without the dot. Projects live on the rewrite branch,
-/// which shares the data folder, so their manifests are left out of the recent lists here.
-pub const PROJECT_EXT: &str = "dovetail";
