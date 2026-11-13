@@ -357,6 +357,10 @@ where
     editor: R::Editor,
     // ours: a top line to scroll to at the next layout, from `Content::scroll_to_line`.
     scroll_to: Option<usize>,
+    // ours: how far the view is scrolled past the end of the text, in pixels. cosmic-text stops
+    // with the last row at the bottom of its view, so the widget makes that view this much
+    // shorter than the text area and leaves the rest empty (see `scroll_past_end`).
+    past_end: f32,
     // ours: the first line any edit since the last layout changed, which the highlighter reads
     // again from (a line may open or close a code block for the lines below it). iced's editor
     // keeps only the last edit's, but an undo or an indent can make several edits at once. A new
@@ -421,6 +425,7 @@ where
         Self(RefCell::new(Internal {
             editor,
             scroll_to: None,
+            past_end: 0.0,
             changed_from: Some(0),
             whole: None,
         }))
@@ -431,32 +436,6 @@ impl<R> Content<R>
 where
     R: text::Renderer,
 {
-    /// Performs an [`Action`] on the [`Content`].
-    pub fn perform(&mut self, action: Action) {
-        let internal = self.0.get_mut();
-
-        // ours: the first line an edit changes is the top of the selection, or the line the
-        // caret lands on (Backspace at a line's start joins it to the one above).
-        let before = internal.editor.cursor();
-        let edit = action.is_edit();
-        // ours: a drag, Shift+arrow or scroll keeps a word or line selection's unit; any other
-        // action ends it, and so does the selection going.
-        let whole = match action {
-            Action::SelectWord => Some(Whole::Words),
-            Action::SelectLine => Some(Whole::Lines),
-            Action::Drag(_) | Action::Select(_) | Action::Scroll { .. } => internal.whole,
-            _ => None,
-        };
-        internal.editor.perform(action);
-        internal.whole = whole.filter(|_| internal.editor.cursor().selection.is_some());
-        if edit {
-            let anchor = before.selection.unwrap_or(before.position);
-            let first =
-                (before.position.line.min(anchor.line)).min(internal.editor.cursor().position.line);
-            internal.changed_from = Some(internal.changed_from.map_or(first, |l| l.min(first)));
-        }
-    }
-
     /// Moves the current cursor to reflect the given one.
     pub fn move_to(&mut self, cursor: Cursor) {
         let internal = self.0.get_mut();
@@ -584,6 +563,39 @@ impl<R> Content<R>
 where
     R: text::Renderer<Editor = graphics::text::Editor>,
 {
+    /// Performs an [`Action`] on the [`Content`].
+    pub fn perform(&mut self, action: Action) {
+        let internal = self.0.get_mut();
+        // ours: a scroll at the end of the text goes on past it.
+        let action = match action {
+            Action::Scroll { lines } => Action::Scroll {
+                lines: scroll_past_end(internal.editor.buffer(), &mut internal.past_end, lines),
+            },
+            other => other,
+        };
+
+        // ours: the first line an edit changes is the top of the selection, or the line the
+        // caret lands on (Backspace at a line's start joins it to the one above).
+        let before = internal.editor.cursor();
+        let edit = action.is_edit();
+        // ours: a drag, Shift+arrow or scroll keeps a word or line selection's unit; any other
+        // action ends it, and so does the selection going.
+        let whole = match action {
+            Action::SelectWord => Some(Whole::Words),
+            Action::SelectLine => Some(Whole::Lines),
+            Action::Drag(_) | Action::Select(_) | Action::Scroll { .. } => internal.whole,
+            _ => None,
+        };
+        internal.editor.perform(action);
+        internal.whole = whole.filter(|_| internal.editor.cursor().selection.is_some());
+        if edit {
+            let anchor = before.selection.unwrap_or(before.position);
+            let first =
+                (before.position.line.min(anchor.line)).min(internal.editor.cursor().position.line);
+            internal.changed_from = Some(internal.changed_from.map_or(first, |l| l.min(first)));
+        }
+    }
+
     /// The line (paragraph) at the top of the view.
     pub fn scroll_line(&self) -> usize {
         self.0.borrow().editor.buffer().scroll().line
@@ -639,6 +651,38 @@ pub struct ScrollRows {
     pub top: f32,
     pub shown: f32,
     pub total: f32,
+}
+
+/// ours: how far the text runs on below the view (less than nothing when it ends above the
+/// view's bottom), or nothing when it has lines down there that were never laid out.
+fn below_view(buffer: &cosmic_text::Buffer) -> Option<f32> {
+    let scroll = buffer.scroll();
+    let mut rows = 0;
+    for line in buffer.lines.iter().skip(scroll.line) {
+        rows += line.layout_opt()?.len();
+    }
+    Some(rows as f32 * buffer.metrics().line_height - scroll.vertical - buffer.size().1?)
+}
+
+/// ours: scrolling past the end of the text, so its last lines needn't sit on the editor's
+/// bottom edge. Takes a scroll of `lines` rows and returns the rows left for cosmic-text.
+/// Down, with the last row at the bottom of the view, the room `past_end` opens instead,
+/// until the text ends halfway up the editor: the view gets shorter, and cosmic-text scrolls
+/// the same rows to keep the last row at its bottom. Up, that room closes by as many rows as
+/// cosmic-text scrolls, which is as many as the view grows by.
+fn scroll_past_end(buffer: &cosmic_text::Buffer, past_end: &mut f32, lines: i32) -> i32 {
+    let row = buffer.metrics().line_height;
+    if lines < 0 {
+        *past_end = (*past_end + lines as f32 * row).max(0.0);
+        lines
+    } else if below_view(buffer).is_some_and(|below| below.abs() < 0.5) {
+        let view = buffer.size().1.unwrap_or(0.0);
+        let opened = lines.min(((view - *past_end) / 2.0 / row) as i32).max(0);
+        *past_end += opened as f32 * row;
+        opened
+    } else {
+        lines
+    }
 }
 
 /// ours: iced's `selection()`, without its crash. iced finds the caret's place in its line's
@@ -949,6 +993,8 @@ where
         limits: &layout::Limits,
     ) -> layout::Node {
         let mut internal = self.content.0.borrow_mut();
+        // A plain `&mut`, so its fields can be borrowed apart.
+        let internal = &mut *internal;
         let state = tree.state.downcast_mut::<State<Highlighter>>();
 
         if state.highlighter_format_address != self.highlighter_format as usize {
@@ -982,9 +1028,10 @@ where
         // assistant pane opening, bigger text) can leave the caret's row outside the view, where
         // it stayed until a key was typed. cosmic-text scrolls to the caret only once it has
         // moved, so the caret goes away and back, which leaves the selection as it is.
-        let lay_out = |editor: &mut graphics::text::Editor| {
+        let lay_out = |editor: &mut graphics::text::Editor, past_end: f32| {
+            let text_area = limits.shrink(self.padding).max();
             editor.update(
-                limits.shrink(self.padding).max(),
+                Size::new(text_area.width, (text_area.height - past_end).max(0.0)),
                 self.font.unwrap_or_else(|| renderer.default_font()),
                 self.text_size.unwrap_or_else(|| renderer.default_size()),
                 self.line_height,
@@ -993,7 +1040,18 @@ where
             );
         };
         let caret_was_in_view = caret_in_view(&internal.editor);
-        lay_out(&mut internal.editor);
+        lay_out(&mut internal.editor, internal.past_end);
+        // ours: the room past the end of the text closes by as much as the text now runs on
+        // below the view (lines added above the end, the caret gone up the text, a smaller
+        // window), and all the way when the end is far off.
+        if internal.past_end > 0.0 {
+            let below = below_view(internal.editor.buffer()).unwrap_or(f32::MAX);
+            if below > 0.5 {
+                internal.past_end = (internal.past_end - below).max(0.0);
+                lay_out(&mut internal.editor, internal.past_end);
+            }
+        }
+        let past_end = internal.past_end;
         if caret_was_in_view && !caret_in_view(&internal.editor) {
             let caret = internal.editor.cursor().position;
             for position in [Position { line: 0, column: 0 }, caret] {
@@ -1002,7 +1060,7 @@ where
                     selection: None,
                 });
             }
-            lay_out(&mut internal.editor);
+            lay_out(&mut internal.editor, past_end);
         }
 
         // ours: a saved top line is restored once the text has a layout. Scrolling far up
@@ -1013,7 +1071,7 @@ where
         if let Some(saved_top) = internal.scroll_to.take() {
             let update = |editor: &mut graphics::text::Editor, lines| {
                 editor.perform(Action::Scroll { lines });
-                lay_out(editor);
+                lay_out(editor, past_end);
             };
             let cursor_line = internal.editor.cursor().position.line;
             for top in [saved_top, cursor_line] {
@@ -1804,6 +1862,35 @@ mod tests {
         content.move_to(caret(1, 0));
         content.perform(Action::Edit(Edit::Backspace));
         assert_eq!(changed_from(&content), Some(0));
+    }
+
+    /// Scrolling down at the end of the text opens room past it, up to half the editor, and
+    /// scrolling up closes that room before the text moves.
+    #[test]
+    fn scrolling_at_the_end_of_the_text_goes_on_past_it() {
+        // 41 lines in a text area of ten rows, laid out as the widget does: less the room.
+        let mut content: Content = Content::with_text(&"line\n".repeat(40));
+        let mut scroll = |lines| {
+            content.perform(Action::Scroll { lines });
+            let internal = content.0.get_mut();
+            internal.editor.update(
+                Size::new(200.0, 130.0 - internal.past_end),
+                iced::Font::default(),
+                Pixels(10.0),
+                LineHeight::Relative(1.3),
+                Wrapping::WordOrGlyph,
+                &mut highlighter::PlainText::new(&()),
+            );
+            let rows_past_end = (internal.past_end / 13.0).round() as usize;
+            (content.scroll_line(), rows_past_end)
+        };
+        assert_eq!(scroll(0), (0, 0), "laid out");
+        assert_eq!(scroll(5), (5, 0), "in the text");
+        assert_eq!(scroll(1_000), (31, 0), "the last row at the bottom");
+        assert_eq!(scroll(3), (34, 3), "three rows of room");
+        assert_eq!(scroll(1_000), (36, 5), "the text ends halfway up");
+        assert_eq!(scroll(-2), (34, 3), "the room closes with it");
+        assert_eq!(scroll(-5), (29, 0), "then the text scrolls");
     }
 
     /// A Markdown text in an editor `rows` rows high and 200 wide, laid out, with the highlighter

@@ -249,6 +249,7 @@ Shortcuts are written with Ctrl; on macOS use ⌘ (the app's menu and hints show
 | Ctrl+Z | Undo (also in the ☰ menu) |
 | Ctrl+Shift+Z or Ctrl+Y | Redo (also in the ☰ menu) |
 | Ctrl+A, C, X, V | Select all, copy, cut, paste |
+| Mouse wheel | Scroll. At the end of the text the view scrolls on until the last line is halfway up the window, so the end of a long text needn't be typed on the window's bottom edge; lines typed there keep that height |
 | Mouse drag | Select text. Held past the top or bottom of the editor, the view scrolls (faster the further out) and the selection keeps growing |
 | Shift+click | Select from the caret, or from where the selection began, to the click |
 | Middle click | On Linux, paste the text last selected with the mouse, in this window or another app, where you click |
