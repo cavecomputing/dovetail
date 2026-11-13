@@ -777,6 +777,18 @@ fn draw_paint<R: renderer::Renderer>(
     }
 }
 
+/// ours: whether the whole of the caret's row is in view.
+fn caret_in_view(editor: &graphics::text::Editor) -> bool {
+    let caret = editor.cursor().position;
+    let buffer = editor.buffer();
+    let height = buffer.size().1.unwrap_or(f32::MAX);
+    buffer
+        .layout_runs()
+        .filter(|row| caret_x(row, caret).is_some())
+        .last()
+        .is_some_and(|row| row.line_top >= 0.0 && row.line_top + row.line_height <= height)
+}
+
 /// ours: how far along `row` a caret at `at` sits, if it's on that row: before the glyph starting
 /// there, or after the row's last glyph.
 fn caret_x(row: &cosmic_text::LayoutRun<'_>, at: Position) -> Option<f32> {
@@ -966,14 +978,32 @@ where
             .min_height(self.min_height)
             .max_height(self.max_height);
 
-        internal.editor.update(
-            limits.shrink(self.padding).max(),
-            self.font.unwrap_or_else(|| renderer.default_font()),
-            self.text_size.unwrap_or_else(|| renderer.default_size()),
-            self.line_height,
-            self.wrapping,
-            state.highlighter.borrow_mut().deref_mut(),
-        );
+        // ours: a smaller editor (a tiling window manager giving half the window away, the
+        // assistant pane opening, bigger text) can leave the caret's row outside the view, where
+        // it stayed until a key was typed. cosmic-text scrolls to the caret only once it has
+        // moved, so the caret goes away and back, which leaves the selection as it is.
+        let lay_out = |editor: &mut graphics::text::Editor| {
+            editor.update(
+                limits.shrink(self.padding).max(),
+                self.font.unwrap_or_else(|| renderer.default_font()),
+                self.text_size.unwrap_or_else(|| renderer.default_size()),
+                self.line_height,
+                self.wrapping,
+                state.highlighter.borrow_mut().deref_mut(),
+            );
+        };
+        let caret_was_in_view = caret_in_view(&internal.editor);
+        lay_out(&mut internal.editor);
+        if caret_was_in_view && !caret_in_view(&internal.editor) {
+            let caret = internal.editor.cursor().position;
+            for position in [Position { line: 0, column: 0 }, caret] {
+                internal.editor.move_to(Cursor {
+                    position,
+                    selection: None,
+                });
+            }
+            lay_out(&mut internal.editor);
+        }
 
         // ours: a saved top line is restored once the text has a layout. Scrolling far up
         // makes cosmic-text lay out every line above on its way to the top; from there the
@@ -983,14 +1013,7 @@ where
         if let Some(saved_top) = internal.scroll_to.take() {
             let update = |editor: &mut graphics::text::Editor, lines| {
                 editor.perform(Action::Scroll { lines });
-                editor.update(
-                    limits.shrink(self.padding).max(),
-                    self.font.unwrap_or_else(|| renderer.default_font()),
-                    self.text_size.unwrap_or_else(|| renderer.default_size()),
-                    self.line_height,
-                    self.wrapping,
-                    state.highlighter.borrow_mut().deref_mut(),
-                );
+                lay_out(editor);
             };
             let cursor_line = internal.editor.cursor().position.line;
             for top in [saved_top, cursor_line] {
