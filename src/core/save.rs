@@ -14,8 +14,10 @@ use std::time::{Duration, Instant};
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Writes `bytes` to `path` atomically, creating the parent folder if needed. An existing file
-/// keeps its permissions. A symlink is followed, so the link stays a link and its target gets the
-/// new text.
+/// keeps its permissions, and on Linux and macOS its group and owner where the system lets the
+/// user set them. A symlink is followed, so the link stays a link and its target gets the new
+/// text. What a replaced file doesn't keep: extended attributes, and any other names it has
+/// (hard links), which go on naming the old text.
 pub fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let (path, dir, temp) = save_paths(path)?;
     fs::create_dir_all(&dir)?;
@@ -25,6 +27,16 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
             let mut file = File::create(&temp)?;
             // Before writing, so a private file's text is never readable in the temp file.
             if let Ok(old) = fs::metadata(&path) {
+                // Linux and macOS: the temp file is the user's, in their main group. It is
+                // handed to the old file's group (allowed when the user is in it) and owner
+                // (allowed for root), so a file shared with a group stays shared; where it isn't
+                // allowed, the save goes on without. Windows has no owner and group to keep.
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::{MetadataExt, fchown};
+                    let _ = fchown(&file, None, Some(old.gid()));
+                    let _ = fchown(&file, Some(old.uid()), None);
+                }
                 file.set_permissions(old.permissions())?;
             }
             file.write_all(bytes)?;
@@ -91,9 +103,17 @@ fn save_paths(path: &Path) -> io::Result<(PathBuf, PathBuf, PathBuf)> {
     let name = path
         .file_name()
         .ok_or_else(|| io::Error::other("no file name"))?;
+    // The temp file is named after the file, with at most 200 bytes of its name: a name near
+    // the longest a file system takes (255 bytes) would leave no room for the rest, and the file
+    // could then never be saved.
+    let name = name.to_string_lossy();
+    let mut cut = name.len().min(200);
+    while !name.is_char_boundary(cut) {
+        cut -= 1;
+    }
     let temp = dir.join(format!(
         ".{}.tmp-{}-{}",
-        name.to_string_lossy(),
+        &name[..cut],
         std::process::id(),
         TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
     ));
@@ -295,6 +315,43 @@ mod tests {
             fs::metadata(&path).unwrap().permissions().mode() & 0o777,
             0o600
         );
+    }
+
+    // Windows has no group to keep.
+    #[cfg(unix)]
+    #[test]
+    fn atomic_write_keeps_the_group() {
+        use std::os::unix::fs::{MetadataExt, chown};
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("shared.txt");
+        fs::write(&path, b"x").unwrap();
+        let first = fs::metadata(&path).unwrap().gid();
+        // Give the file to another of the user's groups, or as root to group 1. A user in one
+        // group has no other to give it to, and nothing to check.
+        let mut groups = [1; 65];
+        // SAFETY: getgroups writes at most the 64 ids it is told there is room for.
+        unsafe { libc::getgroups(64, groups[1..].as_mut_ptr()) };
+        let shared = groups
+            .into_iter()
+            .find(|group| *group != first && chown(&path, None, Some(*group)).is_ok());
+        let Some(shared) = shared else {
+            return;
+        };
+        atomic_write(&path, b"y").unwrap();
+        assert_eq!(fs::metadata(&path).unwrap().gid(), shared);
+    }
+
+    #[test]
+    fn a_file_with_the_longest_name_is_saved() {
+        let dir = tempfile::tempdir().unwrap();
+        // 255 bytes, the longest name Linux, macOS and Windows file systems take, in letters of
+        // two bytes each, placed so the 200 bytes the temp file's name keeps end inside one.
+        let path = dir.path().join(format!("e{}.txt", "é".repeat(125)));
+        assert_eq!(path.file_name().unwrap().len(), 255);
+        check_writable(&path).unwrap();
+        atomic_write(&path, b"one").unwrap();
+        atomic_write(&path, b"two").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"two");
     }
 
     #[test]
