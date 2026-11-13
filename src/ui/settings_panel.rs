@@ -15,7 +15,7 @@ use crate::ui::app::{App, Message};
 use crate::ui::assistant_actions::AssistantAction;
 use crate::ui::editor;
 use crate::ui::highlighter::{Highlight, highlight_format};
-use crate::ui::status_bar::{bar, dot, glyph_button, keys, small};
+use crate::ui::status_bar::{bar, dot, glyph_button, hint, keys, small};
 use crate::ui::theme::{self, GLYPH_CLOSE, GLYPH_MENU, Roles, bold, icon_button};
 
 /// The assistant's API key field. The key is saved as it changes, off the UI thread, since the
@@ -418,24 +418,33 @@ fn shortcuts<'a>() -> Element<'a, Message> {
 }
 
 /// The status bar while Settings is open: where the settings are saved, or why they can't be.
+/// The path is a button that opens the file in this window, to edit by hand.
 pub fn status(app: &App) -> Element<'_, Message> {
     let roles = Roles::of(&app.theme);
-    let (dot_color, color, file) = match &app.settings_error {
-        Some(reason) => (roles.accent_warm, roles.accent_warm, reason.clone()),
+    let settings_file = app.paths.settings_file();
+    let (dot_color, file): (_, Element<'_, Message>) = match &app.settings_error {
+        Some(reason) => (
+            roles.accent_warm,
+            small(reason.as_str()).color(roles.accent_warm).into(),
+        ),
         None => (
             roles.accent_aqua,
-            roles.fg_muted,
-            display_path(&app.paths.settings_file()),
+            hint(
+                button(small(display_path(&settings_file)))
+                    .padding(0)
+                    .style(|theme: &Theme, status| button::Style {
+                        background: None,
+                        ..icon_button(theme, status)
+                    })
+                    .on_press(Message::OpenPath(settings_file)),
+                "Open this file here",
+            ),
         ),
     };
     // The menu button keeps its place, unused, so the dot and path sit where the document's do.
-    let left = row![
-        glyph_button(GLYPH_MENU, None),
-        dot(dot_color),
-        small(file).color(color)
-    ]
-    .spacing(16)
-    .align_y(iced::Center);
+    let left = row![glyph_button(GLYPH_MENU, None), dot(dot_color), file]
+        .spacing(16)
+        .align_y(iced::Center);
     bar(container(left).width(Fill).clip(true).into())
 }
 

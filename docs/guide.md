@@ -513,7 +513,8 @@ Changes apply at once and are saved to `settings.toml`, whose path the status ba
 
 The sections are only how the panel groups the settings; `settings.toml` itself doesn't use them.
 
-`settings.toml` can be edited by hand too, and open windows pick up the change within a second. To
+`settings.toml` can be edited by hand too (click its path in the status bar while Settings is open
+to open it in the window), and open windows pick up the change within a second. To
 get a file listing every key, change any setting in the panel once. A missing key takes its default
 and an unknown one is ignored. A value Dovetail can't read takes its default and the status bar
 shows "Settings problem" (hover for which key). Until you fix the file, changes in the panel still
