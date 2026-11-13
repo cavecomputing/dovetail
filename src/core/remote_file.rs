@@ -41,7 +41,8 @@ pub const CHANGED: &str = "Save failed: changed on the host";
 
 /// Answers for the file named on the input's first line: why it can't be read, or whether it
 /// can be saved (`rw`), its checksum and length, and then the file itself. A file longer than
-/// the second line allows is only measured.
+/// the second line allows is only measured (with `wc`, which asks the file's size: a checksum
+/// would read all of a file that may be gigabytes long before saying it is too long).
 const READ: [&str; 3] = [
     r#"
     IFS= read -r f; IFS= read -r max;
@@ -54,8 +55,9 @@ const READ: [&str; 3] = [
     FOLLOW_LINKS,
     r#"
     w=ro; if [ -w "$f" ] && [ -w "$(dirname -- "$f")" ]; then w=rw; fi;
+    set -- $(wc -c < "$f");
+    if [ "$1" -gt "$max" ]; then echo "@re@ big $1"; exit 0; fi;
     set -- $(cksum < "$f");
-    if [ "$2" -gt "$max" ]; then echo "@re@ big $2"; exit 0; fi;
     printf "@re@ file %s %s %s\n" "$w" "$1" "$2"; cat < "$f"
     "#,
 ];
