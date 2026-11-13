@@ -141,6 +141,14 @@ pub struct DiskStamp {
 }
 
 impl DiskStamp {
+    /// The stamp of a file that wasn't there when a window opened on its name. Any file that
+    /// turns up there since is a change on disk, where no stamp at all would let a save
+    /// replace it unseen.
+    pub const MISSING: DiskStamp = DiskStamp {
+        modified: SystemTime::UNIX_EPOCH,
+        length: 0,
+    };
+
     /// The stamp of `path` now, or `None` if it can't be read (for example, it doesn't exist).
     pub fn of(path: &Path) -> Option<DiskStamp> {
         let meta = fs::metadata(path).ok()?;

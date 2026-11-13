@@ -1,7 +1,7 @@
 //! Entry point: reads the command line and decides what this window opens.
 //!
 //! - no arguments: the scratch space
-//! - a path: that text file, created if missing
+//! - a path: that text file (one that doesn't exist yet is created by its first save)
 //! - `--print-brand`: prints the names from `brand.rs`, and the version, for the install scripts,
 //!   then exits
 //! - `--version`: prints the name and version, then exits

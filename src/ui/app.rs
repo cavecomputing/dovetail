@@ -442,6 +442,7 @@ impl App {
             key_field: KeyField::default(),
             connection: None,
         };
+        app.set_notice(opened.notice);
         // Only opening the file sends text that never reached its host, so say it waits.
         let data_dir = &app.paths.data_dir;
         if let Some(unsent) = (remote_file::unsent(data_dir).into_iter())

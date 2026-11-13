@@ -104,8 +104,8 @@ pub struct OpenedDoc {
 }
 
 /// Opens `doc`: claims it so no second window edits it, reads it, and decides whether it can be
-/// edited. A file that doesn't exist yet is created empty, and one that isn't UTF-8 is shown
-/// read-only.
+/// edited. A file that doesn't exist yet opens empty and is created by its first save, so a
+/// mistyped name leaves nothing behind. A file that isn't UTF-8 is shown read-only.
 pub fn open_doc(doc: Doc, paths: &Paths) -> OpenedDoc {
     let mut opened = OpenedDoc {
         doc: doc.clone(),
@@ -164,10 +164,13 @@ pub fn open_doc(doc: Doc, paths: &Paths) -> OpenedDoc {
                     }
                 }
                 Err(error) if error.kind() == ErrorKind::NotFound => {
-                    if atomic_write(&path, b"").is_err() {
-                        opened.read_only_reason = Some(NO_PERMISSION.to_string());
+                    // Its folder can be asked whether a save would work. A folder that isn't
+                    // there either is made by the first save, which says if it can't be.
+                    if path.parent().is_some_and(Path::is_dir) {
+                        opened.read_only_reason = writable_reason(&path);
                     }
-                    opened.disk_stamp = DiskStamp::of(&path);
+                    opened.disk_stamp = Some(DiskStamp::MISSING);
+                    opened.notice = Some(NEW_FILE.to_string());
                 }
                 // Not UTF-8: look, but never save, so the file's bytes can't be overwritten with
                 // replacement characters. A binary file or a non-file can't even be looked at.
@@ -325,6 +328,8 @@ pub fn empty_file(data_dir: &Path, own: &Doc, path: &Path) -> Result<(), String>
     }
 }
 
+/// What the status bar says as a window opens on a name no file has yet.
+pub const NEW_FILE: &str = "New file: it is created once you type";
 pub const OPEN_ELSEWHERE: &str = "That file is open in another window";
 const OPEN_HERE: &str = "That file is open in this window";
 pub const NO_PERMISSION: &str = "Read-only: no permission to save here";
@@ -570,18 +575,48 @@ mod tests {
     }
 
     #[test]
-    fn missing_text_file_is_created_and_remembered() {
+    fn a_missing_file_opens_empty_and_its_first_save_creates_it() {
         let dir = tempfile::tempdir().unwrap();
         let paths = Paths::under(dir.path());
-        let path = dir.path().join("new.txt");
+        // Not even its folder is there, as after a mistyped path.
+        let path = dir.path().join("new folder").join("new.txt");
         let opened = open_doc(file_doc(&path), &paths);
         assert!(opened.read_only_reason.is_none());
-        assert!(path.exists());
-        assert!(opened.disk_stamp.is_some());
+        assert_eq!(opened.notice.as_deref(), Some(NEW_FILE));
+        assert!(!path.parent().unwrap().exists(), "nothing is made yet");
+        // Remembered, to be listed as recent once it exists.
         assert_eq!(
             crate::core::recent::recent_files(&paths.data_dir),
-            vec![path]
+            vec![path.clone()]
         );
+        let save = |text: &str, stamp| {
+            let view = ScratchView::default();
+            write_doc(
+                &opened.doc,
+                text.to_string(),
+                view,
+                &[],
+                &paths.data_dir,
+                stamp,
+            )
+        };
+        let stamp = save("typed", opened.disk_stamp).unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "typed");
+        assert!(save("more", stamp).is_ok());
+        // A file that turned up under the name meanwhile is not saved over.
+        let other = dir.path().join("other.txt");
+        let window = open_doc(file_doc(&other), &paths);
+        fs::write(&other, "theirs").unwrap();
+        let refused = write_doc(
+            &window.doc,
+            "mine".to_string(),
+            ScratchView::default(),
+            &[],
+            &paths.data_dir,
+            window.disk_stamp,
+        );
+        assert!(refused.is_err());
+        assert_eq!(fs::read_to_string(&other).unwrap(), "theirs");
     }
 
     #[test]
