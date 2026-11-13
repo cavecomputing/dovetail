@@ -173,7 +173,16 @@ impl App {
             Doc::Scratch => (self.recent.iter().find(|path| path.is_file()))
                 .and_then(|path| path.parent().map(display_path)),
         };
-        let typed = typed_folder(start.unwrap_or("~/".into()));
+        self.show_picker(typed_folder(start.unwrap_or("~/".into())))
+    }
+
+    /// Opens the picker on `folder`: one the app was launched on, or one dropped on the window.
+    pub fn open_picker_in(&mut self, folder: &Path) -> Task<Message> {
+        self.close_panels();
+        self.show_picker(typed_folder(display_path(folder)))
+    }
+
+    fn show_picker(&mut self, typed: String) -> Task<Message> {
         self.picker = Some(Picker::new(typed));
         let asked = self.ask_for_listing();
         Task::batch([focus(PICKER_ID), move_cursor_to_end(PICKER_ID), asked])
@@ -465,6 +474,24 @@ mod tests {
         let _ = app.open_picker();
         let folder = typed_folder(display_path(dir.path()));
         assert_eq!(picker(&app).typed, folder);
+    }
+
+    #[test]
+    fn a_folder_opens_in_the_picker_not_as_a_document() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("notes.md"), "x").unwrap();
+        // Launched on a folder, the window shows scratch with the picker on that folder.
+        let paths = Paths::under(dir.path());
+        let folder = Some(dir.path().to_path_buf());
+        let (mut app, _) = App::with_paths_in(Doc::Scratch, folder, paths);
+        assert!(matches!(app.doc, Doc::Scratch));
+        assert!(names(&app).contains(&"notes.md".to_string()));
+        // So does a folder dropped on the window, Settings or not.
+        app.picker = None;
+        let _ = app.update(Message::OpenSettings);
+        let _ = app.update(Message::OpenPath(dir.path().to_path_buf()));
+        assert!(matches!(app.doc, Doc::Scratch) && !app.settings_open);
+        assert_eq!(picker(&app).typed, typed_folder(display_path(dir.path())));
     }
 
     #[test]

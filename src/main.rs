@@ -2,6 +2,7 @@
 //!
 //! - no arguments: the scratch space
 //! - a path: that text file (one that doesn't exist yet is created by its first save)
+//! - a folder: the scratch space, with the Ctrl+O picker open on that folder
 //! - `--print-brand`: prints the names from `brand.rs`, and the version, for the install scripts,
 //!   then exits
 //! - `--version`: prints the name and version, then exits
@@ -27,6 +28,7 @@ fn main() -> iced::Result {
         // Finder may start a macOS app with a -psn_... process number, which isn't a file.
         .filter(|arg| !(cfg!(target_os = "macos") && arg.to_string_lossy().starts_with("-psn_")))
         .map(PathBuf::from);
+    let mut folder = None;
     let doc = match argument {
         Some(flag) if flag == Path::new("--print-brand") => {
             print_brand();
@@ -43,6 +45,7 @@ fn main() -> iced::Result {
             println!();
             println!("  {bin}              open the scratch space");
             println!("  {bin} FILE         open a text file (a new name is a new file)");
+            println!("  {bin} FOLDER       choose a file in that folder");
             println!("  {bin} HOST:PATH    open a file on an SSH host, named as in the SSH config");
             println!("  {bin} --version    print the version");
             println!("  {bin} --help       print this");
@@ -52,6 +55,11 @@ fn main() -> iced::Result {
         // (`./a:b` names one that isn't there yet).
         Some(path) if !path.exists() && matches!(Doc::recent(&path), Doc::Remote { .. }) => {
             Doc::recent(&path)
+        }
+        // A folder: scratch, with the Ctrl+O picker open on the folder.
+        Some(path) if path.is_dir() => {
+            folder = Some(std::path::absolute(&path).unwrap_or(path));
+            Doc::Scratch
         }
         // An absolute path, so a window opened from here still finds it.
         Some(path) => Doc::file(std::path::absolute(&path).unwrap_or(path)),
@@ -65,7 +73,7 @@ fn main() -> iced::Result {
         let _ = std::env::set_current_dir(base.home_dir());
     }
     core::shutdown::write_unsaved_at_end();
-    let ran = ui::app::run(doc);
+    let ran = ui::app::run(doc, folder);
     // The window can end without closing, as when the display server goes away under it.
     core::shutdown::write_unsaved();
     ran

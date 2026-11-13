@@ -301,9 +301,11 @@ pub enum Message {
     },
 }
 
-/// Runs the app on `doc` until its window closes.
-pub fn run(doc: Doc) -> iced::Result {
-    iced::daemon(move || App::new(doc.clone()), App::update, App::view)
+/// Runs the app on `doc` until its window closes, with the Ctrl+O picker open on `folder` if
+/// it was launched on one.
+pub fn run(doc: Doc, folder: Option<PathBuf>) -> iced::Result {
+    let new = move || App::with_paths_in(doc.clone(), folder.clone(), Paths::detect());
+    iced::daemon(new, App::update, App::view)
         .title(App::title)
         .theme(App::theme)
         .subscription(App::subscription)
@@ -371,11 +373,14 @@ const NOTICE_TIME: Duration = Duration::from_secs(6);
 const APP_ICON_RGBA: &[u8] = include_bytes!("../../assets/icon/icon-64.rgba");
 
 impl App {
-    fn new(doc: Doc) -> (App, Task<Message>) {
-        App::with_paths(doc, Paths::detect())
+    /// The app on `doc`, with the Ctrl+O picker open on `folder` if there is one.
+    pub fn with_paths_in(doc: Doc, folder: Option<PathBuf>, paths: Paths) -> (App, Task<Message>) {
+        let (mut app, tasks) = App::with_paths(doc, paths);
+        let picker = folder.map_or_else(Task::none, |folder| app.open_picker_in(&folder));
+        (app, Task::batch([tasks, picker]))
     }
 
-    /// `new` with its folders given, for tests.
+    /// The app on `doc`, with its config and data folders given (tests give their own).
     pub fn with_paths(doc: Doc, paths: Paths) -> (App, Task<Message>) {
         let (settings, settings_error) = Settings::load(&paths.settings_file());
         // A file on a host has to be fetched: the window starts on scratch and asks for it.
@@ -786,7 +791,14 @@ impl App {
             Message::WindowOpened => {
                 #[cfg(target_os = "macos")]
                 window_controls::quit_closes_window();
-                let focus = iced::widget::operation::focus(editor::EDITOR_ID);
+                // Launched on a folder, the picker is open over the text and has the keyboard.
+                let focus = match self.picker {
+                    Some(_) => Task::batch([
+                        iced::widget::operation::focus(picker::PICKER_ID),
+                        iced::widget::operation::move_cursor_to_end(picker::PICKER_ID),
+                    ]),
+                    None => iced::widget::operation::focus(editor::EDITOR_ID),
+                };
                 // Under Wayland, files dropped on the window come through the clipboard crate.
                 // Elsewhere winit hears them (`shortcut`).
                 #[cfg(all(unix, not(target_os = "macos")))]
@@ -887,6 +899,10 @@ impl App {
             Message::OpenPath(path) => {
                 // A file dropped on Settings opens behind it, so Settings closes to show it.
                 self.settings_open = false;
+                // A folder is no document: the picker opens on it, to choose a file from.
+                if path.is_dir() {
+                    return self.open_picker_in(&path);
+                }
                 return self.open_file(path);
             }
             Message::OpenSettings => {
