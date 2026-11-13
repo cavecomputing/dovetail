@@ -45,6 +45,8 @@ pub const ORIGINAL_ID: &str = "original";
 const IN_A_SUGGESTION: &str = "Accept or reject the suggestion there first";
 /// Why Ctrl+D was refused.
 const REVIEWING: &str = "Accept or reject the suggestions first";
+/// The most changes `Pane::replay` copies into the widget one at a time; more go in as one.
+const COPIED_ONE_BY_ONE: usize = 16;
 pub const LINE_HEIGHT: f32 = 1.5;
 /// Text starts near the top left, like any text editor, with just enough room to breathe.
 pub const PADDING: Padding = Padding {
@@ -1263,10 +1265,24 @@ impl Pane {
             self.show_review();
             return !changes.is_empty();
         }
-        let mut text = self.content.text();
-        for change in changes {
-            self.copy_change(&text, change);
-            text.replace_range(change.removed_range(), &change.inserted);
+        match changes {
+            // Many changes (Tab on a long selection, Replace all) reach the widget as a new text,
+            // scrolled to where the old one was. Copied one at a time, each has the widget find
+            // its place from the top of the text, and one big paste is no quicker (see
+            // `Content::with_text`): a few thousand took seconds either way.
+            [.., last] if changes.len() > COPIED_ONE_BY_ONE => {
+                let top = self.content.scroll_line();
+                self.content = Content::with_text(self.model.text());
+                self.content.scroll_to_line(top);
+                self.put_caret(last.at + last.inserted.len());
+            }
+            _ => {
+                let mut text = self.content.text();
+                for change in changes {
+                    self.copy_change(&text, change);
+                    text.replace_range(change.removed_range(), &change.inserted);
+                }
+            }
         }
         debug_assert_eq!(self.model.text(), self.content.text());
         !changes.is_empty()
@@ -2450,6 +2466,30 @@ mod tests {
             Err(IN_A_SUGGESTION.to_string())
         );
         assert_eq!(pane.model.text(), "cat and cat and cat");
+    }
+
+    #[test]
+    fn many_changes_reach_the_widget_as_a_new_text_and_undo_the_same_way() {
+        // More lines than are copied one at a time, the last without a newline.
+        let text = "one line\n".repeat(COPIED_ONE_BY_ONE * 3) + "one line";
+        let mut pane = Pane::new(&text);
+        pane.perform(Action::SelectAll).unwrap();
+        assert_eq!(pane.indent(4, false), Ok(true));
+        let indented = text.replace("one", "    one");
+        assert_eq!(pane.content.text(), indented);
+        assert_eq!(pane.selection(), Some(0..indented.len()));
+        let lines = find_all(&indented, "line", true, false);
+        assert_eq!(pane.replace_all(&lines, "row"), Ok(true));
+        assert_eq!(pane.content.text(), indented.replace("line", "row"));
+        // The caret is left after the last change made, as when they go in one at a time.
+        assert_eq!(pane.caret(), lines[0].start + "row".len());
+        assert!(pane.undo());
+        assert!(pane.undo());
+        assert_eq!(pane.content.text(), text);
+        assert!(pane.redo());
+        pane.perform(Action::SelectAll).unwrap();
+        assert_eq!(pane.unindent(4, false), Ok(true));
+        assert_eq!(pane.content.text(), text);
     }
 
     #[test]

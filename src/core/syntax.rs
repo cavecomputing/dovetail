@@ -9,7 +9,7 @@ use crate::core::config::{ini_problem, toml_problem, yaml_problem};
 use crate::core::json::json_problem;
 use crate::core::shell::{is_shell_script, shell_problem};
 use crate::core::ssh::{is_ssh_config, ssh_problem};
-use crate::core::text_model::offset;
+use crate::core::text_model::line_starts;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Syntax {
@@ -114,9 +114,9 @@ pub fn toggle_comments(
     marker: &str,
 ) -> Vec<(Range<usize>, String)> {
     // Each non-blank line as (where it starts, its indent, the rest).
-    let lines: Vec<(usize, usize, &str)> = lines
-        .map(|line| {
-            let start = offset(text, line, 0);
+    let lines: Vec<(usize, usize, &str)> = line_starts(text, lines)
+        .into_iter()
+        .map(|start| {
             let content = text[start..].split('\n').next().unwrap_or_default();
             let rest = content.trim_start_matches(' ');
             (start, content.len() - rest.len(), rest)

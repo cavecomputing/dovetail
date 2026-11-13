@@ -231,32 +231,33 @@ impl TextModel {
 
     /// Applies each edit, from the last back, and returns the changes in that order.
     fn apply_each(&mut self, edits: &[(Range<usize>, &str)]) -> Vec<Change> {
-        let mut changes = Vec::new();
-        for (range, text) in edits.iter().rev() {
-            let change = Change {
+        let changes: Vec<Change> = edits
+            .iter()
+            .rev()
+            .map(|(range, text)| Change {
                 at: range.start,
                 removed: self.text[range.clone()].to_string(),
                 inserted: text.to_string(),
-            };
-            self.apply(&change);
-            changes.push(change);
-        }
+            })
+            .collect();
+        self.apply(&changes);
         changes
     }
 
     /// Tab over several lines: puts `tab_spaces` spaces at the start of each of `lines`, as one
     /// undo step. Returns one change per line, top line first.
     pub fn indent(&mut self, lines: RangeInclusive<usize>, tab_spaces: usize) -> Vec<Change> {
-        let mut changes = Vec::new();
-        for line in lines {
-            let change = Change {
-                at: offset(&self.text, line, 0),
+        // Each line's start moves down by the spaces the lines above it were given.
+        let changes: Vec<Change> = line_starts(&self.text, lines)
+            .into_iter()
+            .enumerate()
+            .map(|(above, start)| Change {
+                at: start + above * tab_spaces,
                 removed: String::new(),
                 inserted: " ".repeat(tab_spaces),
-            };
-            self.apply(&change);
-            changes.push(change);
-        }
+            })
+            .collect();
+        self.apply(&changes);
         self.redo.clear();
         self.push_step(changes.clone(), false, Instant::now());
         changes
@@ -266,23 +267,24 @@ impl TextModel {
     /// step. Returns one change per line that had any, top line first.
     pub fn unindent(&mut self, lines: RangeInclusive<usize>, tab_spaces: usize) -> Vec<Change> {
         let mut changes = Vec::new();
-        for line in lines {
-            let at = offset(&self.text, line, 0);
-            let spaces = self.text[at..]
+        // The spaces taken off the lines above, which each line's start moves up by.
+        let mut taken = 0;
+        for start in line_starts(&self.text, lines) {
+            let spaces = self.text[start..]
                 .bytes()
                 .take(tab_spaces)
                 .take_while(|byte| *byte == b' ')
                 .count();
             if spaces > 0 {
-                let change = Change {
-                    at,
+                changes.push(Change {
+                    at: start - taken,
                     removed: " ".repeat(spaces),
                     inserted: String::new(),
-                };
-                self.apply(&change);
-                changes.push(change);
+                });
+                taken += spaces;
             }
         }
+        self.apply(&changes);
         if !changes.is_empty() {
             self.redo.clear();
             self.push_step(changes.clone(), false, Instant::now());
@@ -339,9 +341,7 @@ impl TextModel {
             return Vec::new();
         };
         let changes: Vec<Change> = step.changes.iter().rev().map(Change::inverse).collect();
-        for change in &changes {
-            self.apply(change);
-        }
+        self.apply(&changes);
         step.typing = false;
         self.redo.push(step);
         if let Some(last) = self.undo.last_mut() {
@@ -355,17 +355,38 @@ impl TextModel {
         let Some(step) = self.redo.pop() else {
             return Vec::new();
         };
-        for change in &step.changes {
-            self.apply(change);
-        }
+        self.apply(&step.changes);
         let changes = step.changes.clone();
         self.undo.push(step);
         changes
     }
 
-    fn apply(&mut self, change: &Change) {
-        self.text
-            .replace_range(change.removed_range(), &change.inserted);
+    /// Makes `changes` to the text, in order. Several are made with the text split in two
+    /// where the last one was (a gap buffer), so each moves only the text between it and the one
+    /// before: Tab on ten thousand lines moved the whole text once for each line, which took
+    /// seconds.
+    fn apply(&mut self, changes: &[Change]) {
+        if let [change] = changes {
+            self.text
+                .replace_range(change.removed_range(), &change.inserted);
+            return;
+        }
+        // The text before the split, and the text after it back to front.
+        let mut before = std::mem::take(&mut self.text).into_bytes();
+        let mut after: Vec<u8> = Vec::new();
+        for change in changes {
+            if change.at < before.len() {
+                after.extend(before.drain(change.at..).rev());
+            } else {
+                let moved = after.len() - (change.at - before.len());
+                before.extend(after.drain(moved..).rev());
+            }
+            let kept = after.len().checked_sub(change.removed.len());
+            after.truncate(kept.expect("a change removes text that is there"));
+            before.extend_from_slice(change.inserted.as_bytes());
+        }
+        before.extend(after.into_iter().rev());
+        self.text = String::from_utf8(before).expect("a change replaces whole characters");
     }
 
     fn push_step(&mut self, changes: Vec<Change>, typing: bool, at: Instant) {
@@ -403,6 +424,23 @@ pub fn cap_history(mut history: Vec<Vec<Change>>) -> Vec<Vec<Change>> {
 pub fn offset(text: &str, line: usize, column: usize) -> usize {
     let line_start: usize = text.split('\n').take(line).map(|l| l.len() + 1).sum();
     (line_start + column).min(text.len())
+}
+
+/// Where each of `lines` starts in `text`, found in one pass over it. Lines past its end have
+/// none.
+pub fn line_starts(text: &str, lines: RangeInclusive<usize>) -> Vec<usize> {
+    let mut start = 0;
+    let mut starts = Vec::new();
+    for (index, line) in text.split('\n').enumerate() {
+        if index > *lines.end() {
+            break;
+        }
+        if lines.contains(&index) {
+            starts.push(start);
+        }
+        start += line.len() + 1;
+    }
+    starts
 }
 
 /// Bytes from the start of the first of `lines` to the end of the last, without its newline.
@@ -777,6 +815,20 @@ mod tests {
         assert_eq!(changes[1].at, 6, "after the indent on line 0");
         model.undo();
         assert_eq!(model.text(), "a\n  b\n\nc");
+    }
+
+    #[test]
+    fn changes_down_and_back_up_the_text_are_made_in_order() {
+        // An indent's changes go down the text and the ones amended to it back up, and undo
+        // takes them all back the other way.
+        let mut model = TextModel::new("é one\nü two\nö three".to_string());
+        model.indent(0..=2, 2);
+        model.amend(&[(2..4, "É"), (11..13, "Ü")]);
+        assert_eq!(model.text(), "  É one\n  Ü two\n  ö three");
+        model.undo();
+        assert_eq!(model.text(), "é one\nü two\nö three");
+        model.redo();
+        assert_eq!(model.text(), "  É one\n  Ü two\n  ö three");
     }
 
     #[test]
