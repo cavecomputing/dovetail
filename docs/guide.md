@@ -142,8 +142,7 @@ start of the box (`web1:`) is a folder on that host instead: see
 [Files over SSH](#files-over-ssh).
 
 **The status bar**, left to right: the ☰ menu (New file, Open, Open recent, Save as (in scratch, Save to a file and Save selection as), Undo,
-Redo, Find, Replace, Go to line, Line numbers, Word wrap, Settings, Scratch, then the six most recent files; Ctrl+P has
-the rest), the save dot, any problem
+Redo, Find, Replace, Go to line, Line numbers, Word wrap, Settings, Scratch; Ctrl+P and Open recent list the recent files), the save dot, any problem
 in orange (a failed save, a file that isn't valid JSON, say), and the file's path (or Scratch); on
 the right, words and tokens (of the selection while some text is selected: `12 of 44 words`), the line and column if switched on, then the assistant button. The token count is an estimate, one token for every four bytes of the text (hover to
 see that), which is within about a tenth of what OpenAI's, Claude's and Gemini's tokenizers count on prose and code.

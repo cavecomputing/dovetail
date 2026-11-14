@@ -453,28 +453,8 @@ pub fn menu(app: &App) -> Element<'_, Message> {
         ))
         .push(menu_item("settings", "Ctrl+,", Message::OpenSettings))
         .push(menu_item("scratch", "Ctrl+0", Message::OpenScratch));
-    // The recent files come last, so the commands above stay put however many there are.
-    let current = app.doc.name();
-    let recent: Vec<_> = app
-        .recent
-        .iter()
-        .filter(|path| Some(*path) != current.as_ref())
-        .take(MENU_RECENT)
-        .collect();
-    let mut files = column![menu_heading(match recent.is_empty() {
-        true => "# recent: nothing yet",
-        false => "# recent",
-    })];
-    for path in recent {
-        files = files.push(menu_item(
-            file_name(path),
-            "",
-            Message::OpenPath(path.clone()),
-        ));
-    }
-
-    // Drawn like the Ctrl+P switcher: plain rows in the assistant pane's type, `#` for a heading.
-    let items = column![items, files].spacing(SIZE * LINE * 0.5).width(300);
+    // Drawn like the Ctrl+P switcher: plain rows in the assistant pane's type.
+    let items = items.width(300);
     let panel = container(items).padding([8, 0]).style(raised_box);
     iced::widget::stack![
         mouse_area(space().width(Fill).height(Fill)).on_press(Message::CloseMenu),
@@ -489,9 +469,6 @@ pub fn menu(app: &App) -> Element<'_, Message> {
     ]
     .into()
 }
-
-/// The most recent files the menu lists; Ctrl+P has the rest.
-const MENU_RECENT: usize = 6;
 
 /// A menu row: its label, and its shortcut dimmed on the right.
 fn menu_item<'a>(
@@ -512,10 +489,6 @@ fn menu_item<'a>(
     .style(|theme, status| row_style(theme, status, false))
     .on_press(message)
     .into()
-}
-
-fn menu_heading<'a>(label: &'a str) -> Element<'a, Message> {
-    container(line(label, subtle)).padding([0, 12]).into()
 }
 
 /// The file name for the window title.
