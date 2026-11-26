@@ -90,6 +90,8 @@ where
     line_numbers: bool,
     // ours: draw the caret (off for text that can't be edited).
     caret: bool,
+    // ours: what a right click produces, given where in the window it landed.
+    on_right_click: Option<Box<dyn Fn(Point) -> Message + 'a>>,
 }
 
 /// ours: one painted range, in the editor's own positions (the column is a byte index).
@@ -144,6 +146,7 @@ where
             paint: Vec::new(),
             line_numbers: false,
             caret: true,
+            on_right_click: None,
         }
     }
 
@@ -261,6 +264,7 @@ where
             paint: self.paint,
             line_numbers: self.line_numbers,
             caret: self.caret,
+            on_right_click: self.on_right_click,
         }
     }
 
@@ -281,6 +285,13 @@ where
     /// edited, so nothing suggests typing there.
     pub fn caret(mut self, shown: bool) -> Self {
         self.caret = shown;
+        self
+    }
+
+    /// ours: the message a right click makes, given the pointer's place in the window. The caret
+    /// goes to the click first, unless some text is selected (the menu may act on it).
+    pub fn on_right_click(mut self, on_right_click: impl Fn(Point) -> Message + 'a) -> Self {
+        self.on_right_click = Some(Box::new(on_right_click));
         self
     }
 
@@ -1178,6 +1189,26 @@ where
                 }
                 _ => state.edge_drag = None,
             }
+        }
+
+        // ours: a right click gives the app a place for its menu.
+        if let Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)) = event
+            && let Some(on_right_click) = &self.on_right_click
+            && let Some(inside) = cursor.position_in(layout.bounds())
+            && let Some(window_point) = cursor.position()
+        {
+            state.focus = Some(Focus::now());
+            if self.content.selection().is_none() {
+                let scrolled = Vector::new(
+                    horizontal_scroll(&self.content.0.borrow().editor, self.wrapping),
+                    0.0,
+                );
+                let at = inside - Vector::new(self.padding.left, self.padding.top) + scrolled;
+                shell.publish(on_edit(Action::Click(at)));
+            }
+            shell.publish(on_right_click(window_point));
+            shell.capture_event();
+            return;
         }
 
         if let Some(update) = Update::from_event(

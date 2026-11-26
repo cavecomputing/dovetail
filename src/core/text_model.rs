@@ -350,6 +350,15 @@ impl TextModel {
         changes
     }
 
+    /// Whether there is a step to undo, and one to redo.
+    pub fn can_undo(&self) -> bool {
+        !self.undo.is_empty()
+    }
+
+    pub fn can_redo(&self) -> bool {
+        !self.redo.is_empty()
+    }
+
     /// Redoes the last undone step; returns the changes to replay, like `undo`.
     pub fn redo(&mut self) -> Vec<Change> {
         let Some(step) = self.redo.pop() else {

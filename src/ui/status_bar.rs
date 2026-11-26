@@ -470,11 +470,12 @@ pub fn menu(app: &App) -> Element<'_, Message> {
     .into()
 }
 
-/// A menu row: its label, and its shortcut dimmed on the right.
-fn menu_item<'a>(
+/// A menu row: its label, and its shortcut dimmed on the right. Without a message the row is
+/// greyed out and does nothing.
+pub fn menu_item<'a>(
     label: impl Into<String>,
     shortcut: &str,
-    message: Message,
+    message: impl Into<Option<Message>>,
 ) -> Element<'a, Message> {
     let label = text(label.into())
         .size(SIZE)
@@ -487,7 +488,7 @@ fn menu_item<'a>(
     .width(Fill)
     .padding([0, 12])
     .style(|theme, status| row_style(theme, status, false))
-    .on_press(message)
+    .on_press_maybe(message.into())
     .into()
 }
 

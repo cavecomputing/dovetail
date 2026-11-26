@@ -103,6 +103,7 @@ pub fn view<'a>(
         .height(Fill)
         .style(move |theme, _status| style(theme, editable))
         .on_action(Message::Edit)
+        .on_right_click(Message::ContextMenu)
         .paint(paint)
         .highlight_with::<MarkupHighlighter>(
             colouring,

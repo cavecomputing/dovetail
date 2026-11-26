@@ -23,7 +23,7 @@ pub struct Palette {
 }
 
 /// The tools for a file of this syntax, as (name, what it runs).
-fn tools(syntax: Syntax) -> Vec<(&'static str, Message)> {
+pub fn tools(syntax: Syntax) -> Vec<(&'static str, Message)> {
     match syntax {
         Syntax::Json => vec![
             ("Format JSON", Message::ReformatJson { minify: false }),

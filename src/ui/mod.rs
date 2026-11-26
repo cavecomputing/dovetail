@@ -3,6 +3,7 @@
 pub mod app;
 pub mod assistant_actions;
 pub mod assistant_view;
+pub mod context_menu;
 pub mod editor;
 pub mod file_actions;
 pub mod find_bar;

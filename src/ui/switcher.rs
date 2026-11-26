@@ -287,6 +287,8 @@ pub fn row_style(theme: &Theme, status: button::Status, selected: bool) -> butto
         background: (selected || hovered).then_some(Background::Color(roles.bg_inset)),
         text_color: if selected {
             roles.accent_text
+        } else if status == button::Status::Disabled {
+            roles.fg_subtle
         } else {
             roles.fg
         },

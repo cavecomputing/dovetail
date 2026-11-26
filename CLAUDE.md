@@ -320,6 +320,9 @@ src/
                          (`alias:path`) is a folder on an SSH host, asked for off the UI thread
     palette.rs           the Ctrl+Shift+P command palette: the open file's tools (Format JSON,
                          New Host block...)
+    context_menu.rs      the right-click menu in the editor: cut, copy, paste, select all, undo,
+                         redo and the tools that suit the file and selection, greyed out or left
+                         out when they don't apply
     find_bar.rs          the Ctrl+F find bar: its matches, stepping through them, how they're lit
     rewrite_actions.rs   App's handlers for a rewrite (Ctrl+R): the read-only original beside the
                          draft, Ctrl+S writing the draft over it, ending and resuming

@@ -2,6 +2,7 @@
 //! One process shows one document in one window; Settings opens over it.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
 use iced::widget::{column, container, responsive, row, space, stack};
@@ -40,7 +41,7 @@ use crate::ui::text_editor::{Action, Cursor, Edit, Motion, PaintLook, PaintRun, 
 use crate::ui::theme::{self, Roles};
 #[cfg(all(unix, not(target_os = "macos")))]
 use crate::ui::wayland_drop;
-use crate::ui::{assistant_view, editor, key_guard, status_bar, window_controls};
+use crate::ui::{assistant_view, context_menu, editor, key_guard, status_bar, window_controls};
 
 pub struct App {
     pub paths: Paths,
@@ -128,6 +129,8 @@ pub struct App {
     /// The recent files, for the menu.
     pub recent: Vec<PathBuf>,
     pub menu_open: bool,
+    /// The right-click menu, and the place in the window it opened at.
+    pub context_menu: Option<iced::Point>,
     /// The Ctrl+F find bar.
     pub find: Find,
     /// The modifier keys held now, for the Replace box's Ctrl+Enter.
@@ -191,6 +194,12 @@ pub enum Message {
     ToggleTasks,
     Undo,
     Redo,
+    /// A right click in the editor, at this place in the window: opens the context menu there.
+    ContextMenu(iced::Point),
+    /// A context menu row's message: runs it, closes the menu and returns to the text.
+    Context(Box<Message>),
+    /// The context menu's Paste: the clipboard's text goes in at the caret.
+    Paste,
     /// Ctrl+R and the pen button: start a rewrite, or pause the one under way.
     ToggleRewrite,
     /// Ctrl+Shift+R: the rewrite's draft back to the file as last saved.
@@ -441,6 +450,7 @@ impl App {
             leave_unsent: false,
             saving_as: None,
             menu_open: false,
+            context_menu: None,
             find: Find::default(),
             modifiers: keyboard::Modifiers::default(),
             assistant: Assistant::default(),
@@ -843,6 +853,20 @@ impl App {
                 self.menu_open = open;
                 self.recent = existing_recent_files(&self.paths.data_dir);
             }
+            Message::ContextMenu(at) => {
+                self.close_panels();
+                self.context_menu = Some(at);
+            }
+            Message::Context(message) => {
+                self.context_menu = None;
+                let focus = iced::widget::operation::focus(editor::EDITOR_ID);
+                return Task::batch([self.update(*message), focus]);
+            }
+            Message::Paste => {
+                return iced::clipboard::read().and_then(|text| {
+                    Task::done(Message::Edit(Action::Edit(Edit::Paste(Arc::new(text)))))
+                });
+            }
             // Esc, or a click outside: closes the menu, the picker, the switcher, the palette and
             // Settings. With none of them open, Esc closes the find bar.
             Message::CloseMenu => {
@@ -1241,10 +1265,12 @@ impl App {
     /// another under it taking ↑ and ↓. True if any was open.
     pub fn close_panels(&mut self) -> bool {
         let open = self.menu_open
+            || self.context_menu.is_some()
             || self.picker.is_some()
             || self.switcher.is_some()
             || self.palette.is_some();
         self.menu_open = false;
+        self.context_menu = None;
         self.picker = None;
         self.switcher = None;
         self.palette = None;
@@ -1375,6 +1401,7 @@ impl App {
         // Each overlay has its own layer over the page.
         let layers = [
             self.menu_open.then(|| status_bar::menu(self)),
+            self.context_menu.map(|at| context_menu::view(self, at)),
             self.switcher.as_ref().map(switcher::view),
             self.picker.as_ref().map(picker::view),
             (self.palette.as_ref()).map(|open| palette::view(open, self.syntax())),
@@ -1438,6 +1465,8 @@ impl App {
         )
         .map(|message| match message {
             Message::Edit(action) => Message::Original(action),
+            // The menu is for the draft: a right click on the original does nothing.
+            Message::ContextMenu(_) => Message::Original(Action::Scroll { lines: 0 }),
             other => other,
         });
         row![

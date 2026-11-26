@@ -238,7 +238,7 @@ Shortcuts are written with Ctrl; on macOS use ⌘ (the app's menu and hints show
 | Ctrl+L | Open or close the assistant pane |
 | Ctrl+Shift+L | Line numbers on or off. This is the Line numbers setting, so every window follows and it is remembered |
 | Ctrl+Shift+E | Word wrap on or off (also in the ☰ menu). This is the Word wrap setting, so every window follows and it is remembered |
-| Esc | Close the menu, the switcher, the command palette or Settings, or else the go to line box, the find bar, or Ctrl+D's extra selections, and put the keyboard back in the text (from the assistant's box, say) |
+| Esc | Close the menu, the right-click menu, the switcher, the command palette or Settings, or else the go to line box, the find bar, or Ctrl+D's extra selections, and put the keyboard back in the text (from the assistant's box, say) |
 | Tab | Insert spaces at the cursor, never a tab character (text selected within one line is replaced); with several lines selected, indent each. In an SSH config, at the end of a line's first word, finish the keyword instead. In a Markdown file, on a list item it indents the whole line instead, nesting the item; a numbered item starts its new level at 1 (or counts on from the item above it there) and the items after it close up |
 | Shift+Tab | Unindent the line, or each selected line. In a Markdown file a numbered item that moves out takes the next number of the level it returns to, and the items after it are numbered again |
 | Enter | New line, indented like the line the cursor is on (as far as the cursor). On a line of only spaces, the spaces move down too, so the line left behind is empty. In a Markdown file, on a list item or quote it starts the next one: the same bullet, the next number (the numbers below it close up), an empty `[ ]` task box, the same `>`. On an empty item it ends the list instead: an indented item moves out a level, any other loses its marker. At the end of a ```` ``` ```` (or `~~~`) line that opens a code block nothing closes yet, it puts the closing fence in below, with the cursor on the line between. In fenced code it's a plain new line. In a shell script or JSON file it knows about blocks (see below) |
@@ -302,7 +302,12 @@ F3's next and previous match), ⌘M (minimise) and ⌘Q (closes the window, wait
   save one, suggesting a name from the first words (ending in `.md` while scratch follows
   Markdown, so the file keeps its colours, or `.txt`): the window becomes that file and scratch is
   emptied. The next scratch window opens empty, and Ctrl+Z there brings the text back.
-- **Save selection as** (Ctrl+Shift+S in scratch, or the menu) saves only the selected text to a
+- **Right-click** in the text opens a menu of cut, copy, paste, select all, undo, redo, find,
+  duplicate and delete lines, and what suits the file: comment lines in a script or config file,
+  bold and italic in Markdown, Format JSON, New Host block, and save selection as in scratch. A
+  row that doesn't apply yet (cut with nothing selected, undo with nothing to undo) is greyed out.
+  With some text selected the right click leaves it selected; otherwise it puts the caret there.
+- **Save selection as** (Ctrl+Shift+S in scratch, the right-click menu, or the menu) saves only the selected text to a
   new file, for notes that have turned into their own thing. It suggests a name from the
   selection's first words, writes the file, takes that text out of scratch (the rest stays), and
   opens the new file in the window, as Ctrl+O would. Ctrl+0 goes back to scratch, where Ctrl+Z
